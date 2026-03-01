@@ -1,91 +1,148 @@
 # 文献阅读助手
 [English](README_EN.md) | 简体中文
 
-一个基于人工智能的文献阅读辅助工具，帮助研究人员和学生更高效地阅读、理解和分析学术文献。
+一个基于 Streamlit + LangChain 的 AI 文献阅读平台，面向科研阅读与写作场景，支持文献提取、总结、问答、改写与思维导图。
 
-## ✨ 主要特性
+## 功能总览
 
-- 🔐 完整的用户系统（登录/注册）
-- 📁 文件管理中心
-- 📑 智能文献分析
-  - 自动提取关键原文和标注
-  - 生成文献总结
-  - 智能降重和文段优化
-  - 交互式论文问答
-- 🗺️ 可视化思维导图
-  - 基于 st_pyecharts 和 pyecharts.charts.Tree 实现
-  - 直观展示文献结构和关键概念
+- 用户与文件管理：本地用户、文档上传、文档中心
+- 文献分析：
+  - 原文提取与关键信息分类
+  - 论文总结
+  - 文段优化/降重/翻译
+  - 论文问答（支持多种 Agent 工作流）
+- 可视化：思维导图（pyecharts Tree）
 
-## 🚀 快速开始
+## Agent 工作流（论文问答页）
 
-### 环境要求
-- Python 3.9+ (langchain 0.3.7+ 需要 Python 3.9+)
-- [uv](https://github.com/astral-sh/uv) (推荐的包管理器，速度更快)
+主入口 `main.py`（Agent 中心）提供三种模式：
 
-### 安装 uv
+1. `ReAct（Tool+Memory）`
+2. `Plan-Act（A2A协调）`
+3. `Plan-Act-RePlan（A2A协调）`
 
-```bash
-# Linux/MacOS
-curl -LsSf https://astral.sh/uv/install.sh | sh
+说明：
+- `A2A` 协调包含 Planner / Researcher / Reviewer 角色。
+- 代码中保留了 ACP 兼容命名，但主流程按 A2A 思路实现。
 
-# Windows
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+## 项目结构
 
-# 或使用 pip
-pip install uv
+```text
+.
+├── main.py
+├── pages/
+│   ├── 1_📁_文件中心.py
+│   └── 2_⚙️_设置中心.py
+├── agent/
+│   ├── paper_agent.py          # ReAct 单 Agent 会话工厂
+│   ├── multi_agent_a2a.py      # A2A/ACP 多 Agent 协调
+│   ├── capabilities.py         # 工具定义（search_document/search_web/use_skill）
+│   ├── local_rag.py            # 本地向量检索
+│   └── ...
+├── utils/
+│   └── ...                     # 通用数据库/任务/页面工具
+├── tests/
+│   ├── unit/
+│   └── integration/
+├── pyproject.toml
+└── docker-compose.yml
 ```
 
-### 安装步骤
+## 环境要求
 
-1. **克隆仓库**      
+- Python `>=3.10`
+- [uv](https://github.com/astral-sh/uv)（推荐）
+
+## 快速开始
+
+1. 克隆仓库
+
 ```bash
 git clone <仓库地址>
-cd <项目目录>   
+cd <项目目录>
 ```
 
-2. **使用 uv 安装依赖**      
+2. 安装依赖
+
 ```bash
-# uv 会自动创建虚拟环境并安装依赖
-# 使用 --no-install-project 只安装依赖，不安装项目本身（因为这是应用而非库）
 uv sync --no-install-project
 ```
 
-3. **激活虚拟环境（可选）**      
-```bash
-# Linux/MacOS
-source .venv/bin/activate
-
-# Windows
-.venv\Scripts\activate
-```
-
-4. **运行项目**      
-```bash
-streamlit run 文件中心.py   
-```
-
-> 💡 **提示**：项目已配置禁用 Streamlit 使用统计收集，启动时不会要求输入邮箱。
-
-5. **访问应用**
-打开浏览器访问 `http://localhost:8501`
-
-### 其他 uv 命令
+3. 启动应用
 
 ```bash
-# 添加新依赖
-uv add <package-name>
-
-# 移除依赖
-uv remove <package-name>
-
-# 更新所有依赖
-uv sync --upgrade
-
-# 查看依赖树
-uv tree
+streamlit run main.py
 ```
 
-## 📸 功能展示
+4. 打开浏览器
+
+访问 `http://localhost:8501`
+
+## 配置说明
+
+在侧边栏 `设置` 中配置：
+
+- `API Key`
+- `模型名称`
+- `OpenAI Compatible Base URL`（可选，不填则使用默认）
+
+## 测试与质量
+
+安装测试依赖：
+
+```bash
+uv sync --extra dev --no-install-project
+```
+
+运行单元测试：
+
+```bash
+uv run --extra dev python -m pytest tests/unit -q
+```
+
+运行集成 / E2E 测试：
+
+```bash
+uv run --extra dev python -m pytest tests/integration -q
+```
+
+运行真实 API E2E（需要 `.env`）：
+
+`.env` 仅支持以下键：
+
+```bash
+RUN_LIVE_E2E=1
+OPENAI_BASE_URL=...
+OPENAI_MODEL_NAME=...
+OPENAI_API_KEY=...
+AGENT_ENABLE_THINKING=0
+AGENT_REASONING_EFFORT=
+```
+
+执行命令：
+
+```bash
+uv run --extra dev python -m pytest tests/integration/test_live_api_e2e.py -q
+```
+
+运行覆盖率统计（建议作为质量门禁）：
+
+```bash
+uv run --extra dev python -m pytest \
+  --cov=utils \
+  --cov=agent \
+  --cov=pages \
+  --cov-report=term-missing \
+  --cov-fail-under=80
+```
+
+## Docker（可选）
+
+```bash
+docker-compose up --build
+```
+
+## 功能截图
 
 ### 登录界面
 ![登录界面](images/登录.png)
@@ -108,30 +165,6 @@ uv tree
 ### 思维导图
 ![思维导图](images/思维导图.png)
 
-## 🛠️ 技术栈
+## 贡献
 
-- 前端：Streamlit
-- 后端：Python
-- 可视化：pyecharts
-
-## 🗺️ 开发路线图
-
-- [x] 用户系统
-- [x] 文件中心
-- [x] 文献分析核心功能
-- [x] 思维导图可视化
-- [x] 集成 LangChain 框架
-- [ ] 重构：将 utils 迁移到独立文件夹
-- [ ] ~~一键翻译论文~~ (已搁置)
-
-## 📝 注意事项
-
-- 项目使用 `uv` 进行依赖管理，比传统 pip 更快更可靠
-- 如果没有安装 uv，也可以使用传统的 pip + requirements.txt 方式安装依赖
-- 记得在应用中配置您的 API Key（在侧边栏设置中）
-
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request 来帮助改进项目！
-
-
+欢迎提交 Issue / PR。

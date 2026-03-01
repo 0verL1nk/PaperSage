@@ -38,3 +38,11 @@ uploads/
 .DS_Store
 *.log
 *.tmp
+models
+
+# Local secrets
+.env
+.env.*
+
+# unit tests
+.coverage

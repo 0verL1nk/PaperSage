@@ -10,9 +10,9 @@ services:
       - "8501:8501"
     environment:
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - RQ_WORKER_COUNT=${RQ_WORKER_COUNT:-2}
     volumes:
       # 持久化数据库和上传文件
       - ./database.sqlite:/app/database.sqlite
       - ./uploads:/app/uploads
     restart: unless-stopped
-

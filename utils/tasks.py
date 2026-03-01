@@ -1,9 +1,14 @@
 """
 异步任务执行函数 - 这些函数会在后台工作进程中执行
 """
+
 import json
 import os
 import sys
+import logging
+from typing import Any
+
+from openai.types.chat import ChatCompletionMessageParam
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,42 +17,61 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 使用绝对导入以确保在 RQ worker 中正常工作
 try:
     from utils.utils import (
-        extract_files, 
-        get_openai_client, 
-        get_user_api_key,
+        extract_files,
         save_content_to_database,
         get_api_key,
+        get_base_url,
         get_model_name,
-        extract_json_string
+        extract_json_string,
+        llm_content_to_text,
     )
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
     import sys
     import os
+
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from utils.utils import (
-        extract_files, 
-        get_openai_client, 
-        get_user_api_key,
+        extract_files,
         save_content_to_database,
         get_api_key,
+        get_base_url,
         get_model_name,
-        extract_json_string
+        extract_json_string,
+        llm_content_to_text,
     )
 
-from langchain_community.chat_models import ChatTongyi
+from openai import OpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 try:
+    from agent.settings import load_agent_settings
+    from agent.llm_provider import build_openai_compatible_chat_model
+except ImportError:
+    from agent.settings import load_agent_settings
+    from agent.llm_provider import build_openai_compatible_chat_model
+
+try:
     from utils.task_queue import update_task_status, TaskStatus
 except ImportError:
-    from task_queue import update_task_status, TaskStatus
+    from utils.task_queue import update_task_status, TaskStatus
+
+logger = logging.getLogger("llm_app.worker_tasks")
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    )
+    logger.addHandler(_handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
 
 def task_text_extraction(task_id: str, file_path: str, uid: str, user_uuid: str):
     """
     异步执行文本提取任务
-    
+
     Args:
         task_id: 任务ID
         file_path: 文件路径
@@ -55,46 +79,68 @@ def task_text_extraction(task_id: str, file_path: str, uid: str, user_uuid: str)
         user_uuid: 用户UUID
     """
     try:
+        logger.info("Worker start text_extraction: task_id=%s uid=%s", task_id, uid)
         update_task_status(task_id, TaskStatus.STARTED)
-        
+
         # 提取文件内容
         res = extract_files(file_path)
-        if res['result'] != 1:
+        if res["result"] != 1:
             update_task_status(task_id, TaskStatus.FAILED, error_message="文件提取失败")
-            return False, ''
-        
-        file_content = '以下为一篇论文的原文:\n' + res['text']
-        messages = [
+            return False, ""
+
+        extracted_text = res["text"]
+        if not isinstance(extracted_text, str):
+            update_task_status(
+                task_id, TaskStatus.FAILED, error_message="文档提取结果格式错误"
+            )
+            return False, "文档提取结果格式错误"
+
+        file_content = "以下为一篇论文的原文:\n" + extracted_text
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "system",
                 "content": file_content,
             },
-            {"role": "user",
-             "content": '''
+            {
+                "role": "user",
+                "content": """
              阅读论文,划出**关键语句**,并按照"研究背景，研究目的，研究方法，研究结果，未来展望"五个标签分类.
              label为中文,text为原文,text可能有多句,并以json格式输出.
              注意!!text内是论文原文!!.
              以下为示例:
              {'label1':['text',...],'label2':['text',...],...}
-             '''
-             },
+             """,
+            },
         ]
 
         # 获取用户 API key 和模型名称
         api_key = get_api_key(user_uuid)
         if not api_key:
-            update_task_status(task_id, TaskStatus.FAILED, error_message="请先在设置中配置您的 API Key")
+            update_task_status(
+                task_id, TaskStatus.FAILED, error_message="请先在设置中配置您的 API Key"
+            )
             return False, "请先在设置中配置您的 API Key"
-        
+
         model_name = get_model_name(user_uuid)
-        
+        if not model_name:
+            update_task_status(
+                task_id, TaskStatus.FAILED, error_message="请先在设置中配置模型名称"
+            )
+            return False, "请先在设置中配置模型名称"
+
+        configured_base_url = get_base_url(user_uuid)
         # 创建客户端并调用
-        from openai import OpenAI
+        settings = load_agent_settings()
+        resolved_base_url = (
+            configured_base_url
+            if configured_base_url
+            else settings.openai_compatible_base_url
+        )
         client = OpenAI(
             api_key=api_key,
-            base_url='https://dashscope.aliyuncs.com/compatible-mode/v1'
+            base_url=resolved_base_url,
         )
-        
+
         completion = client.chat.completions.create(
             model=model_name,
             messages=messages,
@@ -102,29 +148,39 @@ def task_text_extraction(task_id: str, file_path: str, uid: str, user_uuid: str)
             response_format={"type": "json_object"},
         )
 
-        content = json.loads(completion.choices[0].message.content)
-        
+        response_content = completion.choices[0].message.content
+        if not isinstance(response_content, str):
+            update_task_status(
+                task_id,
+                TaskStatus.FAILED,
+                error_message="模型没有返回有效的 JSON 字符串",
+            )
+            return False, "模型没有返回有效的 JSON 字符串"
+        content = json.loads(response_content)
+
         # 保存到数据库
         save_content_to_database(
             uid=uid,
             file_path=file_path,
             content=json.dumps(content),
-            content_type='file_extraction'
+            content_type="file_extraction",
         )
-        
+
         update_task_status(task_id, TaskStatus.FINISHED)
+        logger.info("Worker finish text_extraction: task_id=%s", task_id)
         return True, content
-        
+
     except Exception as e:
         error_msg = str(e)
         update_task_status(task_id, TaskStatus.FAILED, error_message=error_msg)
+        logger.exception("Worker failed text_extraction: task_id=%s", task_id)
         return False, error_msg
 
 
 def task_file_summary(task_id: str, file_path: str, uid: str, user_uuid: str):
     """
     异步执行文件总结任务
-    
+
     Args:
         task_id: 任务ID
         file_path: 文件路径
@@ -132,54 +188,70 @@ def task_file_summary(task_id: str, file_path: str, uid: str, user_uuid: str):
         user_uuid: 用户UUID
     """
     try:
+        logger.info("Worker start file_summary: task_id=%s uid=%s", task_id, uid)
         update_task_status(task_id, TaskStatus.STARTED)
-        
+
         # 提取文件内容
         res = extract_files(file_path)
-        if res['result'] != 1:
+        if res["result"] != 1:
             update_task_status(task_id, TaskStatus.FAILED, error_message="文件提取失败")
-            return False, ''
-        
-        content = res['text']
+            return False, ""
+
+        content = res["text"]
+        if not isinstance(content, str):
+            update_task_status(
+                task_id, TaskStatus.FAILED, error_message="文档提取结果格式错误"
+            )
+            return False, "文档提取结果格式错误"
         system_prompt = """你是一个文书助手。你的客户会交给你一篇文章，你需要用尽可能简洁的语言，总结这篇文章的内容。不得使用 markdown 记号。"""
 
         # 获取用户 API key 和模型名称
         api_key = get_api_key(user_uuid)
         if not api_key:
-            update_task_status(task_id, TaskStatus.FAILED, error_message="请先在设置中配置您的 API Key")
+            update_task_status(
+                task_id, TaskStatus.FAILED, error_message="请先在设置中配置您的 API Key"
+            )
             return False, "请先在设置中配置您的 API Key"
-        
+
         model_name = get_model_name(user_uuid)
-        llm = ChatTongyi(model_name=model_name, streaming=True, dashscope_api_key=api_key)
-        
+        if not model_name:
+            update_task_status(
+                task_id, TaskStatus.FAILED, error_message="请先在设置中配置模型名称"
+            )
+            return False, "请先在设置中配置模型名称"
+        configured_base_url = get_base_url(user_uuid)
+        llm = build_openai_compatible_chat_model(
+            api_key=api_key,
+            model_name=model_name,
+            base_url=configured_base_url,
+        )
+
         prompt = ChatPromptTemplate.from_messages(
-            [("system", system_prompt),
-             ("user", content)
-            ])
+            [("system", system_prompt), ("user", content)]
+        )
         chain = prompt | llm | StrOutputParser()
         summary = chain.invoke({})
-        
+
         # 保存到数据库
         save_content_to_database(
-            uid=uid,
-            file_path=file_path,
-            content=summary,
-            content_type='file_summary'
+            uid=uid, file_path=file_path, content=summary, content_type="file_summary"
         )
-        
+
         update_task_status(task_id, TaskStatus.FINISHED)
+        logger.info("Worker finish file_summary: task_id=%s", task_id)
         return True, summary
-        
+
     except Exception as e:
         error_msg = str(e)
         update_task_status(task_id, TaskStatus.FAILED, error_message=error_msg)
+        logger.exception("Worker failed file_summary: task_id=%s", task_id)
         return False, error_msg
 
 
 def task_generate_mindmap(task_id: str, file_path: str, uid: str, user_uuid: str):
     """
     异步执行生成思维导图任务
-    
+
     Args:
         task_id: 任务ID
         file_path: 文件路径
@@ -187,26 +259,41 @@ def task_generate_mindmap(task_id: str, file_path: str, uid: str, user_uuid: str
         user_uuid: 用户UUID
     """
     try:
+        logger.info("Worker start mindmap: task_id=%s uid=%s", task_id, uid)
         update_task_status(task_id, TaskStatus.STARTED)
-        
+
         # 提取文件内容
         res = extract_files(file_path)
-        if res['result'] != 1:
+        if res["result"] != 1:
             update_task_status(task_id, TaskStatus.FAILED, error_message="文件提取失败")
             return False, None
-        
-        text = res['text']
-        
+
+        text = res["text"]
+        if not isinstance(text, str):
+            update_task_status(
+                task_id, TaskStatus.FAILED, error_message="文档提取结果格式错误"
+            )
+            return False, None
+
         # 获取用户 API key 和模型名称
         api_key = get_api_key(user_uuid)
         if not api_key:
-            update_task_status(task_id, TaskStatus.FAILED, error_message="请先在设置中配置您的 API Key")
+            update_task_status(
+                task_id, TaskStatus.FAILED, error_message="请先在设置中配置您的 API Key"
+            )
             return False, None
-        
+
         model_name = get_model_name(user_uuid)
-        
+        if not model_name:
+            update_task_status(
+                task_id, TaskStatus.FAILED, error_message="请先在设置中配置模型名称"
+            )
+            return False, None
+
+        configured_base_url = get_base_url(user_uuid)
+
         # 生成思维导图（extract_json_string 已在顶部导入）
-        
+
         system_prompt = """你是一个专业的文献分析专家。请分析给定的文献内容，生成一个结构清晰的思维导图。
 
     分析要求：
@@ -248,40 +335,43 @@ def task_generate_mindmap(task_id: str, file_path: str, uid: str, user_uuid: str
         ]
     }}
     """
-        
-        llm = ChatTongyi(
+
+        llm = build_openai_compatible_chat_model(
+            api_key=api_key,
             model_name=model_name,
-            dashscope_api_key=api_key
+            base_url=configured_base_url,
         )
-        prompt_template = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("user", "以下是需要分析的文献内容：\n {text}")
-        ])
-        
+        prompt_template = ChatPromptTemplate.from_messages(
+            [("system", system_prompt), ("user", "以下是需要分析的文献内容：\n {text}")]
+        )
+
         chain = prompt_template | llm
         result = chain.invoke({"text": text})
-        
+
         try:
-            json_str = extract_json_string(result.content)
+            result_text = llm_content_to_text(result.content)
+            json_str = extract_json_string(result_text)
             mindmap_data = json.loads(json_str)
-            
+
             # 保存到数据库
             save_content_to_database(
                 uid=uid,
                 file_path=file_path,
                 content=json.dumps(mindmap_data),
-                content_type='file_mindmap'
+                content_type="file_mindmap",
             )
-            
+
             update_task_status(task_id, TaskStatus.FINISHED)
+            logger.info("Worker finish mindmap: task_id=%s", task_id)
             return True, mindmap_data
         except json.JSONDecodeError:
             error_msg = "思维导图JSON解析失败"
             update_task_status(task_id, TaskStatus.FAILED, error_message=error_msg)
+            logger.warning("Worker failed mindmap parse: task_id=%s", task_id)
             return False, None
-        
+
     except Exception as e:
         error_msg = str(e)
         update_task_status(task_id, TaskStatus.FAILED, error_message=error_msg)
+        logger.exception("Worker failed mindmap: task_id=%s", task_id)
         return False, None
-
