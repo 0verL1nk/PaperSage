@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from agent.stream import (
+    extract_trace_events_from_update,
     extract_result_text,
     extract_stream_text,
     iter_agent_response_deltas,
@@ -37,6 +38,11 @@ def test_extract_stream_text_from_dict_messages():
 def test_extract_result_text_from_ai_message():
     ai_msg = SimpleNamespace(type="ai", content=[{"text": "done"}])
     assert extract_result_text({"messages": [ai_msg]}) == "done"
+
+
+def test_extract_result_text_from_dict_assistant_message():
+    message = {"role": "assistant", "content": [{"text": "dict-ok"}]}
+    assert extract_result_text({"messages": [message]}) == "dict-ok"
 
 
 def test_iter_agent_response_deltas_uses_stream_chunks():
@@ -78,3 +84,34 @@ def test_iter_agent_response_deltas_passes_runtime_config():
     assert "".join(parts) == "ok"
     assert agent.stream_calls[0][1]["config"] == config
     assert agent.invoke_calls[0][1]["config"] == config
+
+
+def test_extract_trace_events_from_update_with_tool_calls_and_tool_result():
+    update_payload = {
+        "model": {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {"name": "search_document", "args": {"query": "abc"}},
+                    ],
+                }
+            ]
+        },
+        "tools": {
+            "messages": [
+                {"role": "tool", "name": "search_document", "content": "hit"},
+            ]
+        },
+    }
+
+    events = extract_trace_events_from_update(update_payload)
+    assert any(
+        item["performative"] == "tool_call" and item["receiver"] == "search_document"
+        for item in events
+    )
+    assert any(
+        item["performative"] == "tool_result" and item["sender"] == "search_document"
+        for item in events
+    )

@@ -49,3 +49,26 @@ def test_list_agent_outputs_filters_by_uuid(tmp_path: Path) -> None:
     items = list_agent_outputs(uuid="u1", db_name=str(db_path))
     assert len(items) == 1
     assert items[0]["content"] == "a1"
+
+
+def test_list_agent_outputs_filters_by_project_uid(tmp_path: Path) -> None:
+    db_path = tmp_path / "database.sqlite"
+
+    save_agent_output(
+        uuid="u1",
+        project_uid="p1",
+        output_type="qa",
+        content="project-1",
+        db_name=str(db_path),
+    )
+    save_agent_output(
+        uuid="u1",
+        project_uid="p2",
+        output_type="qa",
+        content="project-2",
+        db_name=str(db_path),
+    )
+
+    items = list_agent_outputs(uuid="u1", project_uid="p1", db_name=str(db_path))
+    assert len(items) == 1
+    assert items[0]["content"] == "project-1"

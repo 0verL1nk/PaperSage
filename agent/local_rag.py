@@ -5,6 +5,7 @@ from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from .evidence import EvidenceItem, EvidencePayload
 from .settings import load_agent_settings
 
 
@@ -70,7 +71,72 @@ def _rerank_docs(
     return [doc.page_content for doc in docs[:top_k]]
 
 
-def build_local_vector_retriever(document_text: str) -> Callable[[str], str]:
+def _build_evidence_payload(
+    doc_uid: str,
+    ranked_chunks: list[str],
+    source_docs: list[Any],
+    doc_name: str = "",
+    project_uid: str = "",
+    trace: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    evidences: list[EvidenceItem] = []
+    used_indices: set[int] = set()
+
+    for rank, text in enumerate(ranked_chunks):
+        matched_idx: int | None = None
+        for index, doc in enumerate(source_docs):
+            if index in used_indices:
+                continue
+            if doc.page_content == text:
+                matched_idx = index
+                used_indices.add(index)
+                break
+
+        metadata: dict[str, Any] = {}
+        if matched_idx is not None and isinstance(source_docs[matched_idx].metadata, dict):
+            metadata = source_docs[matched_idx].metadata
+
+        metadata_doc_uid = metadata.get("doc_uid")
+        metadata_doc_name = metadata.get("doc_name")
+        metadata_project_uid = metadata.get("project_uid")
+
+        chunk_index = metadata.get("chunk_index")
+        chunk_id = (
+            f"chunk_{chunk_index}"
+            if isinstance(chunk_index, int)
+            else f"chunk_{matched_idx if matched_idx is not None else rank}"
+        )
+        offset_start = metadata.get("start_index")
+        if not isinstance(offset_start, int):
+            offset_start = None
+
+        evidence = EvidenceItem(
+            project_uid=(
+                metadata_project_uid
+                if isinstance(metadata_project_uid, str)
+                else project_uid
+            ),
+            doc_uid=metadata_doc_uid if isinstance(metadata_doc_uid, str) else doc_uid,
+            doc_name=metadata_doc_name if isinstance(metadata_doc_name, str) else doc_name,
+            chunk_id=chunk_id,
+            text=text,
+            score=float(1.0 / (rank + 1)),
+            page_no=metadata.get("page_no") if isinstance(metadata.get("page_no"), int) else None,
+            offset_start=offset_start,
+            offset_end=(offset_start + len(text)) if isinstance(offset_start, int) else None,
+        )
+        evidences.append(evidence)
+
+    payload = EvidencePayload(evidences=evidences, trace=trace or {})
+    return payload.model_dump()
+
+
+def build_local_evidence_retriever(
+    document_text: str,
+    doc_uid: str = "",
+    doc_name: str = "",
+    project_uid: str = "",
+) -> Callable[[str], dict[str, Any]]:
     settings = load_agent_settings()
     model_name = ensure_local_embedding_model_downloaded()
 
@@ -78,22 +144,36 @@ def build_local_vector_retriever(document_text: str) -> Callable[[str], str]:
         chunk_size=settings.rag_chunk_size,
         chunk_overlap=settings.rag_chunk_overlap,
         separators=["\n\n", "\n", "。", "！", "？", ".", "!", "?"],
+        add_start_index=True,
     )
-    chunks = splitter.split_text(document_text)
+    documents = splitter.create_documents([document_text])
+    chunks = [doc.page_content for doc in documents]
+    metadatas: list[dict[str, Any]] = []
+    for index, doc in enumerate(documents):
+        metadata = dict(doc.metadata) if isinstance(doc.metadata, dict) else {}
+        metadata["chunk_index"] = index
+        metadata["doc_uid"] = doc_uid
+        metadata["doc_name"] = doc_name
+        metadata["project_uid"] = project_uid
+        metadatas.append(metadata)
 
     embeddings = FastEmbedEmbeddings(
         model_name=model_name,
         cache_dir=settings.local_embedding_cache_dir,
     )
-    vectorstore = InMemoryVectorStore.from_texts(chunks, embedding=embeddings)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": settings.rag_candidate_k})
+    vectorstore = InMemoryVectorStore.from_texts(
+        texts=chunks,
+        embedding=embeddings,
+        metadatas=metadatas,
+    )
+    retriever = vectorstore.as_retriever(search_kwargs={"k": settings.rag_dense_candidate_k})
     reranker = (
         _build_local_reranker(settings.rag_rerank_model)
         if settings.rag_rerank_enabled
         else None
     )
 
-    def search_document(query: str) -> str:
+    def search_document_evidence(query: str) -> dict[str, Any]:
         docs = retriever.invoke(query)
         ranked_chunks = _rerank_docs(
             query=query,
@@ -101,6 +181,35 @@ def build_local_vector_retriever(document_text: str) -> Callable[[str], str]:
             reranker=reranker,
             top_k=settings.rag_top_k,
         )
-        return "\n".join(ranked_chunks)
+        trace = {
+            "mode": "dense",
+            "candidate_count": len(docs),
+            "top_k": settings.rag_top_k,
+        }
+        return _build_evidence_payload(
+            doc_uid=doc_uid,
+            ranked_chunks=ranked_chunks,
+            source_docs=docs,
+            doc_name=doc_name,
+            project_uid=project_uid,
+            trace=trace,
+        )
+
+    return search_document_evidence
+
+
+def build_local_vector_retriever(document_text: str) -> Callable[[str], str]:
+    evidence_retriever = build_local_evidence_retriever(document_text=document_text)
+
+    def search_document(query: str) -> str:
+        payload = evidence_retriever(query)
+        evidences = payload.get("evidences")
+        if not isinstance(evidences, list):
+            return ""
+        chunks: list[str] = []
+        for item in evidences:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                chunks.append(item["text"])
+        return "\n".join(chunks)
 
     return search_document

@@ -1,0 +1,702 @@
+import json
+from html import escape
+from typing import Any
+
+import streamlit as st
+import streamlit.components.v1 as components
+from pyecharts import options as opts
+from pyecharts.charts import Tree
+
+from .archive import list_agent_outputs
+from .metrics import create_session_metrics, summarize_session_metrics
+from .multi_agent_a2a import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
+from .workflow_router import WORKFLOW_LABELS
+from utils.compare_parser import method_compare_to_csv, parse_method_compare_payload
+from utils.utils import extract_json_string
+
+
+def _confidence_badge(score: float) -> tuple[str, str]:
+    if score >= 0.66:
+        return "高置信", "llm-badge-high"
+    if score >= 0.4:
+        return "中置信", "llm-badge-mid"
+    return "低置信", "llm-badge-low"
+
+
+def _render_acp_trace(trace_payload: list[dict[str, str]]) -> None:
+    def _render_trace_cards(items: list[tuple[int, dict[str, str]]]) -> None:
+        trace_rows: list[str] = []
+        for idx, entry in items:
+            sender = escape(str(entry.get("sender", "unknown")))
+            receiver = escape(str(entry.get("receiver", "unknown")))
+            perf = escape(str(entry.get("performative", "message")))
+            content = escape(str(entry.get("content", ""))).replace("\n", "<br>")
+            trace_rows.append(
+                (
+                    "<div class='llm-trace-item'>"
+                    f"<div class='llm-trace-item-head'>{idx}. {sender} -> {receiver} | {perf}</div>"
+                    f"<div class='llm-trace-item-content'>{content}</div>"
+                    "</div>"
+                )
+            )
+        st.markdown(
+            f"<div class='llm-trace-scroll'>{''.join(trace_rows)}</div>",
+            unsafe_allow_html=True,
+        )
+
+    phase_groups: dict[str, list[tuple[int, dict[str, str]]]] = {}
+    phase_order: list[str] = []
+    indexed_payload = list(enumerate(trace_payload, start=1))
+    for idx, entry in indexed_payload:
+        phase = entry.get("phase")
+        if not isinstance(phase, str) or not phase.strip():
+            phase = _phase_label_from_performative(str(entry.get("performative", "")))
+        if phase not in phase_groups:
+            phase_groups[phase] = []
+            phase_order.append(phase)
+        phase_groups[phase].append((idx, entry))
+
+    with st.expander("查看 Agent 执行轨迹", expanded=False):
+        tab_timeline, tab_phase = st.tabs(["时间线", "阶段分组"])
+        with tab_timeline:
+            _render_trace_cards(indexed_payload)
+        with tab_phase:
+            for phase in phase_order:
+                items = phase_groups.get(phase, [])
+                with st.expander(f"{phase}（{len(items)}）", expanded=False):
+                    _render_trace_cards(items)
+
+
+def _preview_text(text: str, limit: int = 140) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return f"{collapsed[:limit]}..."
+
+
+def _phase_label_from_performative(performative: str) -> str:
+    mapping = {
+        "request": "接收请求",
+        "dispatch": "调度中",
+        "plan": "规划",
+        "draft": "生成草稿",
+        "review": "复核",
+        "replan": "重规划",
+        "final": "输出最终答案",
+    }
+    return mapping.get(performative, "处理中")
+
+
+def _phase_summary(phase_labels: list[str]) -> str:
+    if not phase_labels:
+        return "无"
+    unique: list[str] = []
+    for label in phase_labels:
+        if not unique or unique[-1] != label:
+            unique.append(label)
+    return " -> ".join(unique)
+
+
+def _content_to_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    return ""
+
+
+def _message_attr(message, key: str, default=""):
+    if isinstance(message, dict):
+        return message.get(key, default)
+    return getattr(message, key, default)
+
+
+def _build_react_trace(result: dict) -> list[dict[str, str]]:
+    messages = result.get("messages", []) if isinstance(result, dict) else []
+    if not isinstance(messages, list):
+        return []
+    trace: list[dict[str, str]] = []
+    last_sender = "user"
+    for msg in messages:
+        msg_type = str(_message_attr(msg, "type", "") or "").lower()
+        role = str(_message_attr(msg, "role", "") or "").lower()
+        content = _content_to_text(_message_attr(msg, "content", ""))
+        tool_calls = _message_attr(msg, "tool_calls", None)
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                if not isinstance(call, dict):
+                    continue
+                tool_name = str(call.get("name") or "tool")
+                args = call.get("args")
+                trace.append(
+                    {
+                        "sender": "react_agent",
+                        "receiver": tool_name,
+                        "performative": "tool_call",
+                        "content": str(args) if args else content or "(tool call)",
+                    }
+                )
+                last_sender = tool_name
+        if msg_type == "tool":
+            tool_name = _message_attr(msg, "name", "tool")
+            trace.append(
+                {
+                    "sender": "react_agent",
+                    "receiver": tool_name or "tool",
+                    "performative": "tool_call",
+                    "content": content or "(tool call)",
+                }
+            )
+            last_sender = tool_name or "tool"
+            continue
+        if role == "tool":
+            sender = _message_attr(msg, "name", "tool") or "tool"
+            trace.append(
+                {
+                    "sender": sender,
+                    "receiver": "react_agent",
+                    "performative": "tool_result",
+                    "content": content or "(tool result)",
+                }
+            )
+            last_sender = sender
+            continue
+        if role == "user" or msg_type in {"human", "user"}:
+            trace.append(
+                {
+                    "sender": "user",
+                    "receiver": "react_agent",
+                    "performative": "request",
+                    "content": content,
+                }
+            )
+            last_sender = "user"
+            continue
+        if role == "assistant" or msg_type in {"ai", "assistant"}:
+            receiver = "user" if last_sender != "user" else "user"
+            trace.append(
+                {
+                    "sender": "react_agent",
+                    "receiver": receiver,
+                    "performative": "final",
+                    "content": content,
+                }
+            )
+            last_sender = "react_agent"
+    return trace
+
+
+def _create_mindmap_chart(data: dict) -> Tree:
+    return (
+        Tree()
+        .add(
+            series_name="",
+            data=[data],
+            orient="LR",
+            initial_tree_depth=3,
+            layout="orthogonal",
+            pos_left="3%",
+            width="75%",
+            height="420px",
+            edge_fork_position="12%",
+            symbol_size=7,
+            label_opts=opts.LabelOpts(
+                position="right",
+                horizontal_align="left",
+                vertical_align="middle",
+                font_size=13,
+                padding=[0, 0, 0, -18],
+            ),
+        )
+        .set_global_opts(
+            title_opts=opts.TitleOpts(title="思维导图"),
+            tooltip_opts=opts.TooltipOpts(trigger="item", trigger_on="mousemove"),
+        )
+    )
+
+
+def _try_parse_mindmap(answer: str) -> dict | None:
+    if not answer:
+        return None
+    try:
+        json_str = extract_json_string(answer)
+        parsed = json.loads(json_str)
+    except Exception:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    if "name" not in parsed:
+        return None
+    children = parsed.get("children")
+    if children is not None and not isinstance(children, list):
+        return None
+    return parsed
+
+
+def _render_mindmap_if_any(mindmap_data: dict | None) -> None:
+    if not mindmap_data:
+        return
+    try:
+        chart = _create_mindmap_chart(mindmap_data)
+        components.html(chart.render_embed(), height=460, scrolling=True)
+    except Exception:
+        st.warning("思维导图 JSON 已识别，但渲染失败。")
+
+
+def _normalize_evidence_items(raw_payload) -> list[dict]:
+    if not isinstance(raw_payload, dict):
+        return []
+    evidences = raw_payload.get("evidences")
+    if not isinstance(evidences, list):
+        return []
+    normalized: list[dict] = []
+    for item in evidences:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        normalized.append(item)
+    return normalized
+
+
+def _render_evidence_panel(
+    evidence_items: list[dict] | None,
+    key_prefix: str,
+    top_k: int = 3,
+) -> None:
+    if not isinstance(evidence_items, list) or not evidence_items:
+        return
+    with st.expander("查看证据详情", expanded=False):
+        for index, item in enumerate(evidence_items[:top_k], start=1):
+            chunk_id = item.get("chunk_id") or f"chunk_{index - 1}"
+            doc_name = item.get("doc_name")
+            score = item.get("score", 0.0)
+            score_text = f"{float(score):.3f}" if isinstance(score, (int, float)) else "n/a"
+            numeric_score = float(score) if isinstance(score, (int, float)) else 0.0
+            confidence_text, confidence_cls = _confidence_badge(numeric_score)
+            page_no = item.get("page_no")
+            offset_start = item.get("offset_start")
+            offset_end = item.get("offset_end")
+            locator_parts: list[str] = []
+            if isinstance(page_no, int):
+                locator_parts.append(f"页码: {page_no}")
+            if isinstance(offset_start, int) and isinstance(offset_end, int):
+                locator_parts.append(f"偏移: {offset_start}-{offset_end}")
+            locator_text = " | ".join(locator_parts) if locator_parts else "定位: n/a"
+
+            source_doc_text = (
+                f" | 来源文档: `{doc_name}`"
+                if isinstance(doc_name, str) and doc_name.strip()
+                else ""
+            )
+            with st.container(border=True):
+                st.markdown(
+                    (
+                        f"**证据 {index}** | `{chunk_id}` | 分数: `{score_text}` | {locator_text}{source_doc_text}"
+                        f" <span class='{confidence_cls}'>{confidence_text}</span>"
+                    ),
+                    unsafe_allow_html=True,
+                )
+                st.code(item.get("text", ""), language=None)
+                citation = (
+                    f"[{chunk_id}] score={score_text} {locator_text}"
+                    f"{' source=' + str(doc_name) if isinstance(doc_name, str) and doc_name.strip() else ''}\n"
+                    f"{item.get('text', '')}"
+                )
+                st.download_button(
+                    "下载引用片段",
+                    data=citation,
+                    file_name=f"evidence_{chunk_id}.txt",
+                    mime="text/plain",
+                    key=f"{key_prefix}_evidence_{index}",
+                )
+
+
+def _try_parse_method_compare(answer: str) -> dict | None:
+    return parse_method_compare_payload(answer)
+
+
+def _render_method_compare_if_any(
+    method_compare_data: dict | None,
+    key_prefix: str,
+) -> None:
+    if not method_compare_data:
+        return
+    topic = method_compare_data.get("topic")
+    if isinstance(topic, str) and topic:
+        st.markdown(f"### 方法对比：{topic}")
+    else:
+        st.markdown("### 方法对比")
+    rows = method_compare_data.get("rows")
+    if isinstance(rows, list):
+        st.table(rows)
+    recommendation = method_compare_data.get("recommendation")
+    if isinstance(recommendation, str) and recommendation:
+        st.markdown(f"**建议**：{recommendation}")
+    csv_data = method_compare_to_csv(method_compare_data)
+    if csv_data:
+        st.download_button(
+            "下载对比 CSV",
+            data=csv_data,
+            file_name="method_compare.csv",
+            mime="text/csv",
+            key=f"{key_prefix}_compare_csv",
+        )
+
+
+def _infer_output_type(prompt: str, mindmap_data: dict | None) -> str:
+    if mindmap_data:
+        return "mindmap"
+    normalized = prompt.lower()
+    if "总结" in prompt or "summary" in normalized:
+        return "summary"
+    if "改写" in prompt or "润色" in prompt or "rewrite" in normalized:
+        return "rewrite"
+    return "qa"
+
+
+def _render_output_archive(project_uid: str, disable_interaction: bool = False) -> None:
+    user_uuid = st.session_state.get("uuid", "local-user")
+    records = list_agent_outputs(uuid=user_uuid, project_uid=project_uid, limit=20)
+    if disable_interaction:
+        st.caption("对话生成中，已临时锁定历史归档交互。")
+        return
+    with st.expander("查看历史产出归档", expanded=False):
+        if not records:
+            st.caption("暂无归档记录")
+            return
+
+        options = [
+            f"{item['created_at']} | {item['output_type']} | {item.get('doc_name') or 'project'}"
+            for item in records
+        ]
+        selected_label = st.selectbox(
+            "选择归档记录",
+            options,
+            key=f"archive_{project_uid}",
+        )
+        selected_index = options.index(selected_label)
+        selected = records[selected_index]
+        content = selected["content"]
+        if selected["output_type"] == "mindmap":
+            try:
+                _render_mindmap_if_any(json.loads(content))
+            except Exception:
+                st.write(content)
+        else:
+            st.write(content)
+
+
+def _get_doc_metrics(doc_uid: str) -> dict:
+    doc_metrics_map = st.session_state.get("paper_project_metrics", {})
+    current = doc_metrics_map.get(doc_uid)
+    if not isinstance(current, dict):
+        current = create_session_metrics()
+        doc_metrics_map[doc_uid] = current
+        st.session_state.paper_project_metrics = doc_metrics_map
+    return current
+
+
+def _render_workflow_metrics(doc_uid: str) -> None:
+    summary = summarize_session_metrics(_get_doc_metrics(doc_uid))
+    with st.expander("查看工作流运行指标（会话内）", expanded=False):
+        cols = st.columns(3)
+        cols[0].metric("总问答数", summary["total_queries"])
+        cols[1].metric("平均耗时 (ms)", f"{summary['average_latency_ms']:.0f}")
+        cols[2].metric("最大耗时 (ms)", f"{summary['max_latency_ms']:.0f}")
+        st.caption(
+            "路由分布："
+            f"ReAct={summary['workflow_counts'][WORKFLOW_REACT]} | "
+            f"Plan-Act={summary['workflow_counts'][WORKFLOW_PLAN_ACT]} | "
+            f"Plan-Act-RePlan={summary['workflow_counts'][WORKFLOW_PLAN_ACT_REPLAN]}"
+        )
+        st.caption(
+            f"重规划统计：total={summary['replan_rounds_total']} | "
+            f"max={summary['replan_rounds_max']} | "
+            f"avg={summary['average_replan_rounds']:.2f}"
+        )
+        st.caption(f"A2A trace 事件总数：{summary['trace_events_total']}")
+
+
+def _render_context_usage(doc_uid: str) -> None:
+    usage_map = st.session_state.get("paper_project_context_usage", {})
+    usage = usage_map.get(doc_uid)
+    if not isinstance(usage, dict):
+        return
+    breakdown = usage.get("breakdown")
+    if not isinstance(breakdown, dict):
+        return
+
+    model_window_tokens = int(usage.get("model_window_tokens", 0))
+    used_tokens = int(usage.get("used_tokens", 0))
+    free_tokens = int(usage.get("free_tokens", 0))
+    reserve_output = int(usage.get("reserved_output_tokens", 0))
+    tools_count = int(usage.get("tools_count", 0))
+    skills_loaded_count = int(usage.get("skills_loaded_count", 0))
+    primary_agent_name = str(usage.get("primary_agent_name", "react_agent") or "react_agent")
+    ratio = 0.0
+    if model_window_tokens > 0:
+        ratio = (used_tokens / model_window_tokens) * 100.0
+
+    health_text = "健康"
+    health_cls = "llm-context-health"
+    if ratio >= 90:
+        health_text = "高负载"
+        health_cls = "llm-context-health llm-context-health-risk"
+    elif ratio >= 75:
+        health_text = "接近上限"
+        health_cls = "llm-context-health llm-context-health-warn"
+
+    with st.expander("Context Usage（可视化）", expanded=False):
+        st.markdown(
+            (
+                "<div class='llm-chip-row'>"
+                "<span class='llm-chip'>视角 主对话代理优先</span>"
+                f"<span class='llm-chip'>主代理 {primary_agent_name}</span>"
+                f"<span class='llm-chip'>Skills 按需加载 {skills_loaded_count}</span>"
+                f"<span class='llm-chip'>Tools 已注册 {tools_count}（无需激活）</span>"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            (
+                "<div class='llm-context-card'>"
+                "<div class='llm-context-head'>"
+                "<span class='llm-context-title'>模型上下文窗口</span>"
+                f"<span class='{health_cls}'>{health_text} {ratio:.1f}%</span>"
+                "</div>"
+                "<div class='llm-context-kpi-row'>"
+                "<div class='llm-context-kpi'>"
+                "<div class='k'>已使用</div>"
+                f"<div class='v'>{used_tokens:,}</div>"
+                "</div>"
+                "<div class='llm-context-kpi'>"
+                "<div class='k'>窗口总量</div>"
+                f"<div class='v'>{model_window_tokens:,}</div>"
+                "</div>"
+                "<div class='llm-context-kpi'>"
+                "<div class='k'>预留输出</div>"
+                f"<div class='v'>{reserve_output:,}</div>"
+                "</div>"
+                "<div class='llm-context-kpi'>"
+                "<div class='k'>剩余空间</div>"
+                f"<div class='v'>{free_tokens:,}</div>"
+                "</div>"
+                "</div>"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+        color_map = {
+            "system_prompt": "var(--ctx-cat-1)",
+            "custom_agents": "var(--ctx-cat-2)",
+            "memory_files": "var(--ctx-cat-3)",
+            "skills": "var(--ctx-cat-4)",
+            "tools": "var(--ctx-cat-5)",
+            "messages": "var(--ctx-cat-6)",
+            "free_space": "var(--ctx-cat-7)",
+            "autocompact_buffer": "var(--ctx-cat-8)",
+        }
+        fallback_order = [
+            ("system_prompt", "System prompt"),
+            ("custom_agents", "Custom agents"),
+            ("memory_files", "Memory files"),
+            ("skills", "Skills"),
+            ("tools", "Tools"),
+            ("messages", "Messages"),
+            ("free_space", "Free space"),
+            ("autocompact_buffer", "Autocompact buffer"),
+        ]
+        raw_segments = usage.get("context_segments")
+        segments: list[dict[str, float | int | str]] = []
+        if isinstance(raw_segments, list):
+            for item in raw_segments:
+                if not isinstance(item, dict):
+                    continue
+                key = str(item.get("key") or "")
+                if not key:
+                    continue
+                label = str(item.get("label") or key)
+                tokens = int(item.get("tokens") or 0)
+                pct = max(0.0, float(item.get("pct") or 0.0))
+                segments.append(
+                    {
+                        "key": key,
+                        "label": label,
+                        "tokens": tokens,
+                        "pct": pct,
+                        "color": color_map.get(key, "var(--ctx-cat-1)"),
+                    }
+                )
+        if not segments:
+            for key, label in fallback_order:
+                item = breakdown.get(key, {})
+                if not isinstance(item, dict):
+                    continue
+                tokens = int(item.get("tokens", 0))
+                pct = max(0.0, float(item.get("pct", 0.0)))
+                if pct <= 0:
+                    continue
+                segments.append(
+                    {
+                        "key": key,
+                        "label": label,
+                        "tokens": tokens,
+                        "pct": pct,
+                        "color": color_map.get(key, "var(--ctx-cat-1)"),
+                    }
+                )
+
+        matrix_cell_count = 240
+        entries: list[dict[str, float | int | str]] = []
+        for item in segments:
+            key = str(item["key"])
+            label = str(item["label"])
+            color = str(item["color"])
+            tokens = int(item["tokens"])
+            pct = float(item["pct"])
+            exact_cells = (pct / 100.0) * matrix_cell_count
+            base_cells = int(exact_cells)
+            remainder = exact_cells - float(base_cells)
+            entries.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "color": color,
+                    "tokens": tokens,
+                    "pct": pct,
+                    "cells": base_cells,
+                    "remainder": remainder,
+                }
+            )
+
+        assigned_cells = int(sum(int(item["cells"]) for item in entries))
+        remaining_cells = max(0, matrix_cell_count - assigned_cells)
+        for item in sorted(entries, key=lambda x: float(x["remainder"]), reverse=True):
+            if remaining_cells <= 0:
+                break
+            item["cells"] = int(item["cells"]) + 1
+            remaining_cells -= 1
+
+        used_cells = int(sum(int(item["cells"]) for item in entries))
+        if used_cells > matrix_cell_count:
+            overflow = used_cells - matrix_cell_count
+            for item in sorted(entries, key=lambda x: int(x["cells"]), reverse=True):
+                if overflow <= 0:
+                    break
+                cut = min(overflow, int(item["cells"]))
+                item["cells"] = int(item["cells"]) - cut
+                overflow -= cut
+
+        # Ensure each non-zero segment is visible at least once in the matrix.
+        for item in entries:
+            if float(item["pct"]) <= 0 or int(item["cells"]) > 0:
+                continue
+            donor = max(entries, key=lambda x: int(x["cells"]))
+            if int(donor["cells"]) <= 1:
+                continue
+            donor["cells"] = int(donor["cells"]) - 1
+            item["cells"] = 1
+
+        matrix_cells: list[str] = []
+        for item in entries:
+            color = str(item["color"])
+            for _ in range(int(item["cells"])):
+                matrix_cells.append(
+                    f"<span class='llm-context-cell' style='background:{color}'></span>"
+                )
+        if len(matrix_cells) < matrix_cell_count:
+            matrix_cells.extend(
+                "<span class='llm-context-cell empty'></span>"
+                for _ in range(matrix_cell_count - len(matrix_cells))
+            )
+
+        st.markdown(
+            f"<div class='llm-context-matrix'>{''.join(matrix_cells)}</div>",
+            unsafe_allow_html=True,
+        )
+
+        rows_html: list[str] = []
+        for item in entries:
+            label = str(item["label"])
+            color = str(item["color"])
+            tokens = int(item["tokens"])
+            pct = float(item["pct"])
+            rows_html.append(
+                (
+                    "<div class='llm-context-legend-item'>"
+                    "<div class='llm-context-legend-left'>"
+                    f"<span class='llm-context-dot' style='background:{color}'></span>"
+                    f"<span class='llm-context-legend-label'>{label}</span>"
+                    "</div>"
+                    f"<span class='llm-context-legend-value'>{tokens:,} tokens · {pct:.1f}%</span>"
+                    "</div>"
+                )
+            )
+        st.markdown("".join(rows_html), unsafe_allow_html=True)
+
+
+def _render_chat_history(chat_messages: list[dict]) -> None:
+    for message_index, message in enumerate(chat_messages):
+        with st.chat_message(message["role"]):
+            if message.get("auto_compact"):
+                with st.expander("自动压缩摘要（历史对话）", expanded=False):
+                    st.write(message["content"])
+                continue
+            st.write(message["content"])
+            workflow_mode = message.get("workflow_mode")
+            if isinstance(workflow_mode, str):
+                label = WORKFLOW_LABELS.get(workflow_mode, workflow_mode)
+                reason = message.get("workflow_reason") or ""
+                reason_chip = (
+                    f"<span class='llm-chip'>{reason}</span>"
+                    if isinstance(reason, str) and reason
+                    else ""
+                )
+                st.markdown(
+                    (
+                        "<div class='llm-chip-row'>"
+                        f"<span class='llm-chip'>自动路由 {label}</span>"
+                        f"{reason_chip}"
+                        "</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
+            latency_ms = message.get("latency_ms")
+            if isinstance(latency_ms, (int, float)):
+                replan_rounds = int(message.get("replan_rounds", 0))
+                st.markdown(
+                    (
+                        "<div class='llm-chip-row'>"
+                        f"<span class='llm-chip'>耗时 {float(latency_ms):.0f} ms</span>"
+                        f"<span class='llm-chip'>重规划 {replan_rounds}</span>"
+                        "</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
+            phase_path = message.get("phase_path")
+            if isinstance(phase_path, str) and phase_path:
+                st.markdown(
+                    f"<div class='llm-chip-row'><span class='llm-chip'>执行阶段 {phase_path}</span></div>",
+                    unsafe_allow_html=True,
+                )
+            trace_payload = message.get("acp_trace")
+            if isinstance(trace_payload, list) and trace_payload:
+                _render_acp_trace(trace_payload)
+            _render_mindmap_if_any(message.get("mindmap_data"))
+            _render_method_compare_if_any(
+                message.get("method_compare_data"),
+                key_prefix=f"history_{message_index}",
+            )
+            _render_evidence_panel(
+                message.get("evidence_items"),
+                key_prefix=f"history_{message_index}",
+            )

@@ -17,7 +17,7 @@ def test_create_paper_agent_session_uses_checkpointer(monkeypatch):
     monkeypatch.setattr(
         paper_agent_module,
         "build_agent_tools",
-        lambda _search_document_fn: ["tool-a", "tool-b"],
+        lambda search_document_fn, search_document_evidence_fn=None, read_document_fn=None: ["tool-a", "tool-b"],
     )
 
     session = paper_agent_module.create_paper_agent_session(
@@ -29,10 +29,14 @@ def test_create_paper_agent_session_uses_checkpointer(monkeypatch):
     assert session.thread_id.startswith("paper-qa-")
     assert captured["model"] == "fake-llm"
     assert captured["tools"] == ["tool-a", "tool-b"]
-    assert captured["system_prompt"] == paper_agent_module.PAPER_QA_SYSTEM_PROMPT
+    assert "未知文档" in captured["system_prompt"]
     assert isinstance(captured["checkpointer"], InMemorySaver)
 
 
 def test_paper_agent_session_runtime_config_contains_thread_id():
-    session = paper_agent_module.PaperAgentSession(agent=object(), thread_id="thread-1")
+    session = paper_agent_module.PaperAgentSession(
+        agent=object(),
+        thread_id="thread-1",
+        tool_specs=[],
+    )
     assert session.runtime_config == {"configurable": {"thread_id": "thread-1"}}

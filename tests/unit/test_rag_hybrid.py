@@ -10,6 +10,7 @@ from agent.rag_hybrid import (
     _normalize_scores,
     _rerank_docs,
     _build_bm25_retriever,
+    _retrieval_result_to_evidence_payload,
     HybridRetriever,
     build_hybrid_retriever,
     RetrievalResult,
@@ -202,6 +203,17 @@ class TestRetrievalResult:
         assert len(result.chunks) == 2
         assert len(result.sources) == 2
 
+    def test_retrieval_result_to_evidence_payload(self):
+        result = RetrievalResult(
+            chunks=["chunk-content"],
+            sources=[{"chunk_id": "chunk_0", "index": 0, "score": 0.9}],
+            metadata={"trace": {"dense_candidate_count": 10}},
+        )
+        payload = _retrieval_result_to_evidence_payload(result, doc_uid="doc-1")
+        assert payload["evidences"][0]["doc_uid"] == "doc-1"
+        assert payload["evidences"][0]["chunk_id"] == "chunk_0"
+        assert payload["trace"]["dense_candidate_count"] == 10
+
 
 class TestRetrievalTrace:
     """测试检索轨迹"""
@@ -219,3 +231,178 @@ class TestRetrievalTrace:
         )
         assert trace.dense_candidate_count == 30
         assert trace.neighbor_expanded is True
+
+
+class TestQueryRewrite:
+    """测试 Query 同义改写"""
+
+    def test_query_rewrite_disabled(self):
+        """测试关闭改写时返回原查询"""
+        from agent.rag_hybrid import query_rewrite
+
+        result = query_rewrite("什么是机器学习", None, rewrite_enabled=False)
+        assert result == "什么是机器学习"
+
+    def test_query_rewrite_no_llm(self):
+        """测试无 LLM 时返回原查询"""
+        from agent.rag_hybrid import query_rewrite
+
+        result = query_rewrite("什么是机器学习", None, rewrite_enabled=True)
+        assert result == "什么是机器学习"
+
+    def test_query_rewrite_empty_query(self):
+        """测试空查询"""
+        from agent.rag_hybrid import query_rewrite
+
+        result = query_rewrite("", None, rewrite_enabled=True)
+        assert result == ""
+
+    def test_query_rewrite_with_mock(self):
+        """测试有 LLM 时的改写"""
+        from agent.rag_hybrid import query_rewrite
+
+        # 使用简单的 mock 对象
+        class MockMsg:
+            content = "机器学习的定义是什么"
+
+        class MockChoice:
+            message = MockMsg()
+
+        class MockResponse:
+            choices = [MockChoice()]
+
+        class MockCompletions:
+            @staticmethod
+            def create(**kwargs):
+                return MockResponse()
+
+        class MockChat:
+            completions = MockCompletions()
+
+        class MockLLM:
+            chat = MockChat()
+
+        result = query_rewrite("什么是机器学习", MockLLM(), rewrite_enabled=True)
+        assert result == "机器学习的定义是什么"
+
+
+class TestQuerySplit:
+    """测试 Query 子问题拆分"""
+
+    def test_query_split_disabled(self):
+        """测试关闭拆分时返回单元素列表"""
+        from agent.rag_hybrid import query_split
+
+        result = query_split("什么是机器学习", None, split_enabled=False)
+        assert result == ["什么是机器学习"]
+
+    def test_query_split_no_llm(self):
+        """测试无 LLM 时返回单元素列表"""
+        from agent.rag_hybrid import query_split
+
+        result = query_split("什么是机器学习", None, split_enabled=True)
+        assert result == ["什么是机器学习"]
+
+    def test_query_split_empty_query(self):
+        """测试空查询"""
+        from agent.rag_hybrid import query_split
+
+        result = query_split("", None, split_enabled=True)
+        assert result == [""]
+
+    def test_query_split_with_mock(self):
+        """测试有 LLM 时的拆分"""
+        from agent.rag_hybrid import query_split
+
+        # 使用简单的 mock 对象
+        class MockMsg:
+            content = "机器学习的定义\n机器学习的应用场景\n机器学习的算法类型"
+
+        class MockChoice:
+            message = MockMsg()
+
+        class MockResponse:
+            choices = [MockChoice()]
+
+        class MockCompletions:
+            @staticmethod
+            def create(**kwargs):
+                return MockResponse()
+
+        class MockChat:
+            completions = MockCompletions()
+
+        class MockLLM:
+            chat = MockChat()
+
+        result = query_split("什么是机器学习", MockLLM(), split_enabled=True)
+        assert len(result) == 3
+        assert "机器学习的定义" in result
+
+
+class TestHybridRetrieverQueryPreprocess:
+    """测试 HybridRetriever Query 预处理集成"""
+
+    def test_set_llm_client(self):
+        """测试设置 LLM 客户端"""
+        chunks = ["chunk0", "chunk1", "chunk2"]
+        retriever = HybridRetriever(
+            chunks=chunks,
+            embedding_model="BAAI/bge-small-en-v1.5",
+            embedding_cache_dir="./models/embeddings",
+            query_preprocess_enabled=True,
+        )
+
+        class MockLLM:
+            pass
+
+        retriever.set_llm_client(MockLLM())
+        assert retriever.llm_client is not None
+
+    def test_search_without_preprocess(self):
+        """测试不启用预处理时的检索"""
+        chunks = ["chunk0", "chunk1", "chunk2", "chunk3", "chunk4"]
+        retriever = HybridRetriever(
+            chunks=chunks,
+            embedding_model="BAAI/bge-small-en-v1.5",
+            embedding_cache_dir="./models/embeddings",
+            dense_k=3,
+            rerank_enabled=False,
+            query_preprocess_enabled=False,
+        )
+
+        result = retriever.search("chunk1", top_k=2)
+        assert isinstance(result, list)
+        assert len(result) <= 2
+
+    def test_search_with_preprocess_no_llm(self):
+        """测试启用预处理但无 LLM 时的检索"""
+        chunks = ["chunk0", "chunk1", "chunk2", "chunk3", "chunk4"]
+        retriever = HybridRetriever(
+            chunks=chunks,
+            embedding_model="BAAI/bge-small-en-v1.5",
+            embedding_cache_dir="./models/embeddings",
+            dense_k=3,
+            rerank_enabled=False,
+            query_preprocess_enabled=True,
+        )
+
+        result = retriever.search("chunk1", top_k=2)
+        assert isinstance(result, list)
+        assert len(result) <= 2
+
+    def test_query_preprocess_params_in_constructor(self):
+        """测试构造函数参数"""
+        chunks = ["chunk0", "chunk1"]
+        retriever = HybridRetriever(
+            chunks=chunks,
+            embedding_model="BAAI/bge-small-en-v1.5",
+            embedding_cache_dir="./models/embeddings",
+            query_preprocess_enabled=True,
+            query_rewrite_enabled=False,
+            query_split_enabled=False,
+        )
+
+        assert retriever.query_preprocess_enabled is True
+        assert retriever.query_rewrite_enabled is False
+        assert retriever.query_split_enabled is False

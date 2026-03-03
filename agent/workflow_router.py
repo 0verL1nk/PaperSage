@@ -1,9 +1,11 @@
 import json
+import logging
 from typing import Any
 
 from .multi_agent_a2a import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
 from .stream import extract_result_text
 
+logger = logging.getLogger(__name__)
 
 WORKFLOW_LABELS = {
     WORKFLOW_REACT: "ReAct（Tool+Memory）",
@@ -46,6 +48,7 @@ def _route_with_llm(
     prompt: str,
     coordinator: Any,
 ) -> tuple[str, str] | None:
+    logger.debug("Workflow routing via LLM: prompt_len=%s", len(prompt))
     try:
         result = coordinator.planner_agent.invoke(
             {
@@ -61,9 +64,11 @@ def _route_with_llm(
         text = extract_result_text(result) if isinstance(result, dict) else str(result)
         json_block = _extract_json_block(text)
         if not json_block:
+            logger.debug("Workflow router LLM output missing JSON block")
             return None
         payload = json.loads(json_block)
         if not isinstance(payload, dict):
+            logger.debug("Workflow router LLM payload is not dict")
             return None
         mode_value = payload.get("mode")
         reason_value = payload.get("reason")
@@ -71,9 +76,12 @@ def _route_with_llm(
             return None
         normalized_mode = _normalize_mode(mode_value)
         if not normalized_mode:
+            logger.debug("Workflow router LLM mode invalid: raw_mode=%s", mode_value)
             return None
+        logger.info("Workflow routed by LLM: mode=%s", normalized_mode)
         return normalized_mode, f"LLM路由：{reason_value}"
     except Exception:
+        logger.exception("Workflow router LLM failed, fallback to heuristic")
         return None
 
 
@@ -125,4 +133,6 @@ def auto_select_workflow_mode(
         routed = _route_with_llm(prompt, coordinator)
         if routed is not None:
             return routed
-    return _heuristic_route(prompt)
+    fallback = _heuristic_route(prompt)
+    logger.info("Workflow routed by heuristic: mode=%s reason=%s", fallback[0], fallback[1])
+    return fallback

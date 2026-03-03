@@ -23,6 +23,7 @@ def test_pages_boot_without_exceptions(monkeypatch, tmp_path: Path) -> None:
     page_files = [
         "pages/1_📁_文件中心.py",
         "pages/2_⚙️_设置中心.py",
+        "pages/3_🗂️_项目中心.py",
     ]
 
     for page_file in page_files:

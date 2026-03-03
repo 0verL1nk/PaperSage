@@ -14,6 +14,7 @@ import textract
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
+from agent.logging_utils import configure_application_logging
 from agent.settings import load_agent_settings
 from agent.llm_provider import build_openai_compatible_chat_model
 from .schemas import FileRecord
@@ -108,6 +109,7 @@ def init_database(db_name: str):
     ensure_files_table_columns(db_name)
     ensure_users_model_name_column(db_name)
     ensure_users_base_url_column(db_name)
+    ensure_projects_tables(db_name)
 
     # 初始化任务状态表
     from .task_queue import init_task_table
@@ -191,6 +193,438 @@ def ensure_files_table_columns(db_name="./database.sqlite"):
 
     conn.commit()
     conn.close()
+
+
+def _now_str() -> str:
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def ensure_projects_tables(db_name: str = "./database.sqlite") -> None:
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_uid TEXT UNIQUE NOT NULL,
+            uuid TEXT NOT NULL,
+            project_name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            archived INTEGER DEFAULT 0
+        )
+    """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_uid TEXT NOT NULL,
+            file_uid TEXT NOT NULL,
+            uuid TEXT NOT NULL,
+            is_active INTEGER DEFAULT 1,
+            added_at TEXT NOT NULL,
+            UNIQUE(project_uid, file_uid)
+        )
+    """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_uid TEXT UNIQUE NOT NULL,
+            project_uid TEXT NOT NULL,
+            uuid TEXT NOT NULL,
+            session_name TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            is_pinned INTEGER DEFAULT 0
+        )
+    """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_projects_uuid_updated_at ON projects(uuid, updated_at DESC)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_files_project_uid ON project_files(project_uid)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_files_uuid ON project_files(uuid)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_sessions_project_uid ON project_sessions(project_uid, updated_at DESC)"
+    )
+
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_outputs'"
+    )
+    has_agent_outputs = cursor.fetchone() is not None
+    if has_agent_outputs:
+        cursor.execute("PRAGMA table_info(agent_outputs)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        if "project_uid" not in existing_columns:
+            cursor.execute("ALTER TABLE agent_outputs ADD COLUMN project_uid TEXT")
+        if "session_uid" not in existing_columns:
+            cursor.execute("ALTER TABLE agent_outputs ADD COLUMN session_uid TEXT")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_outputs_uuid_project ON agent_outputs(uuid, project_uid, created_at)"
+        )
+
+    conn.commit()
+    conn.close()
+
+
+def create_project(
+    uuid: str,
+    project_name: str,
+    description: str = "",
+    db_name: str = "./database.sqlite",
+) -> dict[str, Any]:
+    ensure_projects_tables(db_name)
+    project_uid = gen_uuid()
+    now = _now_str()
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO projects (project_uid, uuid, project_name, description, created_at, updated_at, archived)
+        VALUES (?, ?, ?, ?, ?, ?, 0)
+    """,
+        (project_uid, uuid, project_name.strip() or "未命名项目", description, now, now),
+    )
+    conn.commit()
+    conn.close()
+    return {
+        "project_uid": project_uid,
+        "uuid": uuid,
+        "project_name": project_name.strip() or "未命名项目",
+        "description": description,
+        "created_at": now,
+        "updated_at": now,
+        "archived": 0,
+    }
+
+
+def list_projects(
+    uuid: str,
+    include_archived: bool = False,
+    db_name: str = "./database.sqlite",
+) -> list[dict[str, Any]]:
+    ensure_projects_tables(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    if include_archived:
+        cursor.execute(
+            """
+            SELECT project_uid, uuid, project_name, description, created_at, updated_at, archived
+            FROM projects
+            WHERE uuid = ?
+            ORDER BY updated_at DESC, id DESC
+        """,
+            (uuid,),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT project_uid, uuid, project_name, description, created_at, updated_at, archived
+            FROM projects
+            WHERE uuid = ? AND archived = 0
+            ORDER BY updated_at DESC, id DESC
+        """,
+            (uuid,),
+        )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "project_uid": row[0],
+            "uuid": row[1],
+            "project_name": row[2],
+            "description": row[3] or "",
+            "created_at": row[4],
+            "updated_at": row[5],
+            "archived": int(row[6] or 0),
+        }
+        for row in rows
+    ]
+
+
+def get_project_by_uid(
+    project_uid: str,
+    uuid: str,
+    db_name: str = "./database.sqlite",
+) -> dict[str, Any] | None:
+    ensure_projects_tables(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT project_uid, uuid, project_name, description, created_at, updated_at, archived
+        FROM projects
+        WHERE project_uid = ? AND uuid = ?
+        LIMIT 1
+    """,
+        (project_uid, uuid),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "project_uid": row[0],
+        "uuid": row[1],
+        "project_name": row[2],
+        "description": row[3] or "",
+        "created_at": row[4],
+        "updated_at": row[5],
+        "archived": int(row[6] or 0),
+    }
+
+
+def update_project(
+    project_uid: str,
+    uuid: str,
+    project_name: str | None = None,
+    description: str | None = None,
+    archived: int | None = None,
+    db_name: str = "./database.sqlite",
+) -> bool:
+    ensure_projects_tables(db_name)
+    updates: list[str] = []
+    values: list[Any] = []
+    if project_name is not None:
+        updates.append("project_name = ?")
+        values.append(project_name.strip() or "未命名项目")
+    if description is not None:
+        updates.append("description = ?")
+        values.append(description)
+    if archived is not None:
+        updates.append("archived = ?")
+        values.append(1 if int(archived) else 0)
+    updates.append("updated_at = ?")
+    values.append(_now_str())
+    values.extend([project_uid, uuid])
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        UPDATE projects
+        SET {", ".join(updates)}
+        WHERE project_uid = ? AND uuid = ?
+    """,
+        tuple(values),
+    )
+    affected = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return affected
+
+
+def add_file_to_project(
+    project_uid: str,
+    file_uid: str,
+    uuid: str,
+    is_active: int = 1,
+    db_name: str = "./database.sqlite",
+) -> bool:
+    ensure_projects_tables(db_name)
+    now = _now_str()
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO project_files (project_uid, file_uid, uuid, is_active, added_at)
+        VALUES (?, ?, ?, ?, ?)
+    """,
+        (project_uid, file_uid, uuid, 1 if int(is_active) else 0, now),
+    )
+    cursor.execute(
+        """
+        UPDATE project_files
+        SET is_active = ?, added_at = ?
+        WHERE project_uid = ? AND file_uid = ? AND uuid = ?
+    """,
+        (1 if int(is_active) else 0, now, project_uid, file_uid, uuid),
+    )
+    cursor.execute(
+        """
+        UPDATE projects
+        SET updated_at = ?
+        WHERE project_uid = ? AND uuid = ?
+    """,
+        (now, project_uid, uuid),
+    )
+    affected = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return affected
+
+
+def remove_file_from_project(
+    project_uid: str,
+    file_uid: str,
+    uuid: str,
+    db_name: str = "./database.sqlite",
+) -> bool:
+    ensure_projects_tables(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        DELETE FROM project_files
+        WHERE project_uid = ? AND file_uid = ? AND uuid = ?
+    """,
+        (project_uid, file_uid, uuid),
+    )
+    affected = cursor.rowcount > 0
+    if affected:
+        cursor.execute(
+            """
+            UPDATE projects
+            SET updated_at = ?
+            WHERE project_uid = ? AND uuid = ?
+        """,
+            (_now_str(), project_uid, uuid),
+        )
+    conn.commit()
+    conn.close()
+    return affected
+
+
+def set_project_file_active(
+    project_uid: str,
+    file_uid: str,
+    uuid: str,
+    is_active: int,
+    db_name: str = "./database.sqlite",
+) -> bool:
+    ensure_projects_tables(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    now = _now_str()
+    cursor.execute(
+        """
+        UPDATE project_files
+        SET is_active = ?, added_at = ?
+        WHERE project_uid = ? AND file_uid = ? AND uuid = ?
+    """,
+        (1 if int(is_active) else 0, now, project_uid, file_uid, uuid),
+    )
+    affected = cursor.rowcount > 0
+    if affected:
+        cursor.execute(
+            """
+            UPDATE projects
+            SET updated_at = ?
+            WHERE project_uid = ? AND uuid = ?
+        """,
+            (now, project_uid, uuid),
+        )
+    conn.commit()
+    conn.close()
+    return affected
+
+
+def list_project_files(
+    project_uid: str,
+    uuid: str,
+    active_only: bool = True,
+    db_name: str = "./database.sqlite",
+) -> list[dict[str, Any]]:
+    ensure_projects_tables(db_name)
+    ensure_files_table_columns(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    active_filter = "AND pf.is_active = 1" if active_only else ""
+    cursor.execute(
+        f"""
+        SELECT
+            pf.project_uid,
+            pf.file_uid,
+            pf.is_active,
+            pf.added_at,
+            f.file_path,
+            COALESCE(f.original_filename, '') AS file_name,
+            COALESCE(f.created_at, '') AS created_at
+        FROM project_files pf
+        JOIN files f ON f.uid = pf.file_uid
+        WHERE pf.project_uid = ? AND pf.uuid = ?
+        {active_filter}
+        ORDER BY pf.added_at DESC, pf.id DESC
+    """,
+        (project_uid, uuid),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        record = FileRecord.model_validate(
+            {
+                "file_path": row[4] or "",
+                "file_name": row[5] or "",
+                "uid": row[1] or "",
+                "created_at": row[6] or "",
+            }
+        ).model_dump()
+        record["project_uid"] = row[0]
+        record["is_active"] = int(row[2] or 0)
+        record["added_at"] = row[3] or ""
+        normalized.append(record)
+    return normalized
+
+
+def get_file_project_counts(
+    uuid: str,
+    db_name: str = "./database.sqlite",
+) -> dict[str, int]:
+    ensure_projects_tables(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT file_uid, COUNT(*)
+        FROM project_files
+        WHERE uuid = ?
+        GROUP BY file_uid
+    """,
+        (uuid,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return {str(file_uid): int(count) for file_uid, count in rows}
+
+
+def ensure_default_project_for_user(
+    uuid: str,
+    db_name: str = "./database.sqlite",
+) -> str:
+    ensure_projects_tables(db_name)
+    projects = list_projects(uuid=uuid, include_archived=True, db_name=db_name)
+    if projects:
+        default_project_uid = str(projects[0]["project_uid"])
+    else:
+        created = create_project(
+            uuid=uuid,
+            project_name="默认项目",
+            description="系统自动创建",
+            db_name=db_name,
+        )
+        default_project_uid = str(created["project_uid"])
+
+    user_files = get_user_files(uuid, db_name=db_name)
+    for file_item in user_files:
+        file_uid = str(file_item.get("uid") or "").strip()
+        if not file_uid:
+            continue
+        add_file_to_project(
+            project_uid=default_project_uid,
+            file_uid=file_uid,
+            uuid=uuid,
+            is_active=1,
+            db_name=db_name,
+        )
+    return default_project_uid
 
 
 def gen_random_str(length: int) -> str:
@@ -281,6 +715,7 @@ def ensure_local_user(
     existing = cursor.fetchone()
     if existing:
         conn.close()
+        ensure_default_project_for_user(user_uuid, db_name=db_name)
         return
 
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -318,6 +753,7 @@ def ensure_local_user(
     )
     conn.commit()
     conn.close()
+    ensure_default_project_for_user(user_uuid, db_name=db_name)
 
 
 def is_token_expired(token, db_name="./database.sqlite"):
@@ -600,6 +1036,19 @@ def save_file_to_database(
     )
     conn.commit()
     conn.close()
+    try:
+        default_project_uid = ensure_default_project_for_user(
+            uuid_value, db_name="./database.sqlite"
+        )
+        add_file_to_project(
+            project_uid=default_project_uid,
+            file_uid=uid,
+            uuid=uuid_value,
+            is_active=1,
+            db_name="./database.sqlite",
+        )
+    except Exception:
+        pass
 
 
 # Return a dict including result and text,judge the result,1:success,-1:failed.
@@ -743,32 +1192,14 @@ def generate_mindmap_data(text: str) -> dict[str, Any]:
 
 class LoggerManager:
     def __init__(self, log_level=logging.INFO):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.log_dir = os.path.join(base_dir, "logs")
-        self.log_level = log_level
-        os.makedirs(self.log_dir, exist_ok=True)
-
-        # 动态生成日志文件名（按日期）
-        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
-        log_file = os.path.join(self.log_dir, f"{current_date}.log")
-
-        # 配置日志记录器
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(self.log_level)
-
-        # 检查是否已添加处理器，避免重复
-        if not self.logger.handlers:
-            formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-
-            # 文件处理器
-            file_handler = logging.FileHandler(log_file, encoding="utf-8")
-            file_handler.setFormatter(formatter)
-            self.logger.addHandler(file_handler)
-
-            # 控制台处理器（可选）
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(formatter)
-            self.logger.addHandler(console_handler)
+        level_name = (
+            logging.getLevelName(log_level)
+            if isinstance(log_level, int)
+            else str(log_level)
+        )
+        configure_application_logging(default_level=str(level_name))
+        self.logger = logging.getLogger("llm_app.file_center")
+        self.logger.setLevel(log_level)
 
     def get_logger(self):
         return self.logger

@@ -77,6 +77,24 @@ def _parse_first_json_object(text: str) -> dict:
     raise ValueError("No valid JSON object found in model output")
 
 
+def _result_has_tool_call(result: dict, tool_name: str) -> bool:
+    raw_messages = result.get("messages", []) if isinstance(result, dict) else []
+    if not isinstance(raw_messages, list):
+        return False
+    for message in raw_messages:
+        tool_calls = getattr(message, "tool_calls", None)
+        if not isinstance(tool_calls, list):
+            continue
+        for call in tool_calls:
+            if isinstance(call, dict):
+                name = str(call.get("name") or "").strip()
+            else:
+                name = str(getattr(call, "name", "") or "").strip()
+            if name == tool_name:
+                return True
+    return False
+
+
 @pytest.fixture(scope="module")
 def live_config() -> dict[str, str]:
     _load_env_file(Path(".env"))
@@ -222,3 +240,26 @@ def test_live_mindmap_and_archive_roundtrip(
     records = list_agent_outputs(uuid=user_uuid, doc_uid=doc_uid, db_name=str(db_path))
     assert records
     assert records[0]["output_type"] == "mindmap"
+
+
+def test_live_agent_auto_calls_mindmap_skill(live_config: dict[str, str]) -> None:
+    session = create_paper_agent_session(
+        llm=_build_live_llm(live_config),
+        search_document_fn=_doc_search,
+    )
+    result = session.agent.invoke(
+        {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "请根据当前文档生成思维导图。先自行选择并调用合适的 skill，再输出严格 JSON。"
+                    ),
+                }
+            ]
+        },
+        config=session.runtime_config,
+    )
+
+    assert isinstance(result, dict)
+    assert _result_has_tool_call(result, "use_skill")

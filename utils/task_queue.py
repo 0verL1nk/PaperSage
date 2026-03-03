@@ -32,6 +32,8 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_DB = int(os.getenv("REDIS_DB", 0))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
 REDIS_URL = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
+REDIS_CONNECT_TIMEOUT = float(os.getenv("REDIS_CONNECT_TIMEOUT", "0.3"))
+REDIS_SOCKET_TIMEOUT = float(os.getenv("REDIS_SOCKET_TIMEOUT", "0.3"))
 
 # 创建 Redis 连接
 try:
@@ -41,10 +43,10 @@ try:
         db=REDIS_DB,
         password=REDIS_PASSWORD,
         decode_responses=True,
+        socket_connect_timeout=REDIS_CONNECT_TIMEOUT,
+        socket_timeout=REDIS_SOCKET_TIMEOUT,
     )
-    # 测试连接
-    redis_conn.ping()
-    logger.info("Redis connected for task queue")
+    logger.info("Redis client initialized for task queue")
 except Exception as e:
     logger.warning("Redis connection failed, fallback to sync execution: %s", e)
     redis_conn = None
