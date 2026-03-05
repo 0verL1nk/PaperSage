@@ -27,7 +27,11 @@ def main() -> None:
         st.session_state["uuid"] = "local-user"
     user_uuid = st.session_state["uuid"]
     ensure_local_user(user_uuid, db_name="./database.sqlite")
-    ensure_default_project_for_user(user_uuid, db_name="./database.sqlite")
+    ensure_default_project_for_user(
+        user_uuid,
+        db_name="./database.sqlite",
+        sync_existing_files=False,
+    )
 
     with st.expander("新建项目", expanded=False):
         new_project_name = st.text_input("项目名称", key="project_center_new_name")

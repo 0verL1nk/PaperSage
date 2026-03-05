@@ -279,7 +279,7 @@ def test_main_app_uses_persisted_extraction_cache(
     monkeypatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    import agent.rag_hybrid as rag_hybrid_module
+    import agent.rag.hybrid as rag_hybrid_module
 
     monkeypatch.setattr(
         rag_hybrid_module,

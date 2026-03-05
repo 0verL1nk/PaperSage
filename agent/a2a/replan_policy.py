@@ -1,4 +1,4 @@
-from .contracts import REVIEW_DECISION_PASS, REVIEW_DECISION_REVISE, get_review_decision
+from ..contracts import REVIEW_DECISION_PASS, REVIEW_DECISION_REVISE, get_review_decision
 
 
 def normalize_max_review_rounds(max_replan_rounds: int) -> int:

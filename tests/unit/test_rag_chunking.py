@@ -4,7 +4,7 @@
 """
 import pytest
 
-from agent.rag_chunking import (
+from agent.rag.chunking import (
     ChunkMetadata,
     StructuredChunk,
     SemanticAwareSplitter,

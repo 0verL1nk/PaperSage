@@ -1,6 +1,6 @@
 import pytest
 
-from agent.a2a_state_machine import (
+from agent.a2a.state_machine import (
     STATE_COMPLETED,
     STATE_FINALIZING,
     STATE_PLANNING,

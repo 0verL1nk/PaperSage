@@ -45,6 +45,33 @@ def extract_result_text(result: dict[str, Any]) -> str:
     return "抱歉，我暂时没有生成有效回复。"
 
 
+def extract_tool_names_from_result(result: Any) -> set[str]:
+    raw_messages = result.get("messages", []) if isinstance(result, dict) else []
+    if not isinstance(raw_messages, list):
+        return set()
+
+    tool_names: set[str] = set()
+    for message in raw_messages:
+        tool_calls = _message_attr(message, "tool_calls", None)
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                if isinstance(call, dict):
+                    name = str(call.get("name") or "").strip()
+                else:
+                    name = str(getattr(call, "name", "") or "").strip()
+                if name:
+                    tool_names.add(name)
+
+        msg_type = str(_message_attr(message, "type", "") or "").lower()
+        role = str(_message_attr(message, "role", "") or "").lower()
+        if msg_type == "tool" or role == "tool":
+            name = str(_message_attr(message, "name", "") or "").strip()
+            if name:
+                tool_names.add(name)
+
+    return tool_names
+
+
 def extract_stream_text(chunk: Any) -> str:
     candidate = chunk
     if isinstance(chunk, tuple) and len(chunk) > 0:

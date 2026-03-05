@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from agent.local_rag import _rerank_docs
+from agent.rag.local import _rerank_docs
 
 
 class _FakeReranker:

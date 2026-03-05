@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import sqlite3
 
 from utils.utils import (
     add_file_to_project,
@@ -91,3 +92,45 @@ def test_remove_binding_does_not_delete_other_project_membership(tmp_path: Path)
 
     assert all(item["uid"] != "uid-x" for item in files_first)
     assert any(item["uid"] == "uid-x" for item in files_second)
+
+
+def test_list_project_files_deduplicates_duplicate_file_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "database.sqlite"
+    init_database(str(db_path))
+    ensure_local_user("local-user", db_name=str(db_path))
+
+    file_path = tmp_path / "doc3.txt"
+    file_path.write_text("hello3", encoding="utf-8")
+
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        save_file_to_database(
+            original_file_name="doc3.txt",
+            uid="uid-z",
+            uuid_value="local-user",
+            md5_value="md5-z",
+            full_file_path=str(file_path),
+            current_time="2026-03-04 20:45:00",
+        )
+    finally:
+        os.chdir(cwd)
+
+    project = create_project(uuid="local-user", project_name="dedupe", db_name=str(db_path))
+    add_file_to_project(project["project_uid"], "uid-z", "local-user", db_name=str(db_path))
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO files (original_filename, uid, md5, file_path, uuid, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        ("doc3-copy.txt", "uid-z", "md5-z", str(file_path), "local-user", "2026-03-04 20:46:00"),
+    )
+    conn.commit()
+    conn.close()
+
+    listed = list_project_files(project["project_uid"], "local-user", db_name=str(db_path))
+
+    assert len([item for item in listed if item["uid"] == "uid-z"]) == 1

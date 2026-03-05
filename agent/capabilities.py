@@ -4,7 +4,9 @@ import os
 import re
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import quote
 
+import httpx
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -68,6 +70,13 @@ class SkillInput(BaseModel):
 
 
 DEFAULT_MAX_QUERY_CHARS = 1200
+DEFAULT_WEB_MAX_RESULTS = 5
+DEFAULT_WEB_TIMEOUT_SECONDS = 8.0
+DEFAULT_SEARXNG_INSTANCES = (
+    "https://searx.be",
+    "https://search.inetol.net",
+    "https://opnxng.com",
+)
 _DANGEROUS_QUERY_PATTERNS = [
     r"ignore\s+previous\s+instructions",
     r"system\s+prompt",
@@ -130,24 +139,143 @@ def _build_native_web_search_client():
 
     class _NativeDuckDuckGoSearch:
         def run(self, query: str) -> str:
-            with DDGS() as client:
-                results = client.text(query, max_results=5)
-            if not isinstance(results, list) or not results:
+            with DDGS(timeout=int(DEFAULT_WEB_TIMEOUT_SECONDS)) as client:
+                results = client.text(query, max_results=DEFAULT_WEB_MAX_RESULTS)
+            return _format_web_results(results, title_key="title", url_key="href", snippet_key="body")
+
+    return _NativeDuckDuckGoSearch()
+
+
+def _parse_searxng_instances() -> list[str]:
+    configured = str(os.getenv("AGENT_SEARXNG_BASE_URLS", "") or "").strip()
+    if configured:
+        items = [item.strip().rstrip("/") for item in configured.split(",")]
+        return [item for item in items if item]
+    return [item.rstrip("/") for item in DEFAULT_SEARXNG_INSTANCES]
+
+
+def _format_web_results(
+    results: Any,
+    *,
+    title_key: str,
+    url_key: str,
+    snippet_key: str,
+) -> str:
+    if not isinstance(results, list) or not results:
+        return "No web search results found."
+    lines: list[str] = []
+    for idx, item in enumerate(results[:DEFAULT_WEB_MAX_RESULTS], start=1):
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get(title_key) or "").strip()
+        href = str(item.get(url_key) or "").strip()
+        body = str(item.get(snippet_key) or "").strip()
+        snippet = _preview(body, limit=180) if body else ""
+        lines.append(
+            f"{idx}. {title or 'Untitled'}\nURL: {href or 'n/a'}\nSnippet: {snippet or '-'}"
+        )
+    return "\n\n".join(lines) if lines else "No web search results found."
+
+
+def _build_searxng_web_search_client():
+    instances = _parse_searxng_instances()
+    if not instances:
+        return None
+
+    class _SearxngWebSearch:
+        def __init__(self, base_urls: list[str]):
+            self.base_urls = base_urls
+
+        def run(self, query: str) -> str:
+            last_error = "unknown error"
+            for base_url in self.base_urls:
+                try:
+                    response = httpx.get(
+                        f"{base_url}/search",
+                        params={
+                            "q": query,
+                            "format": "json",
+                            "safesearch": "1",
+                        },
+                        headers={"User-Agent": "llm-app/1.0 (+search_web)"},
+                        timeout=DEFAULT_WEB_TIMEOUT_SECONDS,
+                    )
+                    if response.status_code >= 400:
+                        last_error = f"{base_url} status={response.status_code}"
+                        continue
+                    payload = response.json()
+                    if not isinstance(payload, dict):
+                        last_error = f"{base_url} invalid json payload"
+                        continue
+                    results = payload.get("results")
+                    rendered = _format_web_results(
+                        results,
+                        title_key="title",
+                        url_key="url",
+                        snippet_key="content",
+                    )
+                    if rendered != "No web search results found.":
+                        return rendered
+                    last_error = f"{base_url} no results"
+                except Exception as exc:
+                    last_error = f"{base_url} {exc}"
+                    continue
+            raise RuntimeError(f"SearXNG unavailable: {last_error}")
+
+    return _SearxngWebSearch(instances)
+
+
+def _build_wikipedia_web_search_client():
+    class _WikipediaWebSearch:
+        def run(self, query: str) -> str:
+            response = httpx.get(
+                "https://en.wikipedia.org/w/api.php",
+                params={
+                    "action": "query",
+                    "list": "search",
+                    "srsearch": query,
+                    "format": "json",
+                    "srlimit": DEFAULT_WEB_MAX_RESULTS,
+                },
+                headers={"User-Agent": "llm-app/1.0 (+search_web)"},
+                timeout=DEFAULT_WEB_TIMEOUT_SECONDS,
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(f"wikipedia status={response.status_code}")
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise RuntimeError("wikipedia invalid payload")
+            query_block = payload.get("query")
+            search_items = query_block.get("search") if isinstance(query_block, dict) else None
+            if not isinstance(search_items, list):
                 return "No web search results found."
-            lines: list[str] = []
-            for idx, item in enumerate(results[:5], start=1):
+            normalized: list[dict[str, str]] = []
+            for item in search_items[:DEFAULT_WEB_MAX_RESULTS]:
                 if not isinstance(item, dict):
                     continue
                 title = str(item.get("title") or "").strip()
-                href = str(item.get("href") or "").strip()
-                body = str(item.get("body") or "").strip()
-                snippet = _preview(body, limit=180) if body else ""
-                lines.append(
-                    f"{idx}. {title or 'Untitled'}\nURL: {href or 'n/a'}\nSnippet: {snippet or '-'}"
+                snippet = str(item.get("snippet") or "").strip()
+                snippet = re.sub(r"<[^>]+>", "", snippet)
+                pageid = item.get("pageid")
+                if isinstance(pageid, int):
+                    url = f"https://en.wikipedia.org/?curid={pageid}"
+                else:
+                    url = f"https://en.wikipedia.org/wiki/{quote(title.replace(' ', '_'))}"
+                normalized.append(
+                    {
+                        "title": title or "Untitled",
+                        "url": url,
+                        "content": snippet,
+                    }
                 )
-            return "\n\n".join(lines) if lines else "No web search results found."
+            return _format_web_results(
+                normalized,
+                title_key="title",
+                url_key="url",
+                snippet_key="content",
+            )
 
-    return _NativeDuckDuckGoSearch()
+    return _WikipediaWebSearch()
 
 
 def build_agent_tools(
@@ -233,15 +361,39 @@ def build_agent_tools(
     else:
         read_document = None
 
-    web_search_client = _build_native_web_search_client()
-    if web_search_client is not None:
-        logger.info("tool.search_web provider initialized: native_duckduckgo_search")
-    else:
-        try:
-            web_search_client = DuckDuckGoSearchRun(name="search_web")
-            logger.info("tool.search_web provider initialized: langchain_duckduckgo")
-        except Exception as exc:
-            logger.warning("tool.search_web langchain provider unavailable: %s", exc)
+    web_search_clients: list[tuple[str, Any]] = []
+
+    searxng_client = _build_searxng_web_search_client()
+    if searxng_client is not None:
+        web_search_clients.append(("searxng_public_pool", searxng_client))
+        logger.info("tool.search_web provider initialized: searxng_public_pool")
+
+    wikipedia_client = _build_wikipedia_web_search_client()
+    if wikipedia_client is not None:
+        web_search_clients.append(("wikipedia_api", wikipedia_client))
+        logger.info("tool.search_web provider initialized: wikipedia_api")
+
+    if not web_search_clients:
+        logger.warning("tool.search_web no primary provider initialized")
+
+    if not web_search_clients:
+        allow_ddg_fallback = _env_flag("AGENT_WEB_ENABLE_DDG_FALLBACK", default=False)
+        if allow_ddg_fallback:
+            web_search_client = _build_native_web_search_client()
+            if web_search_client is not None:
+                web_search_clients.append(("native_duckduckgo_search", web_search_client))
+                logger.info("tool.search_web provider fallback initialized: native_duckduckgo_search")
+            else:
+                try:
+                    web_search_client = DuckDuckGoSearchRun(name="search_web")
+                    web_search_clients.append(("langchain_duckduckgo", web_search_client))
+                    logger.info("tool.search_web provider fallback initialized: langchain_duckduckgo")
+                except Exception as exc:
+                    logger.warning("tool.search_web ddg fallback unavailable: %s", exc)
+        else:
+            logger.warning(
+                "tool.search_web provider unavailable: searxng disabled/unreachable and ddg fallback disabled"
+            )
 
     @tool(
         "search_web",
@@ -261,20 +413,31 @@ def build_agent_tools(
         if _is_dangerous_query(safe_query):
             logger.warning("tool.search_web blocked by policy")
             return "Blocked by tool policy: query appears unsafe for web search."
-        if web_search_client is None:
+        if not web_search_clients:
             logger.warning("tool.search_web unavailable: no provider")
             return (
                 "Web search is unavailable in current environment. "
-                "Install 'ddgs' or 'duckduckgo-search' to enable it."
+                "Configure AGENT_SEARXNG_BASE_URLS or enable AGENT_WEB_ENABLE_DDG_FALLBACK=1."
             )
-        try:
-            response = web_search_client.run(safe_query)
-            response_text = response if isinstance(response, str) else str(response)
-            logger.info("tool.search_web success: response_len=%s", len(response_text))
-            return response_text
-        except Exception as exc:
-            logger.exception("tool.search_web failed")
-            return f"Web search failed: {exc}"
+        errors: list[str] = []
+        for provider_name, provider in web_search_clients:
+            try:
+                response = provider.run(safe_query)
+                response_text = response if isinstance(response, str) else str(response)
+                if not response_text or response_text.strip() == "No web search results found.":
+                    errors.append(f"{provider_name}: no results")
+                    continue
+                logger.info(
+                    "tool.search_web success: provider=%s response_len=%s",
+                    provider_name,
+                    len(response_text),
+                )
+                return response_text
+            except Exception as exc:
+                errors.append(f"{provider_name}: {exc}")
+                logger.info("tool.search_web provider failed: %s (%s)", provider_name, exc)
+        logger.error("tool.search_web failed: providers=%s", " | ".join(errors))
+        return f"Web search failed: {' | '.join(errors)}"
 
     @tool(
         "search_papers",

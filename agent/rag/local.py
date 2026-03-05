@@ -6,7 +6,7 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from .evidence import EvidenceItem, EvidencePayload
-from .settings import load_agent_settings
+from ..settings import load_agent_settings
 
 
 def ensure_local_embedding_model_downloaded() -> str:

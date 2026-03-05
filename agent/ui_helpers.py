@@ -8,11 +8,16 @@ from pyecharts import options as opts
 from pyecharts.charts import Tree
 
 from .archive import list_agent_outputs
+from .domain.trace import phase_label_from_performative, phase_summary
 from .metrics import create_session_metrics, summarize_session_metrics
-from .multi_agent_a2a import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
-from .workflow_router import WORKFLOW_LABELS
 from utils.compare_parser import method_compare_to_csv, parse_method_compare_payload
 from utils.utils import extract_json_string
+
+LEGACY_WORKFLOW_LABELS = {
+    "react": "ReAct（Tool+Memory）",
+    "plan_act": "Plan-Act（A2A协调）",
+    "plan_act_replan": "Plan-Act-RePlan（A2A协调）",
+}
 
 
 def _confidence_badge(score: float) -> tuple[str, str]:
@@ -75,26 +80,11 @@ def _preview_text(text: str, limit: int = 140) -> str:
 
 
 def _phase_label_from_performative(performative: str) -> str:
-    mapping = {
-        "request": "接收请求",
-        "dispatch": "调度中",
-        "plan": "规划",
-        "draft": "生成草稿",
-        "review": "复核",
-        "replan": "重规划",
-        "final": "输出最终答案",
-    }
-    return mapping.get(performative, "处理中")
+    return phase_label_from_performative(performative)
 
 
 def _phase_summary(phase_labels: list[str]) -> str:
-    if not phase_labels:
-        return "无"
-    unique: list[str] = []
-    for label in phase_labels:
-        if not unique or unique[-1] != label:
-            unique.append(label)
-    return " -> ".join(unique)
+    return phase_summary(phase_labels)
 
 
 def _content_to_text(content) -> str:
@@ -354,11 +344,6 @@ def _render_method_compare_if_any(
 def _infer_output_type(prompt: str, mindmap_data: dict | None) -> str:
     if mindmap_data:
         return "mindmap"
-    normalized = prompt.lower()
-    if "总结" in prompt or "summary" in normalized:
-        return "summary"
-    if "改写" in prompt or "润色" in prompt or "rewrite" in normalized:
-        return "rewrite"
     return "qa"
 
 
@@ -406,23 +391,23 @@ def _get_doc_metrics(doc_uid: str) -> dict:
 
 def _render_workflow_metrics(doc_uid: str) -> None:
     summary = summarize_session_metrics(_get_doc_metrics(doc_uid))
-    with st.expander("查看工作流运行指标（会话内）", expanded=False):
+    with st.expander("查看执行策略指标（会话内）", expanded=False):
         cols = st.columns(3)
         cols[0].metric("总问答数", summary["total_queries"])
         cols[1].metric("平均耗时 (ms)", f"{summary['average_latency_ms']:.0f}")
         cols[2].metric("最大耗时 (ms)", f"{summary['max_latency_ms']:.0f}")
         st.caption(
-            "路由分布："
-            f"ReAct={summary['workflow_counts'][WORKFLOW_REACT]} | "
-            f"Plan-Act={summary['workflow_counts'][WORKFLOW_PLAN_ACT]} | "
-            f"Plan-Act-RePlan={summary['workflow_counts'][WORKFLOW_PLAN_ACT_REPLAN]}"
+            "策略开关："
+            f"plan={summary['plan_enabled_count']} ({summary['plan_enabled_ratio'] * 100:.1f}%) | "
+            f"team={summary['team_enabled_count']} ({summary['team_enabled_ratio'] * 100:.1f}%)"
         )
         st.caption(
-            f"重规划统计：total={summary['replan_rounds_total']} | "
-            f"max={summary['replan_rounds_max']} | "
-            f"avg={summary['average_replan_rounds']:.2f}"
+            f"Team 轮次：total={summary['team_rounds_total']} | "
+            f"max={summary['team_rounds_max']} | "
+            f"avg={summary['average_team_rounds']:.2f} | "
+            f"fallback={summary['team_fallback_count']}"
         )
-        st.caption(f"A2A trace 事件总数：{summary['trace_events_total']}")
+        st.caption(f"Trace 事件总数：{summary['trace_events_total']}")
 
 
 def _render_context_usage(doc_uid: str) -> None:
@@ -651,33 +636,83 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
                 with st.expander("自动压缩摘要（历史对话）", expanded=False):
                     st.write(message["content"])
                 continue
-            st.write(message["content"])
-            workflow_mode = message.get("workflow_mode")
-            if isinstance(workflow_mode, str):
-                label = WORKFLOW_LABELS.get(workflow_mode, workflow_mode)
-                reason = message.get("workflow_reason") or ""
-                reason_chip = (
-                    f"<span class='llm-chip'>{reason}</span>"
-                    if isinstance(reason, str) and reason
+            mindmap_data = message.get("mindmap_data")
+            if mindmap_data:
+                _render_mindmap_if_any(mindmap_data)
+                with st.expander("查看思维导图 JSON", expanded=False):
+                    st.code(str(message.get("content", "")), language="json")
+            else:
+                st.write(message["content"])
+            policy_decision = message.get("policy_decision")
+            if isinstance(policy_decision, dict):
+                plan_enabled = bool(policy_decision.get("plan_enabled", False))
+                team_enabled = bool(policy_decision.get("team_enabled", False))
+                reason = str(policy_decision.get("reason") or "").strip()
+                source = str(policy_decision.get("source") or "").strip()
+                chips = (
+                    f"<span class='llm-chip'>Plan {'ON' if plan_enabled else 'OFF'}</span>"
+                    f"<span class='llm-chip'>Team {'ON' if team_enabled else 'OFF'}</span>"
+                )
+                if source:
+                    chips += f"<span class='llm-chip'>Source {source}</span>"
+                if reason:
+                    chips += f"<span class='llm-chip'>{reason}</span>"
+                st.markdown(
+                    (
+                        "<div class='llm-chip-row'>"
+                        f"{chips}"
+                        "</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
+            else:
+                workflow_mode = message.get("workflow_mode")
+                if isinstance(workflow_mode, str):
+                    label = LEGACY_WORKFLOW_LABELS.get(workflow_mode, workflow_mode)
+                    reason = message.get("workflow_reason") or ""
+                    reason_chip = (
+                        f"<span class='llm-chip'>{reason}</span>"
+                        if isinstance(reason, str) and reason
+                        else ""
+                    )
+                    st.markdown(
+                        (
+                            "<div class='llm-chip-row'>"
+                            f"<span class='llm-chip'>自动路由 {label}</span>"
+                            f"{reason_chip}"
+                            "</div>"
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+            team_execution = message.get("team_execution")
+            if isinstance(team_execution, dict):
+                member_count = int(team_execution.get("member_count", 0))
+                rounds = int(team_execution.get("rounds", 0))
+                fallback_reason = str(team_execution.get("fallback_reason") or "").strip()
+                fallback_chip = (
+                    f"<span class='llm-chip'>fallback {fallback_reason}</span>"
+                    if fallback_reason
                     else ""
                 )
                 st.markdown(
                     (
                         "<div class='llm-chip-row'>"
-                        f"<span class='llm-chip'>自动路由 {label}</span>"
-                        f"{reason_chip}"
+                        f"<span class='llm-chip'>成员 {member_count}</span>"
+                        f"<span class='llm-chip'>轮次 {rounds}</span>"
+                        f"{fallback_chip}"
                         "</div>"
                     ),
                     unsafe_allow_html=True,
                 )
             latency_ms = message.get("latency_ms")
             if isinstance(latency_ms, (int, float)):
-                replan_rounds = int(message.get("replan_rounds", 0))
+                team_rounds = int(message.get("team_rounds", message.get("replan_rounds", 0)))
                 st.markdown(
                     (
                         "<div class='llm-chip-row'>"
                         f"<span class='llm-chip'>耗时 {float(latency_ms):.0f} ms</span>"
-                        f"<span class='llm-chip'>重规划 {replan_rounds}</span>"
+                        f"<span class='llm-chip'>Team rounds {team_rounds}</span>"
                         "</div>"
                     ),
                     unsafe_allow_html=True,
@@ -691,7 +726,6 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
             trace_payload = message.get("acp_trace")
             if isinstance(trace_payload, list) and trace_payload:
                 _render_acp_trace(trace_payload)
-            _render_mindmap_if_any(message.get("mindmap_data"))
             _render_method_compare_if_any(
                 message.get("method_compare_data"),
                 key_prefix=f"history_{message_index}",

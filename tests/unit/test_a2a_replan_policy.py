@@ -1,4 +1,4 @@
-from agent.a2a_replan_policy import (
+from agent.a2a.replan_policy import (
     has_replan_budget,
     normalize_max_review_rounds,
     review_needs_revision,

@@ -1,4 +1,4 @@
-from agent.evidence import EvidenceItem, EvidencePayload
+from agent.rag.evidence import EvidenceItem, EvidencePayload
 
 
 def test_evidence_item_schema_fields():

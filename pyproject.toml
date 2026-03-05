@@ -8,9 +8,10 @@ dependencies = [
     "streamlit>=1.54.0,<1.55.0",
     "streamlit-extras>=0.3.0",
     "streamlit-echarts>=0.4.0",
-    "textract>=1.6.5,<1.7.0",
+    "pymupdf>=1.24.0,<2.0.0",
+    "markitdown>=0.1.0",
     "openai>=2.20.0,<3.0.0",
-    "httpx<0.28.0",
+    "httpx>=0.28.1,<1.0.0",
     "pyecharts>=2.0.7,<2.1.0",
     "duckduckgo-search>=6.3.7,<6.4.0",
     "langchain>=1.0.0,<2.0.0",
@@ -21,6 +22,7 @@ dependencies = [
     "flashrank>=0.2.10,<1.0.0",
     "redis>=5.0.0",
     "rq>=1.15.0",
+    "a2a-sdk>=0.3.24",
 ]
 
 [project.optional-dependencies]

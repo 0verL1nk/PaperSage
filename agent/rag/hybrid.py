@@ -14,7 +14,7 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from .evidence import EvidenceItem, EvidencePayload
-from .settings import load_agent_settings
+from ..settings import load_agent_settings
 
 logger = logging.getLogger(__name__)
 
@@ -798,7 +798,7 @@ def build_local_evidence_retriever_with_settings(
             top_k=settings.rag_top_k,
         )
 
-    from .local_rag import build_local_evidence_retriever
+    from .local import build_local_evidence_retriever
 
     return build_local_evidence_retriever(
         document_text=document_text,
@@ -813,6 +813,11 @@ def build_project_evidence_retriever_with_settings(
     project_uid: str = "",
 ) -> Callable[[str], dict[str, Any]]:
     settings = load_agent_settings()
+    max_project_chars = max(int(settings.rag_project_max_chars), 1)
+    max_project_chunks = max(int(settings.rag_project_max_chunks), 1)
+    project_rerank_enabled = (
+        bool(settings.rag_rerank_enabled) and bool(settings.rag_project_rerank_enabled)
+    )
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.rag_chunk_size,
         chunk_overlap=settings.rag_chunk_overlap,
@@ -824,7 +829,12 @@ def build_project_evidence_retriever_with_settings(
     metadatas: list[dict[str, Any]] = []
     chunk_counter = 0
     doc_count = 0
+    remaining_chars = max_project_chars
+    truncated_by_chars = False
+    truncated_by_chunks = False
     for item in documents:
+        if remaining_chars <= 0 or truncated_by_chunks:
+            break
         if not isinstance(item, dict):
             continue
         text = item.get("text")
@@ -834,9 +844,16 @@ def build_project_evidence_retriever_with_settings(
             continue
         if not isinstance(doc_uid, str) or not doc_uid.strip():
             continue
+        normalized_text = text.strip()
+        if len(normalized_text) > remaining_chars:
+            normalized_text = normalized_text[:remaining_chars]
+            truncated_by_chars = True
+        if not normalized_text:
+            continue
+        remaining_chars -= len(normalized_text)
         normalized_doc_name = doc_name if isinstance(doc_name, str) else ""
         doc_docs = splitter.create_documents(
-            [text],
+            [normalized_text],
             metadatas=[
                 {
                     "doc_uid": doc_uid,
@@ -847,12 +864,27 @@ def build_project_evidence_retriever_with_settings(
         )
         doc_count += 1
         for doc in doc_docs:
+            if chunk_counter >= max_project_chunks:
+                truncated_by_chunks = True
+                break
             chunks.append(doc.page_content)
             metadata = dict(doc.metadata) if isinstance(doc.metadata, dict) else {}
             metadata["chunk_index"] = chunk_counter
             metadata["chunk_id"] = f"{doc_uid}:chunk_{chunk_counter}"
             metadatas.append(metadata)
             chunk_counter += 1
+
+    if truncated_by_chars or truncated_by_chunks:
+        logger.info(
+            "Project retriever input truncated: project=%s docs=%s chunks=%s max_chars=%s max_chunks=%s by_chars=%s by_chunks=%s",
+            project_uid,
+            doc_count,
+            len(chunks),
+            max_project_chars,
+            max_project_chunks,
+            truncated_by_chars,
+            truncated_by_chunks,
+        )
 
     if not chunks:
         def _empty(_query: str) -> dict[str, Any]:
@@ -878,8 +910,13 @@ def build_project_evidence_retriever_with_settings(
         embedding=embeddings,
         metadatas=metadatas,
     )
-    retriever = vectorstore.as_retriever(search_kwargs={"k": settings.rag_dense_candidate_k})
-    reranker = _build_local_reranker(settings.rag_rerank_model) if settings.rag_rerank_enabled else None
+    dense_k = max(1, min(int(settings.rag_dense_candidate_k), len(chunks)))
+    retriever = vectorstore.as_retriever(search_kwargs={"k": dense_k})
+    reranker = (
+        _build_local_reranker(settings.rag_rerank_model)
+        if project_rerank_enabled
+        else None
+    )
 
     def search_project_evidence(query: str) -> dict[str, Any]:
         docs = retriever.invoke(query)
@@ -887,7 +924,7 @@ def build_project_evidence_retriever_with_settings(
             query=query,
             docs=docs,
             reranker=reranker,
-            top_k=settings.rag_top_k,
+            top_k=max(1, min(int(settings.rag_top_k), len(docs) if docs else 1)),
         )
 
         used_indices: set[int] = set()
@@ -936,6 +973,10 @@ def build_project_evidence_retriever_with_settings(
                 "candidate_count": len(docs),
                 "doc_count": doc_count,
                 "top_k": settings.rag_top_k,
+                "dense_k": dense_k,
+                "rerank_enabled": project_rerank_enabled,
+                "truncated_by_chars": truncated_by_chars,
+                "truncated_by_chunks": truncated_by_chunks,
             },
         )
         return payload.model_dump()
@@ -966,7 +1007,7 @@ def build_local_vector_retriever_with_settings(document_text: str) -> Callable[[
         )
     else:
         # 使用原有的纯 Dense 检索
-        from .local_rag import build_local_vector_retriever
+        from .local import build_local_vector_retriever
         return build_local_vector_retriever(document_text)
 
 

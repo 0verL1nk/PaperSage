@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
+from a2a.types import Message, TextPart
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
-from .a2a_state_machine import (
+from .state_machine import (
     ALLOWED_STATE_TRANSITIONS,
     STATE_COMPLETED,
     STATE_FINALIZING,
@@ -19,14 +20,14 @@ from .a2a_state_machine import (
     STATE_SUBMITTED,
     transition_state,
 )
-from .a2a_replan_policy import (
+from .replan_policy import (
     has_replan_budget,
     normalize_max_review_rounds,
     review_needs_revision,
 )
-from .capabilities import build_agent_tools
-from .contracts import normalize_plan_text, normalize_review_text
-from .stream import extract_result_text
+from ..capabilities import build_agent_tools
+from ..contracts import normalize_plan_text, normalize_review_text
+from ..stream import extract_result_text
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,7 @@ class A2AMessage:
     receiver: str
     performative: str
     content: str
+    sdk_message: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -200,6 +202,44 @@ class A2AMultiAgentCoordinator:
     ) -> tuple[str, list[A2AMessage]]:
         run_started = time.perf_counter()
         state = STATE_SUBMITTED
+        trace_task_id = f"{self.session_id}:run:{uuid4().hex}"
+        trace_sequence = 0
+
+        def _msg(
+            *,
+            sender: str,
+            receiver: str,
+            performative: str,
+            content: str,
+            metadata: dict[str, Any] | None = None,
+        ) -> A2AMessage:
+            nonlocal trace_sequence
+            trace_sequence += 1
+            sdk_metadata: dict[str, Any] = {
+                "sender": sender,
+                "receiver": receiver,
+                "performative": performative,
+                "sequence": trace_sequence,
+                "sessionId": self.session_id,
+            }
+            if isinstance(metadata, dict) and metadata:
+                sdk_metadata["traceMeta"] = metadata
+            sdk_message = Message(
+                role="user" if sender == "user" else "agent",
+                parts=[TextPart(text=str(content))],
+                messageId=f"{trace_task_id}:{trace_sequence}",
+                taskId=trace_task_id,
+                contextId=self.session_id,
+                metadata=sdk_metadata,
+            ).model_dump(mode="json", by_alias=True, exclude_none=True)
+            return A2AMessage(
+                sender=sender,
+                receiver=receiver,
+                performative=performative,
+                content=content,
+                sdk_message=sdk_message,
+            )
+
         logger.info(
             "A2A run start: mode=%s question_len=%s max_replan_rounds=%s",
             workflow_mode,
@@ -209,7 +249,7 @@ class A2AMultiAgentCoordinator:
         if workflow_mode == WORKFLOW_REACT:
             state = self._transition_state(state, STATE_RESEARCHING)
             self._emit_event(
-                A2AMessage(
+                _msg(
                     sender="coordinator",
                     receiver="react_agent",
                     performative="dispatch",
@@ -229,7 +269,7 @@ class A2AMultiAgentCoordinator:
             trace: list[A2AMessage] = []
             self._record_trace(
                 trace,
-                A2AMessage(
+                _msg(
                     sender="user",
                     receiver="react_agent",
                     performative="request",
@@ -239,7 +279,7 @@ class A2AMultiAgentCoordinator:
             )
             self._record_trace(
                 trace,
-                A2AMessage(
+                _msg(
                     sender="react_agent",
                     receiver="user",
                     performative="final",
@@ -261,18 +301,18 @@ class A2AMultiAgentCoordinator:
         trace: list[A2AMessage] = []
         self._record_trace(
             trace,
-                A2AMessage(
-                    sender="user",
-                    receiver="planner",
-                    performative="request",
-                    content=question,
-                ),
-                on_event,
-            )
+            _msg(
+                sender="user",
+                receiver="planner",
+                performative="request",
+                content=question,
+            ),
+            on_event,
+        )
 
         state = self._transition_state(state, STATE_PLANNING)
         self._emit_event(
-            A2AMessage(
+            _msg(
                 sender="coordinator",
                 receiver="planner",
                 performative="dispatch",
@@ -294,7 +334,7 @@ class A2AMultiAgentCoordinator:
             logger.debug("Planner returned invalid plan format, fallback plan injected")
         self._record_trace(
             trace,
-            A2AMessage(
+            _msg(
                 sender="planner",
                 receiver="researcher",
                 performative="plan",
@@ -305,7 +345,7 @@ class A2AMultiAgentCoordinator:
 
         state = self._transition_state(state, STATE_RESEARCHING)
         self._emit_event(
-            A2AMessage(
+            _msg(
                 sender="coordinator",
                 receiver="researcher",
                 performative="dispatch",
@@ -325,7 +365,7 @@ class A2AMultiAgentCoordinator:
         if workflow_mode == WORKFLOW_PLAN_ACT:
             self._record_trace(
                 trace,
-                A2AMessage(
+                _msg(
                     sender="researcher",
                     receiver="user",
                     performative="final",
@@ -350,20 +390,22 @@ class A2AMultiAgentCoordinator:
             state = self._transition_state(state, STATE_REVIEWING)
             self._record_trace(
                 trace,
-                A2AMessage(
+                _msg(
                     sender="researcher",
                     receiver="reviewer",
                     performative="draft",
                     content=f"[round={round_idx}]\n{draft}",
+                    metadata={"round": round_idx},
                 ),
                 on_event,
             )
             self._emit_event(
-                A2AMessage(
+                _msg(
                     sender="coordinator",
                     receiver="reviewer",
                     performative="dispatch",
                     content=f"[round={round_idx}]\n{question}",
+                    metadata={"round": round_idx},
                 ),
                 on_event,
             )
@@ -380,11 +422,12 @@ class A2AMultiAgentCoordinator:
             review = self._normalize_review_text(raw_review)
             self._record_trace(
                 trace,
-                A2AMessage(
+                _msg(
                     sender="reviewer",
                     receiver="researcher",
                     performative="review",
                     content=f"[round={round_idx}]\n{review}",
+                    metadata={"round": round_idx},
                 ),
                 on_event,
             )
@@ -393,7 +436,7 @@ class A2AMultiAgentCoordinator:
                 logger.debug("Reviewer decision PASS at round=%s", round_idx)
                 self._record_trace(
                     trace,
-                    A2AMessage(
+                    _msg(
                         sender="researcher",
                         receiver="user",
                         performative="final",
@@ -419,11 +462,12 @@ class A2AMultiAgentCoordinator:
 
             state = self._transition_state(state, STATE_REPLANNING)
             self._emit_event(
-                A2AMessage(
+                _msg(
                     sender="coordinator",
                     receiver="planner",
                     performative="dispatch",
                     content=f"[round={round_idx + 1}]\n{review}",
+                    metadata={"round": round_idx + 1},
                 ),
                 on_event,
             )
@@ -446,22 +490,24 @@ class A2AMultiAgentCoordinator:
                 logger.debug("Replan output invalid at round=%s, fallback revised plan used", round_idx + 1)
             self._record_trace(
                 trace,
-                A2AMessage(
+                _msg(
                     sender="planner",
                     receiver="researcher",
                     performative="replan",
                     content=f"[round={round_idx + 1}]\n{revised_plan}",
+                    metadata={"round": round_idx + 1},
                 ),
                 on_event,
             )
 
             state = self._transition_state(state, STATE_RESEARCHING)
             self._emit_event(
-                A2AMessage(
+                _msg(
                     sender="coordinator",
                     receiver="researcher",
                     performative="dispatch",
                     content=f"[round={round_idx + 1}]\n{revised_plan}",
+                    metadata={"round": round_idx + 1},
                 ),
                 on_event,
             )
@@ -479,7 +525,7 @@ class A2AMultiAgentCoordinator:
         state = self._transition_state(state, STATE_FINALIZING)
         self._record_trace(
             trace,
-            A2AMessage(
+            _msg(
                 sender="researcher",
                 receiver="user",
                 performative="final",

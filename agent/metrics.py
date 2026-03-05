@@ -1,6 +1,6 @@
 from typing import Any
 
-from .multi_agent_a2a import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
+from .a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
 
 
 VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
@@ -14,6 +14,11 @@ def create_session_metrics() -> dict[str, Any]:
             WORKFLOW_PLAN_ACT: 0,
             WORKFLOW_PLAN_ACT_REPLAN: 0,
         },
+        "plan_enabled_count": 0,
+        "team_enabled_count": 0,
+        "team_rounds_total": 0,
+        "team_rounds_max": 0,
+        "team_fallback_count": 0,
         "total_latency_ms": 0.0,
         "max_latency_ms": 0.0,
         "replan_rounds_total": 0,
@@ -34,12 +39,25 @@ def extract_replan_rounds(trace_payload: list[dict[str, str]] | None) -> int:
     return rounds
 
 
+def _extract_team_rounds(
+    team_execution: dict[str, Any] | None,
+    trace_payload: list[dict[str, str]] | None,
+) -> int:
+    if isinstance(team_execution, dict):
+        rounds = team_execution.get("rounds")
+        if isinstance(rounds, int):
+            return max(0, rounds)
+    return extract_replan_rounds(trace_payload)
+
+
 def record_query_metrics(
     metrics: dict[str, Any],
     *,
-    workflow_mode: str,
     latency_ms: float,
     trace_payload: list[dict[str, str]] | None = None,
+    workflow_mode: str | None = None,
+    policy_decision: dict[str, Any] | None = None,
+    team_execution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(metrics, dict):
         metrics = create_session_metrics()
@@ -50,8 +68,18 @@ def record_query_metrics(
         metrics["workflow_counts"].setdefault(workflow, 0)
 
     metrics["total_queries"] = int(metrics.get("total_queries", 0)) + 1
-    if workflow_mode in VALID_WORKFLOWS:
+
+    if isinstance(workflow_mode, str) and workflow_mode in VALID_WORKFLOWS:
         metrics["workflow_counts"][workflow_mode] += 1
+
+    if isinstance(policy_decision, dict):
+        if bool(policy_decision.get("plan_enabled", False)):
+            metrics["plan_enabled_count"] = int(metrics.get("plan_enabled_count", 0)) + 1
+        if bool(policy_decision.get("team_enabled", False)):
+            metrics["team_enabled_count"] = int(metrics.get("team_enabled_count", 0)) + 1
+
+    if isinstance(team_execution, dict) and team_execution.get("fallback_reason"):
+        metrics["team_fallback_count"] = int(metrics.get("team_fallback_count", 0)) + 1
 
     safe_latency = max(0.0, float(latency_ms))
     metrics["total_latency_ms"] = float(metrics.get("total_latency_ms", 0.0)) + safe_latency
@@ -60,12 +88,17 @@ def record_query_metrics(
     trace_events = len(trace_payload) if isinstance(trace_payload, list) else 0
     metrics["trace_events_total"] = int(metrics.get("trace_events_total", 0)) + trace_events
 
+    # Backward-compatible replan metrics
     replan_rounds = extract_replan_rounds(trace_payload)
     metrics["replan_rounds_total"] = int(metrics.get("replan_rounds_total", 0)) + replan_rounds
     metrics["replan_rounds_max"] = max(
         int(metrics.get("replan_rounds_max", 0)),
         replan_rounds,
     )
+
+    team_rounds = _extract_team_rounds(team_execution, trace_payload)
+    metrics["team_rounds_total"] = int(metrics.get("team_rounds_total", 0)) + team_rounds
+    metrics["team_rounds_max"] = max(int(metrics.get("team_rounds_max", 0)), team_rounds)
     return metrics
 
 
@@ -77,17 +110,26 @@ def summarize_session_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     workflow_counts = metrics.get("workflow_counts", {})
     if not isinstance(workflow_counts, dict):
         workflow_counts = {}
+
     average_latency_ms = (
         float(metrics.get("total_latency_ms", 0.0)) / total_queries if total_queries > 0 else 0.0
     )
     average_replan_rounds = (
         float(metrics.get("replan_rounds_total", 0)) / total_queries if total_queries > 0 else 0.0
     )
+    average_team_rounds = (
+        float(metrics.get("team_rounds_total", 0)) / total_queries if total_queries > 0 else 0.0
+    )
 
     workflow_ratios: dict[str, float] = {}
     for workflow in VALID_WORKFLOWS:
         count = int(workflow_counts.get(workflow, 0))
         workflow_ratios[workflow] = (count / total_queries) if total_queries > 0 else 0.0
+
+    plan_enabled_count = int(metrics.get("plan_enabled_count", 0))
+    team_enabled_count = int(metrics.get("team_enabled_count", 0))
+    plan_enabled_ratio = (plan_enabled_count / total_queries) if total_queries > 0 else 0.0
+    team_enabled_ratio = (team_enabled_count / total_queries) if total_queries > 0 else 0.0
 
     return {
         "total_queries": total_queries,
@@ -97,6 +139,14 @@ def summarize_session_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
             WORKFLOW_PLAN_ACT_REPLAN: int(workflow_counts.get(WORKFLOW_PLAN_ACT_REPLAN, 0)),
         },
         "workflow_ratios": workflow_ratios,
+        "plan_enabled_count": plan_enabled_count,
+        "plan_enabled_ratio": plan_enabled_ratio,
+        "team_enabled_count": team_enabled_count,
+        "team_enabled_ratio": team_enabled_ratio,
+        "team_rounds_total": int(metrics.get("team_rounds_total", 0)),
+        "team_rounds_max": int(metrics.get("team_rounds_max", 0)),
+        "average_team_rounds": average_team_rounds,
+        "team_fallback_count": int(metrics.get("team_fallback_count", 0)),
         "average_latency_ms": average_latency_ms,
         "max_latency_ms": float(metrics.get("max_latency_ms", 0.0)),
         "trace_events_total": int(metrics.get("trace_events_total", 0)),
@@ -104,4 +154,3 @@ def summarize_session_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
         "replan_rounds_max": int(metrics.get("replan_rounds_max", 0)),
         "average_replan_rounds": average_replan_rounds,
     }
-

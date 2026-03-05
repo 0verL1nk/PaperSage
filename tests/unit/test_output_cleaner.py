@@ -1,4 +1,8 @@
-from agent.output_cleaner import sanitize_public_answer, split_public_answer_and_reasoning
+from agent.output_cleaner import (
+    replace_evidence_placeholders,
+    sanitize_public_answer,
+    split_public_answer_and_reasoning,
+)
 
 
 def test_sanitize_extracts_answer_tag_block() -> None:
@@ -29,3 +33,27 @@ def test_split_extracts_reasoning_and_final_answer_for_chinese_preface() -> None
     answer, reasoning = split_public_answer_and_reasoning(raw)
     assert answer == "你好！请告诉我你想了解论文的哪一部分。"
     assert "用户发来" in reasoning
+
+
+def test_replace_evidence_placeholders_with_specific_refs() -> None:
+    answer = "该方法提升了召回率[文档证据]，并降低了误报【证据】。"
+    evidences = [
+        {"chunk_id": "chunk_12", "page_no": 4, "offset_start": 100, "offset_end": 168},
+        {"chunk_id": "chunk_33", "page_no": 8},
+    ]
+    updated = replace_evidence_placeholders(answer, evidences)
+    assert "[chunk_12|p4|o100-168]" in updated
+    assert "[chunk_33|p8]" in updated
+    assert "[文档证据]" not in updated
+    assert "【证据】" not in updated
+
+
+def test_replace_evidence_placeholders_keeps_json_unchanged() -> None:
+    answer = '{"name":"主题","children":[]}'
+    evidences = [{"chunk_id": "chunk_1", "page_no": 1}]
+    assert replace_evidence_placeholders(answer, evidences) == answer
+
+
+def test_replace_evidence_placeholders_without_evidence_keeps_answer() -> None:
+    answer = "结论如下[文档证据]。"
+    assert replace_evidence_placeholders(answer, []) == answer

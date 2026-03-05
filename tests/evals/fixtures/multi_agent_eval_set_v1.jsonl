@@ -1,0 +1,24 @@
+{"id":"fact_001","category":"fact","prompt":"这篇论文的核心结论是什么？","expected_workflow":"react"}
+{"id":"fact_002","category":"fact","prompt":"作者提出的方法名称是什么","expected_workflow":"react"}
+{"id":"fact_003","category":"fact","prompt":"主要实验数据集有哪些","expected_workflow":"react"}
+{"id":"fact_004","category":"fact","prompt":"这篇文章发表于哪一年","expected_workflow":"react"}
+{"id":"fact_005","category":"fact","prompt":"What is the main contribution of this paper?","expected_workflow":"react"}
+{"id":"fact_006","category":"fact","prompt":"What benchmark is used in the main experiment?","expected_workflow":"react"}
+{"id":"fact_007","category":"fact","prompt":"论文里有没有提到局限性","expected_workflow":"react"}
+{"id":"fact_008","category":"fact","prompt":"结论部分最重要的一句话是什么","expected_workflow":"react"}
+{"id":"summary_001","category":"summary","prompt":"请总结这篇论文的研究背景、方法、实验和结论。","expected_workflow":"plan_act"}
+{"id":"summary_002","category":"summary","prompt":"给我一个三段式概述：问题定义、方法路线、结果亮点。","expected_workflow":"plan_act"}
+{"id":"summary_003","category":"summary","prompt":"请写一份摘要提纲，面向第一次读这篇论文的同学。","expected_workflow":"plan_act"}
+{"id":"summary_004","category":"summary","prompt":"Please provide a structured summary with problem, method, experiment, and limitations.","expected_workflow":"plan_act"}
+{"id":"summary_005","category":"summary","prompt":"请先概述全文，再按章节给出要点提纲。","expected_workflow":"plan_act"}
+{"id":"summary_006","category":"summary","prompt":"请总结本文并给出可复现步骤清单。","expected_workflow":"plan_act"}
+{"id":"summary_007","category":"summary","prompt":"写一个overview，说明这篇论文为什么重要。","expected_workflow":"plan_act"}
+{"id":"summary_008","category":"summary","prompt":"请输出一个简明summary，控制在5条要点内。","expected_workflow":"plan_act"}
+{"id":"complex_001","category":"complex","prompt":"请对比这篇论文和经典基线方法的优缺点，并给出评估结论。","expected_workflow":"plan_act_replan"}
+{"id":"complex_002","category":"complex","prompt":"请比较两种方案在精度、速度、成本上的trade-off。","expected_workflow":"plan_act_replan"}
+{"id":"complex_003","category":"complex","prompt":"请评估该方法在真实场景落地的风险与收益。","expected_workflow":"plan_act_replan"}
+{"id":"complex_004","category":"complex","prompt":"请根据我们的对话生成思维导图。","expected_workflow":"plan_act_replan"}
+{"id":"complex_005","category":"complex","prompt":"请做一个方法compare，包含优缺点、适用场景和失败模式。","expected_workflow":"plan_act_replan"}
+{"id":"complex_006","category":"complex","prompt":"Please evaluate the approach and compare it with two alternatives.","expected_workflow":"plan_act_replan"}
+{"id":"complex_007","category":"complex","prompt":"请分析该方案在多步任务中的可靠性与可解释性。","expected_workflow":"plan_act_replan"}
+{"id":"complex_008","category":"complex","prompt":"请输出mind map并解释每个分支的逻辑关系。","expected_workflow":"plan_act_replan"}

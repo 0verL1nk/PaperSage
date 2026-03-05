@@ -8,20 +8,26 @@ def _tool_map(tools):
 
 
 def test_build_agent_tools_exposes_structured_tools(monkeypatch):
-    class _FakeWebSearch:
-        def __init__(self, name):
-            self.name = name
-
+    class _FakeSearx:
         def run(self, query):
             return f"web:{query}"
 
-    monkeypatch.setattr(capabilities, "DuckDuckGoSearchRun", _FakeWebSearch)
-    monkeypatch.setattr(capabilities, "_build_native_web_search_client", lambda: None)
+    monkeypatch.setattr(capabilities, "_build_searxng_web_search_client", lambda: _FakeSearx())
 
     monkeypatch.setattr(
         capabilities,
         "search_semantic_scholar",
-        lambda query, limit=5: [{"title": f"paper:{query}", "authors": [], "year": 2024, "venue": "", "doi": None, "url": "", "open_access": False}],
+        lambda query, limit=5: [
+            {
+                "title": f"paper:{query}",
+                "authors": [],
+                "year": 2024,
+                "venue": "",
+                "doi": None,
+                "url": "",
+                "open_access": False,
+            }
+        ],
     )
 
     tools = capabilities.build_agent_tools(lambda query: f"doc:{query}")
@@ -35,11 +41,10 @@ def test_build_agent_tools_exposes_structured_tools(monkeypatch):
 
 
 def test_use_skill_returns_known_and_unknown_guidance(monkeypatch):
-    monkeypatch.setattr(capabilities, "_build_native_web_search_client", lambda: None)
     monkeypatch.setattr(
         capabilities,
-        "DuckDuckGoSearchRun",
-        lambda name: type("Web", (), {"run": lambda self, q: "ok"})(),
+        "_build_searxng_web_search_client",
+        lambda: type("Web", (), {"run": lambda self, q: "ok"})(),
     )
     monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
     tools = capabilities.build_agent_tools(lambda query: query)
@@ -54,12 +59,10 @@ def test_use_skill_returns_known_and_unknown_guidance(monkeypatch):
     assert "Unknown skill 'unknown'" in unknown
 
 
-def test_search_web_fallback_when_ddg_unavailable(monkeypatch):
-    def _raise(*_args, **_kwargs):
-        raise RuntimeError("ddg unavailable")
-
-    monkeypatch.setattr(capabilities, "DuckDuckGoSearchRun", _raise)
-    monkeypatch.setattr(capabilities, "_build_native_web_search_client", lambda: None)
+def test_search_web_unavailable_when_searxng_unavailable_and_ddg_disabled(monkeypatch):
+    monkeypatch.delenv("AGENT_WEB_ENABLE_DDG_FALLBACK", raising=False)
+    monkeypatch.setattr(capabilities, "_build_searxng_web_search_client", lambda: None)
+    monkeypatch.setattr(capabilities, "_build_wikipedia_web_search_client", lambda: None)
     monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
     tools = capabilities.build_agent_tools(lambda query: query)
     tool_map = _tool_map(tools)
@@ -68,7 +71,7 @@ def test_search_web_fallback_when_ddg_unavailable(monkeypatch):
     assert "Web search is unavailable" in result
 
 
-def test_search_web_uses_native_fallback_provider(monkeypatch):
+def test_search_web_uses_native_ddg_fallback_when_enabled(monkeypatch):
     def _raise(*_args, **_kwargs):
         raise RuntimeError("ddg unavailable")
 
@@ -76,6 +79,9 @@ def test_search_web_uses_native_fallback_provider(monkeypatch):
         def run(self, query):
             return f"native:{query}"
 
+    monkeypatch.setenv("AGENT_WEB_ENABLE_DDG_FALLBACK", "1")
+    monkeypatch.setattr(capabilities, "_build_searxng_web_search_client", lambda: None)
+    monkeypatch.setattr(capabilities, "_build_wikipedia_web_search_client", lambda: None)
     monkeypatch.setattr(capabilities, "DuckDuckGoSearchRun", _raise)
     monkeypatch.setattr(capabilities, "_build_native_web_search_client", lambda: _NativeWeb())
     monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
@@ -87,11 +93,10 @@ def test_search_web_uses_native_fallback_provider(monkeypatch):
 
 
 def test_search_document_returns_json_when_evidence_retriever_available(monkeypatch):
-    monkeypatch.setattr(capabilities, "_build_native_web_search_client", lambda: None)
     monkeypatch.setattr(
         capabilities,
-        "DuckDuckGoSearchRun",
-        lambda name: type("Web", (), {"run": lambda self, q: "ok"})(),
+        "_build_searxng_web_search_client",
+        lambda: type("Web", (), {"run": lambda self, q: "ok"})(),
     )
     monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
 
@@ -121,11 +126,10 @@ def test_search_document_returns_json_when_evidence_retriever_available(monkeypa
 
 
 def test_search_papers_handles_provider_error(monkeypatch):
-    monkeypatch.setattr(capabilities, "_build_native_web_search_client", lambda: None)
     monkeypatch.setattr(
         capabilities,
-        "DuckDuckGoSearchRun",
-        lambda name: type("Web", (), {"run": lambda self, q: "ok"})(),
+        "_build_searxng_web_search_client",
+        lambda: type("Web", (), {"run": lambda self, q: "ok"})(),
     )
 
     def _raise_error(query, limit=5):
@@ -140,11 +144,10 @@ def test_search_papers_handles_provider_error(monkeypatch):
 
 
 def test_build_agent_tools_respects_allowlist(monkeypatch):
-    monkeypatch.setattr(capabilities, "_build_native_web_search_client", lambda: None)
     monkeypatch.setattr(
         capabilities,
-        "DuckDuckGoSearchRun",
-        lambda name: type("Web", (), {"run": lambda self, q: "ok"})(),
+        "_build_searxng_web_search_client",
+        lambda: type("Web", (), {"run": lambda self, q: "ok"})(),
     )
     monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
 
@@ -157,13 +160,16 @@ def test_build_agent_tools_respects_allowlist(monkeypatch):
 
 
 def test_search_web_blocks_dangerous_query(monkeypatch):
-    monkeypatch.setattr(capabilities, "_build_native_web_search_client", lambda: None)
     monkeypatch.setattr(
         capabilities,
-        "DuckDuckGoSearchRun",
-        lambda name: type("Web", (), {"run": lambda self, q: f"web:{q}"})(),
+        "_build_searxng_web_search_client",
+        lambda: type("Web", (), {"run": lambda self, q: f"web:{q}"})(),
     )
-    monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
+    monkeypatch.setattr(
+        capabilities,
+        "search_semantic_scholar",
+        lambda query, limit=5: [],
+    )
     tools = capabilities.build_agent_tools(lambda query: query)
     tool_map = _tool_map(tools)
 
@@ -172,11 +178,10 @@ def test_search_web_blocks_dangerous_query(monkeypatch):
 
 
 def test_search_document_sanitizes_long_query(monkeypatch):
-    monkeypatch.setattr(capabilities, "_build_native_web_search_client", lambda: None)
     monkeypatch.setattr(
         capabilities,
-        "DuckDuckGoSearchRun",
-        lambda name: type("Web", (), {"run": lambda self, q: "ok"})(),
+        "_build_searxng_web_search_client",
+        lambda: type("Web", (), {"run": lambda self, q: "ok"})(),
     )
     monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
     captured = {}

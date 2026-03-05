@@ -46,3 +46,30 @@ models
 
 # unit tests
 .coverage
+
+docs
+
+.serena
+
+# AI coding agent artifacts (generated when $HOME is set to project root)
+.claude/
+.codex/
+.gemini/
+.playwright-mcp/
+.mcp.json
+CLAUDE.md
+.bash_profile
+.bashrc
+.vscode
+.idea
+.zshrc
+.zprofile
+.profile
+.gitconfig
+.gitmodules
+.ripgreprc
+HEAD
+hooks
+objects
+refs
+config

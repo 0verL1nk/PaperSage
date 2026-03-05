@@ -5,7 +5,7 @@
 import pytest
 from types import SimpleNamespace
 
-from agent.rag_hybrid import (
+from agent.rag.hybrid import (
     _reciprocal_rank_fusion,
     _normalize_scores,
     _rerank_docs,
@@ -238,28 +238,28 @@ class TestQueryRewrite:
 
     def test_query_rewrite_disabled(self):
         """测试关闭改写时返回原查询"""
-        from agent.rag_hybrid import query_rewrite
+        from agent.rag.hybrid import query_rewrite
 
         result = query_rewrite("什么是机器学习", None, rewrite_enabled=False)
         assert result == "什么是机器学习"
 
     def test_query_rewrite_no_llm(self):
         """测试无 LLM 时返回原查询"""
-        from agent.rag_hybrid import query_rewrite
+        from agent.rag.hybrid import query_rewrite
 
         result = query_rewrite("什么是机器学习", None, rewrite_enabled=True)
         assert result == "什么是机器学习"
 
     def test_query_rewrite_empty_query(self):
         """测试空查询"""
-        from agent.rag_hybrid import query_rewrite
+        from agent.rag.hybrid import query_rewrite
 
         result = query_rewrite("", None, rewrite_enabled=True)
         assert result == ""
 
     def test_query_rewrite_with_mock(self):
         """测试有 LLM 时的改写"""
-        from agent.rag_hybrid import query_rewrite
+        from agent.rag.hybrid import query_rewrite
 
         # 使用简单的 mock 对象
         class MockMsg:
@@ -291,28 +291,28 @@ class TestQuerySplit:
 
     def test_query_split_disabled(self):
         """测试关闭拆分时返回单元素列表"""
-        from agent.rag_hybrid import query_split
+        from agent.rag.hybrid import query_split
 
         result = query_split("什么是机器学习", None, split_enabled=False)
         assert result == ["什么是机器学习"]
 
     def test_query_split_no_llm(self):
         """测试无 LLM 时返回单元素列表"""
-        from agent.rag_hybrid import query_split
+        from agent.rag.hybrid import query_split
 
         result = query_split("什么是机器学习", None, split_enabled=True)
         assert result == ["什么是机器学习"]
 
     def test_query_split_empty_query(self):
         """测试空查询"""
-        from agent.rag_hybrid import query_split
+        from agent.rag.hybrid import query_split
 
         result = query_split("", None, split_enabled=True)
         assert result == [""]
 
     def test_query_split_with_mock(self):
         """测试有 LLM 时的拆分"""
-        from agent.rag_hybrid import query_split
+        from agent.rag.hybrid import query_split
 
         # 使用简单的 mock 对象
         class MockMsg:

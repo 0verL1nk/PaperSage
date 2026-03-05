@@ -4,7 +4,7 @@ from agent.metrics import (
     record_query_metrics,
     summarize_session_metrics,
 )
-from agent.multi_agent_a2a import WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
+from agent.a2a.coordinator import WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
 
 
 def test_extract_replan_rounds_counts_only_replan_events():

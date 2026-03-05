@@ -34,6 +34,9 @@ def test_run_react_mode_returns_direct_answer():
 
     assert answer == "react-answer"
     assert [item.performative for item in trace] == ["request", "final"]
+    assert isinstance(trace[0].sdk_message, dict)
+    assert trace[0].sdk_message["metadata"]["performative"] == "request"
+    assert trace[1].sdk_message["metadata"]["performative"] == "final"
     assert react.calls[0][1]["configurable"]["thread_id"] == "s1:react"
 
 

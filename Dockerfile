@@ -26,29 +26,9 @@ RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
 # 更新 apt 包列表（独立层，便于缓存）
 RUN apt-get update
 
-# 安装基础开发工具和健康检查工具（小包，变更频率低）
+# 安装基础工具和健康检查工具
 RUN apt-get install -y --no-install-recommends \
     curl \
-    libxml2-dev \
-    libxslt1-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# 安装 textract 依赖 - PDF 处理工具（中等大小包）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    poppler-utils \
-    antiword \
-    && rm -rf /var/lib/apt/lists/*
-
-# 安装 textract 依赖 - Tesseract OCR（较大包，拆分以优化缓存）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tesseract-ocr \
-    tesseract-ocr-chi-sim \
-    tesseract-ocr-chi-tra \
-    && rm -rf /var/lib/apt/lists/*
-
-# 安装 textract 依赖 - LibreOffice（最大包，单独一层）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libreoffice \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Redis 服务器

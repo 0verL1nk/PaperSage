@@ -31,8 +31,29 @@ def calculate_md5(uploaded_file) -> str:
     return md5_hash.hexdigest()
 
 
-def load_files() -> None:
+def load_all_files() -> None:
     files = get_user_files(st.session_state["uuid"])
+    st.session_state["all_files"] = []
+    for file in files:
+        st.session_state["all_files"].append(
+            {
+                "file_path": file["file_path"],
+                "file_name": file["file_name"],
+                "uid": file["uid"],
+                "created_at": file["created_at"],
+            }
+        )
+
+
+def load_files(project_uid: str | None) -> None:
+    if project_uid:
+        files = list_project_files(
+            project_uid=project_uid,
+            uuid=st.session_state["uuid"],
+            active_only=False,
+        )
+    else:
+        files = get_user_files(st.session_state["uuid"])
     st.session_state["files"] = []
     for file in files:
         st.session_state["files"].append(
@@ -93,6 +114,7 @@ def upload_file(save_dir: str, logger, project_uid: str | None) -> None:
         md5_value,
         file_path,
         current_time,
+        auto_bind_default_project=False,
     )
     if project_uid:
         add_file_to_project(project_uid, file_uid, st.session_state["uuid"])
@@ -125,7 +147,7 @@ def render_file_list() -> None:
 
 
 def render_project_binding(project_uid: str) -> None:
-    all_files = st.session_state.get("files", [])
+    all_files = st.session_state.get("all_files", [])
     if not isinstance(all_files, list) or not all_files:
         return
     project_files = list_project_files(
@@ -150,7 +172,8 @@ def render_project_binding(project_uid: str) -> None:
         for file_uid in selected_current - selected_set:
             remove_file_from_project(project_uid, file_uid, st.session_state["uuid"])
         st.success("项目文档绑定已更新")
-        load_files()
+        load_all_files()
+        load_files(project_uid)
         load_projects()
         st.rerun()
 
@@ -164,10 +187,16 @@ def main() -> None:
         st.session_state["uuid"] = "local-user"
     if "files" not in st.session_state:
         st.session_state["files"] = []
+    if "all_files" not in st.session_state:
+        st.session_state["all_files"] = []
 
     init_database("./database.sqlite")
     ensure_local_user(st.session_state["uuid"], db_name="./database.sqlite")
-    ensure_default_project_for_user(st.session_state["uuid"], db_name="./database.sqlite")
+    ensure_default_project_for_user(
+        st.session_state["uuid"],
+        db_name="./database.sqlite",
+        sync_existing_files=False,
+    )
 
     repo_root = Path(__file__).resolve().parents[1]
     save_dir = str(repo_root / "uploads")
@@ -175,33 +204,30 @@ def main() -> None:
     logger = LoggerManager().get_logger()
 
     load_projects()
-    load_files()
     project_uid = selected_project_uid()
+    load_all_files()
+    load_files(project_uid)
     if project_uid:
-        project_files = list_project_files(
-            project_uid=project_uid,
-            uuid=st.session_state["uuid"],
-            active_only=False,
-        )
         st.markdown(
             (
                 "<div class=\"llm-section-card\">"
                 "<h4>项目摘要</h4>"
-                f"<div class=\"llm-chip-row\"><span class=\"llm-chip\">项目文档数 {len(project_files)}</span>"
-                f"<span class=\"llm-chip\">用户总文档数 {len(st.session_state.get('files', []))}</span></div>"
+                f"<div class=\"llm-chip-row\"><span class=\"llm-chip\">项目文档数 {len(st.session_state.get('files', []))}</span>"
+                f"<span class=\"llm-chip\">用户总文档数 {len(st.session_state.get('all_files', []))}</span></div>"
                 "</div>"
             ),
             unsafe_allow_html=True,
         )
     upload_file(save_dir, logger, project_uid)
-    load_files()
+    load_all_files()
+    load_files(project_uid)
     if st.session_state["files"]:
         render_file_list()
-        if project_uid:
-            with st.expander("项目文档管理", expanded=False):
-                render_project_binding(project_uid)
     else:
-        st.caption("还没有上传文档。")
+        st.caption("当前项目还没有文档。")
+    if project_uid:
+        with st.expander("项目文档管理", expanded=False):
+            render_project_binding(project_uid)
 
 
 main()

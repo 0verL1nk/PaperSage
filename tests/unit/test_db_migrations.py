@@ -46,6 +46,33 @@ def _create_legacy_db_without_files_uuid(db_path: Path) -> None:
     conn.close()
 
 
+def _create_legacy_db_without_memory_expires_at(db_path: Path) -> None:
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE memory_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            memory_uid TEXT UNIQUE NOT NULL,
+            uuid TEXT NOT NULL,
+            project_uid TEXT NOT NULL,
+            session_uid TEXT,
+            memory_type TEXT NOT NULL,
+            title TEXT DEFAULT '',
+            content TEXT NOT NULL,
+            source_prompt TEXT DEFAULT '',
+            source_answer TEXT DEFAULT '',
+            access_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_accessed_at TEXT
+        )
+    """
+    )
+    conn.commit()
+    conn.close()
+
+
 def test_init_database_migrates_legacy_files_table(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy.sqlite"
     _create_legacy_db_without_files_uuid(db_path)
@@ -102,3 +129,24 @@ def test_check_api_key_configured_requires_model_name(
     is_ok, error = check_api_key_configured()
     assert is_ok
     assert error is None
+
+
+def test_init_database_migrates_legacy_memory_items_expires_at(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy_memory.sqlite"
+    _create_legacy_db_without_memory_expires_at(db_path)
+
+    # Should not crash when creating indexes that depend on expires_at.
+    init_database(str(db_path))
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(memory_items)")
+    column_names = [row[1] for row in cursor.fetchall()]
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_memory_items_expire'"
+    )
+    idx_exists = cursor.fetchone() is not None
+    conn.close()
+
+    assert "expires_at" in column_names
+    assert idx_exists

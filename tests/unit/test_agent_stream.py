@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from agent.stream import (
+    extract_tool_names_from_result,
     extract_trace_events_from_update,
     extract_result_text,
     extract_stream_text,
@@ -115,3 +116,20 @@ def test_extract_trace_events_from_update_with_tool_calls_and_tool_result():
         item["performative"] == "tool_result" and item["sender"] == "search_document"
         for item in events
     )
+
+
+def test_extract_tool_names_from_result_collects_calls_and_tool_messages():
+    result = {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"name": "search_document", "args": {"query": "abc"}},
+                    {"name": "search_web", "args": {"query": "xyz"}},
+                ],
+            },
+            {"role": "tool", "name": "search_document", "content": "hit"},
+        ]
+    }
+
+    assert extract_tool_names_from_result(result) == {"search_document", "search_web"}

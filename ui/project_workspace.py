@@ -2,7 +2,7 @@ from typing import Any
 
 import streamlit as st
 
-from utils.utils import list_project_files
+from agent.adapters import list_project_files_for_user
 
 
 def inject_workspace_styles() -> None:
@@ -88,7 +88,7 @@ def build_project_doc_count_map(
         project_uid = str(project.get("project_uid") or "")
         if not project_uid:
             continue
-        files = list_project_files(
+        files = list_project_files_for_user(
             project_uid=project_uid,
             uuid=user_uuid,
             active_only=False,

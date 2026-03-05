@@ -7,14 +7,14 @@ from functools import lru_cache
 from dataclasses import dataclass
 from typing import Any
 
-from .multi_agent_a2a import (
+from .a2a.coordinator import (
     PLANNER_SYSTEM_PROMPT,
     REACT_SYSTEM_PROMPT,
     RESEARCHER_SYSTEM_PROMPT,
     REVIEWER_SYSTEM_PROMPT,
 )
 from .paper_agent import PAPER_QA_SYSTEM_PROMPT
-from .workflow_router import ROUTER_INSTRUCTION
+from .a2a.router import ROUTER_INSTRUCTION
 
 
 COMPACT_SUMMARY_HEADER = "【自动压缩摘要】"
