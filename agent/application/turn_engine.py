@@ -72,6 +72,7 @@ def execute_turn_core(
     leader_llm: Any | None = None,
     policy_llm: Any | None = None,
     search_document_evidence_fn: EvidenceRetriever | None = None,
+    leader_tool_specs: list[dict[str, Any]] | None = None,
     force_plan: bool | None = None,
     force_team: bool | None = None,
     routing_context: str = "",
@@ -96,6 +97,26 @@ def execute_turn_core(
         event_logs.append(event)
         if on_event is not None:
             on_event(event)
+
+    registered_tool_names: list[str] = []
+    if isinstance(leader_tool_specs, list):
+        for item in leader_tool_specs:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            registered_tool_names.append(name)
+    if registered_tool_names:
+        normalized_names = sorted({name for name in registered_tool_names})
+        _collect_event(
+            {
+                "sender": "runtime",
+                "receiver": "leader",
+                "performative": "tool_load",
+                "content": ", ".join(normalized_names),
+            }
+        )
 
     run_started = time.perf_counter()
     search_document_fn = build_search_document_fn(search_document_evidence_fn)

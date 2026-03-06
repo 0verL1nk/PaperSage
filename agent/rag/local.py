@@ -9,6 +9,37 @@ from .evidence import EvidenceItem, EvidencePayload
 from ..settings import load_agent_settings
 
 
+def _resolve_index_batch_size() -> int:
+    try:
+        raw = int(os.getenv("RAG_INDEX_BATCH_SIZE", "256"))
+    except Exception:
+        raw = 256
+    return max(16, raw)
+
+
+def _build_vectorstore_in_batches(
+    *,
+    texts: list[str],
+    embedding: Any,
+    metadatas: list[dict[str, Any]] | None = None,
+) -> InMemoryVectorStore:
+    vectorstore = InMemoryVectorStore(embedding=embedding)
+    if not texts:
+        return vectorstore
+    batch_size = _resolve_index_batch_size()
+    total = len(texts)
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
+        batch_texts = texts[start:end]
+        batch_metas = (
+            metadatas[start:end]
+            if isinstance(metadatas, list) and len(metadatas) >= end
+            else None
+        )
+        vectorstore.add_texts(batch_texts, metadatas=batch_metas)
+    return vectorstore
+
+
 def ensure_local_embedding_model_downloaded() -> str:
     settings = load_agent_settings()
     os.makedirs(settings.local_embedding_cache_dir, exist_ok=True)
@@ -161,7 +192,7 @@ def build_local_evidence_retriever(
         model_name=model_name,
         cache_dir=settings.local_embedding_cache_dir,
     )
-    vectorstore = InMemoryVectorStore.from_texts(
+    vectorstore = _build_vectorstore_in_batches(
         texts=chunks,
         embedding=embeddings,
         metadatas=metadatas,

@@ -28,7 +28,7 @@ def ensure_agent_runtime(
     get_user_policy_router_base_url_fn=None,
     get_user_policy_router_api_key_fn=None,
 ) -> None:
-    logger.info(
+    logger.debug(
         "Ensuring project sessions: project=%s docs=%s",
         project_name,
         len(scope_docs),
@@ -54,7 +54,7 @@ def ensure_agent_runtime(
         session_state["paper_project_tool_specs"] = tool_specs_map
 
     if current_leader_session and current_evidence_retriever:
-        logger.info("Reusing existing leader session and evidence retriever: session=%s", session_uid)
+        logger.debug("Reusing existing leader session and evidence retriever: session=%s", session_uid)
         session_state["paper_agent"] = current_leader_session["agent"]
         session_state["paper_agent_runtime_config"] = current_leader_session["runtime_config"]
         session_state["paper_evidence_retriever"] = current_evidence_retriever
@@ -69,6 +69,7 @@ def ensure_agent_runtime(
         if isinstance(reused_tool_specs, list):
             tool_specs_map[project_uid] = reused_tool_specs
             session_state["paper_project_tool_specs"] = tool_specs_map
+            session_state["paper_current_tool_specs"] = reused_tool_specs
         return
 
     api_key = get_user_api_key_fn()
@@ -83,7 +84,7 @@ def ensure_agent_runtime(
         model_name=user_model,
         base_url=user_base_url,
     )
-    logger.info("Built chat model for agent center: model=%s", user_model)
+    logger.debug("Built chat model for agent center: model=%s", user_model)
     llm_map[project_uid] = llm
     session_state["paper_project_llms"] = llm_map
     session_state["paper_leader_llm"] = llm
@@ -117,7 +118,7 @@ def ensure_agent_runtime(
                 base_url=router_base_url or user_base_url,
                 temperature=settings.agent_policy_router_temperature,
             )
-            logger.info("Built policy router model: model=%s", router_model_name)
+            logger.debug("Built policy router model: model=%s", router_model_name)
         except Exception as exc:
             logger.warning(
                 "Failed to build policy router model, fallback to leader model: %s",
@@ -130,7 +131,7 @@ def ensure_agent_runtime(
 
     search_document_evidence_fn = current_evidence_retriever
     if search_document_evidence_fn is None:
-        logger.info("Building project evidence retriever (cache miss)")
+        logger.debug("Building project evidence retriever (cache miss)")
         documents = [
             {
                 "doc_uid": str(item["uid"]),
@@ -193,6 +194,7 @@ def ensure_agent_runtime(
         tool_specs_map = session_state.get("paper_project_tool_specs", {})
         tool_specs_map[project_uid] = agent_session.tool_specs
         session_state["paper_project_tool_specs"] = tool_specs_map
+        session_state["paper_current_tool_specs"] = agent_session.tool_specs
 
     signatures[project_uid] = scope_signature
     session_state["paper_project_scope_signatures"] = signatures
@@ -219,7 +221,7 @@ def prepare_agent_session(
     scope_signature: str,
 ) -> None:
     has_cached_session = has_cached_session_fn(project_uid, session_uid, scope_signature)
-    logger.info("Agent session cache status: has_cached=%s", has_cached_session)
+    logger.debug("Agent session cache status: has_cached=%s", has_cached_session)
     if has_cached_session:
         ensure_agent_runtime_fn(project_uid, session_uid, project_name, scope_docs, scope_signature)
         cached_caption_fn()

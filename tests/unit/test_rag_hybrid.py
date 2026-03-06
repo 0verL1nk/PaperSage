@@ -15,6 +15,7 @@ from agent.rag.hybrid import (
     build_hybrid_retriever,
     RetrievalResult,
     RetrievalTrace,
+    build_project_evidence_retriever_with_settings,
 )
 
 
@@ -406,3 +407,67 @@ class TestHybridRetrieverQueryPreprocess:
         assert retriever.query_preprocess_enabled is True
         assert retriever.query_rewrite_enabled is False
         assert retriever.query_split_enabled is False
+
+
+def test_project_retriever_reuses_persisted_doc_indexes(monkeypatch, tmp_path):
+    from agent.rag import hybrid as hybrid_module
+
+    class _FakeEmbeddings:
+        embed_documents_calls = 0
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def embed_documents(self, texts):
+            _FakeEmbeddings.embed_documents_calls += 1
+            return [[float(len(str(text)))] for text in texts]
+
+        def embed_query(self, query):
+            return [float(len(str(query)))]
+
+    fake_settings = SimpleNamespace(
+        local_embedding_model="fake-embedding",
+        local_embedding_cache_dir=str(tmp_path / "embeddings"),
+        rag_chunk_size=8,
+        rag_chunk_overlap=0,
+        rag_dense_candidate_k=5,
+        rag_top_k=2,
+        rag_rerank_enabled=False,
+        rag_project_rerank_enabled=False,
+        rag_rerank_model="fake-rerank",
+        rag_project_max_chars=10000,
+        rag_project_max_chunks=1000,
+    )
+
+    monkeypatch.setenv("AGENT_PROJECT_INDEX_CACHE_DIR", str(tmp_path / "project_indexes"))
+    monkeypatch.setattr(hybrid_module, "FastEmbedEmbeddings", _FakeEmbeddings)
+    monkeypatch.setattr(hybrid_module, "load_agent_settings", lambda: fake_settings)
+
+    documents = [
+        {"doc_uid": "d1", "doc_name": "doc1", "text": "alpha beta gamma"},
+        {"doc_uid": "d2", "doc_name": "doc2", "text": "delta epsilon zeta"},
+    ]
+
+    _FakeEmbeddings.embed_documents_calls = 0
+    retriever_first = build_project_evidence_retriever_with_settings(
+        documents=documents,
+        project_uid="p-cache",
+    )
+    assert callable(retriever_first)
+    first_calls = _FakeEmbeddings.embed_documents_calls
+    assert first_calls > 0
+
+    payload_first = retriever_first("alpha")
+    assert isinstance(payload_first, dict)
+    assert "evidences" in payload_first
+
+    retriever_second = build_project_evidence_retriever_with_settings(
+        documents=documents,
+        project_uid="p-cache",
+    )
+    assert callable(retriever_second)
+    assert _FakeEmbeddings.embed_documents_calls == first_calls
+
+    payload_second = retriever_second("alpha")
+    trace = payload_second.get("trace", {})
+    assert int(trace.get("index_cache_reused_docs", 0)) >= 1

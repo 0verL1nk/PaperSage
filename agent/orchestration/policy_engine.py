@@ -254,6 +254,7 @@ def intercept(
     llm: Any | None = None,
     force_plan: bool | None = None,
     force_team: bool | None = None,
+    emit_info_log: bool = True,
 ) -> PolicyDecision:
     """请求前拦截器：携带结构化 RequestContext 统一决策执行策略。
 
@@ -316,7 +317,8 @@ def intercept(
             source=decision.source,
         )
 
-    logger.info(
+    log_fn = logger.info if emit_info_log else logger.debug
+    log_fn(
         "Interceptor decision: plan=%s team=%s source=%s reason=%s",
         decision.plan_enabled,
         decision.team_enabled,

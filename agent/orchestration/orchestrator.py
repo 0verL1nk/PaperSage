@@ -20,6 +20,8 @@ from ..settings import load_agent_settings
 from ..stream import (
     extract_ask_human_requests_from_result,
     extract_result_text,
+    extract_skill_activation_events_from_result,
+    extract_tool_trace_events_from_result,
     extract_tool_names_from_result,
 )
 from .async_policy import AsyncPolicyPredictor
@@ -544,15 +546,52 @@ def execute_orchestrated_turn(
         )
         leader_tool_names: list[str] = []
         ask_human_requests: list[dict[str, str]] = []
+        tool_trace_events: list[dict[str, str]] = []
+        skill_activation_events: list[dict[str, str]] = []
         if isinstance(result, dict):
             leader_tool_names = sorted(extract_tool_names_from_result(result))
             ask_human_requests = extract_ask_human_requests_from_result(result)
+            tool_trace_events = extract_tool_trace_events_from_result(result)
+            skill_activation_events = extract_skill_activation_events_from_result(result)
             answer = extract_result_text(result)
         else:
             answer = _llm_content_to_text(getattr(result, "content", result))
         answer = sanitize_public_answer(answer)
         if not answer:
             answer = "抱歉，我暂时没有生成有效回复。"
+
+        for item in tool_trace_events:
+            sender = str(item.get("sender") or "leader")
+            receiver = str(item.get("receiver") or "tool")
+            performative = str(item.get("performative") or "tool_call")
+            content = str(item.get("content") or "")
+            tool_event = _emit_event(
+                trace_payload=trace_payload,
+                trace_context=trace_context,
+                sender=sender,
+                receiver=receiver,
+                performative=performative,
+                content=content or "(tool event)",
+                parent_span_id=current_parent_span,
+                on_event=on_event,
+            )
+            current_parent_span = str(tool_event.get("span_id") or current_parent_span)
+
+        for item in skill_activation_events:
+            sender = str(item.get("sender") or "leader")
+            receiver = str(item.get("receiver") or "skill")
+            content = str(item.get("content") or "")
+            skill_event = _emit_event(
+                trace_payload=trace_payload,
+                trace_context=trace_context,
+                sender=sender,
+                receiver=receiver,
+                performative="skill_activate",
+                content=content or "activate skill",
+                parent_span_id=current_parent_span,
+                on_event=on_event,
+            )
+            current_parent_span = str(skill_event.get("span_id") or current_parent_span)
 
         _emit_event(
             trace_payload=trace_payload,

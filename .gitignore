@@ -43,6 +43,7 @@ models
 # Local secrets
 .env
 .env.*
+!.env.example
 
 # unit tests
 .coverage
@@ -76,3 +77,4 @@ config
 
 
 .agent
+.cache

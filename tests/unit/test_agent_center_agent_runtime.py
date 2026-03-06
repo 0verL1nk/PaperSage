@@ -27,7 +27,7 @@ def test_ensure_agent_runtime_reuses_cached_session():
 
     ensure_agent_runtime(
         session_state=session_state,
-        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None),
+        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None, debug=lambda *_args, **_kwargs: None),
         project_uid="p1",
         session_uid="s1",
         project_name="项目A",
@@ -72,7 +72,7 @@ def test_ensure_agent_runtime_creates_fresh_session():
 
     ensure_agent_runtime(
         session_state=session_state,
-        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None),
+        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None, debug=lambda *_args, **_kwargs: None),
         project_uid="p1",
         session_uid="s1",
         project_name="项目A",
@@ -103,7 +103,7 @@ def test_prepare_agent_session_cached_and_build_paths():
         calls["ensure"] += 1
 
     prepare_agent_session(
-        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None),
+        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None, debug=lambda *_args, **_kwargs: None),
         has_cached_session_fn=lambda *_args: True,
         ensure_agent_runtime_fn=_ensure,
         cached_caption_fn=lambda: calls.__setitem__("caption", calls["caption"] + 1),
@@ -118,7 +118,7 @@ def test_prepare_agent_session_cached_and_build_paths():
 
     calls = {"ensure": 0, "caption": 0, "build": 0}
     prepare_agent_session(
-        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None),
+        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None, debug=lambda *_args, **_kwargs: None),
         has_cached_session_fn=lambda *_args: False,
         ensure_agent_runtime_fn=_ensure,
         cached_caption_fn=lambda: calls.__setitem__("caption", calls["caption"] + 1),

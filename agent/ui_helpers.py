@@ -28,7 +28,11 @@ def _confidence_badge(score: float) -> tuple[str, str]:
     return "低置信", "llm-badge-low"
 
 
-def _render_acp_trace(trace_payload: list[dict[str, str]]) -> None:
+def _render_acp_trace(
+    trace_payload: list[dict[str, str]],
+    *,
+    expander_title: str = "查看 Agent 执行轨迹",
+) -> None:
     def _render_trace_cards(items: list[tuple[int, dict[str, str]]]) -> None:
         trace_rows: list[str] = []
         for idx, entry in items:
@@ -61,7 +65,7 @@ def _render_acp_trace(trace_payload: list[dict[str, str]]) -> None:
             phase_order.append(phase)
         phase_groups[phase].append((idx, entry))
 
-    with st.expander("查看 Agent 执行轨迹", expanded=False):
+    with st.expander(expander_title, expanded=False):
         tab_timeline, tab_phase = st.tabs(["时间线", "阶段分组"])
         with tab_timeline:
             _render_trace_cards(indexed_payload)
@@ -70,6 +74,36 @@ def _render_acp_trace(trace_payload: list[dict[str, str]]) -> None:
                 items = phase_groups.get(phase, [])
                 with st.expander(f"{phase}（{len(items)}）", expanded=False):
                     _render_trace_cards(items)
+
+
+def _is_react_mode(policy_decision: dict[str, Any] | None) -> bool:
+    if not isinstance(policy_decision, dict):
+        return False
+    return (
+        not bool(policy_decision.get("plan_enabled", False))
+        and not bool(policy_decision.get("team_enabled", False))
+    )
+
+
+def _render_trace_by_mode(
+    trace_payload: list[dict[str, str]] | None,
+    *,
+    policy_decision: dict[str, Any] | None = None,
+) -> None:
+    if not isinstance(trace_payload, list) or not trace_payload:
+        return
+    if _is_react_mode(policy_decision):
+        allowed = {"tool_load", "tool_call", "tool_result", "skill_activate"}
+        filtered = [
+            item
+            for item in trace_payload
+            if isinstance(item, dict)
+            and str(item.get("performative") or "").strip() in allowed
+        ]
+        if filtered:
+            _render_acp_trace(filtered, expander_title="查看工具执行轨迹")
+        return
+    _render_acp_trace(trace_payload)
 
 
 def _preview_text(text: str, limit: int = 140) -> str:
@@ -800,8 +834,10 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
                     unsafe_allow_html=True,
                 )
             trace_payload = message.get("acp_trace")
-            if isinstance(trace_payload, list) and trace_payload:
-                _render_acp_trace(trace_payload)
+            _render_trace_by_mode(
+                trace_payload if isinstance(trace_payload, list) else None,
+                policy_decision=policy_decision if isinstance(policy_decision, dict) else None,
+            )
             _render_method_compare_if_any(
                 message.get("method_compare_data"),
                 key_prefix=f"history_{message_index}",

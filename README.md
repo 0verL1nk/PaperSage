@@ -1,12 +1,33 @@
-# 📚 文献阅读助手
+<div align="center">
 
-[English](README_EN.md) | 简体中文
+# 📚 PaperSage
 
-> 面向科研阅读与写作场景的 AI 智能体应用，基于 **Streamlit + LangChain + LangGraph** 构建。  
+**面向科研阅读与写作的 AI 智能体工作台**
+
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-0.1.0-informational)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![LangChain](https://img.shields.io/badge/LangChain-1.x-blueviolet?logo=langchain)](https://python.langchain.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-0.3%2B-orange)](https://langchain-ai.github.io/langgraph/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.54%2B-red?logo=streamlit)](https://streamlit.io/)
+[![A2A](https://img.shields.io/badge/A2A-Compatible-brightgreen)](https://google.github.io/A2A/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
+[![uv](https://img.shields.io/badge/uv-managed-6E40C9)](https://github.com/astral-sh/uv)
+
+[English](README_EN.md) · [简体中文](#) · [CHANGELOG](CHANGELOG.md) · [文档](docs/)
+
+</div>
+
+---
+
+<div align="center">
+
+![PaperSage 主界面](images/main.png)
+
+> 基于 **Streamlit + LangChain + LangGraph** 构建。  
 > 以"项目化论文问答工作台"为核心：按项目组织文档、限定检索范围、自动路由 Agent 工作流、输出可追溯证据。
 
-<!-- 项目整体截图 -->
-<!-- ![项目概览](images/overview.png) -->
+</div>
 
 ---
 
@@ -27,34 +48,28 @@
 ## 🖼️ 功能截图
 
 ### Agent 中心 — 智能问答
-
-<!-- 替换为最新 Agent 中心截图 -->
-<!-- ![Agent 中心](images/agent-center.png) -->
+![alt text](images/agent中心.png)
 
 ### 文件中心 — 文档管理
 
-![文件中心](images/文件中心.png)
+![alt text](images/文件中心.png)
 
 ### 论文问答 — 证据追溯
 
-![论文问答](images/论文问答.png)
+![alt text](images/证据链.png)
 
 ### 思维导图 — 可视化
 
-![思维导图](images/思维导图.png)
+![alt text](images/思维导图1.png)
 
 ### 论文总结
 
-![论文总结](images/论文总结.png)
+![alt text](images/总结.png)
 
 ### 上下文治理 — 可视化
 
-<!-- 替换为上下文治理/压缩可视化截图 -->
-![alt text](images/上下文可视化.png)
+![上下文可视化](images/上下文可视化.png)
 
-<!-- 以下截图可按需启用 -->
-<!-- ### 文段改写 -->
-<!-- ![文段改写](images/文段优化1.png) -->
 
 ---
 
@@ -213,6 +228,7 @@ AGENT_POLICY_SCORE_TEAM=4
 AGENT_DISABLE_SEARCH_WEB=false
 AGENT_TODO_FILE=.agent/todo.json
 AGENT_HISTORY_PAGE_SIZE=40
+AGENT_PROJECT_INDEX_CACHE_DIR=./.cache/project_indexes
 
 # 日志
 APP_LOG_LEVEL=INFO

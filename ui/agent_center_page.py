@@ -127,6 +127,7 @@ def run_agent_center_page() -> None:
         _render_workflow_metrics,
     )
     from utils.utils import (
+        apply_user_runtime_tuning_env,
         detect_language,
         ensure_local_user,
         ensure_default_project_for_user,
@@ -169,7 +170,7 @@ def run_agent_center_page() -> None:
                     "created_at": file["created_at"],
                 }
             )
-        logger.info("Loaded file list from DB: count=%s", len(st.session_state["files"]))
+        logger.debug("Loaded file list from DB: count=%s", len(st.session_state["files"]))
 
     
     def _load_projects_from_db() -> None:
@@ -565,6 +566,7 @@ def run_agent_center_page() -> None:
             build_context_usage_snapshot_fn=build_context_usage_snapshot,
             project_uid=project_uid,
             conversation_key=conversation_key,
+            extract_skill_context_texts_from_trace_fn=extract_skill_context_texts_from_trace,
         )
     
     
@@ -594,6 +596,12 @@ def run_agent_center_page() -> None:
     
     def main():
         user_uuid = st.session_state.get("uuid", "local-user")
+        applied_runtime_env = apply_user_runtime_tuning_env(user_uuid)
+        if applied_runtime_env:
+            logger.debug(
+                "Applied user runtime env overrides: %s",
+                sorted(applied_runtime_env.keys()),
+            )
         turn_in_progress = bool(st.session_state.get("agent_turn_in_progress", False))
         pending_turn = st.session_state.get("agent_pending_turn")
         api_key = read_user_api_key()
@@ -670,7 +678,7 @@ def run_agent_center_page() -> None:
             return
     
         with logging_context(uid=user_uuid, project_uid=selected_project_uid):
-            logger.info(
+            logger.debug(
                 "Selected project: name=%s docs=%s",
                 selected_project_name,
                 len(scope_docs),
@@ -691,6 +699,7 @@ def run_agent_center_page() -> None:
                 ),
                 build_scope_cache_caption_fn=build_scope_cache_caption,
                 build_scope_signature_fn=build_scope_signature,
+                has_cached_session_fn=_has_cached_agent_session,
                 prepare_agent_session_fn=_prepare_agent_session,
                 ensure_conversation_messages_fn=_ensure_conversation_messages,
                 ensure_compact_summary_fn=_ensure_compact_summary,

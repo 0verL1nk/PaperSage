@@ -34,6 +34,7 @@ def test_prepare_scope_runtime_success_and_failure():
     assert result.scope_signature == "sig:1"
     assert result.cache_caption == "caption:1"
     assert calls == {"prepare": 1, "messages": 1, "compact": 1, "usage": 1}
+    assert result.scope_docs_with_text == [{"uid": "d1", "file_name": "A"}]
 
     result = prepare_scope_runtime(
         logger=SimpleNamespace(warning=lambda *_args, **_kwargs: None),
@@ -52,6 +53,31 @@ def test_prepare_scope_runtime_success_and_failure():
         update_context_usage_fn=lambda *_args: None,
     )
     assert result is None
+
+
+def test_prepare_scope_runtime_skips_loading_when_cached():
+    calls = {"load": 0, "prepare": 0}
+    result = prepare_scope_runtime(
+        logger=SimpleNamespace(warning=lambda *_args, **_kwargs: None),
+        user_uuid="u1",
+        project_uid="p1",
+        project_name="P",
+        session_uid="s1",
+        conversation_key="p1:s1",
+        scope_docs=[{"uid": "d1", "file_name": "A", "file_path": "/tmp/a"}],
+        load_scope_docs_with_text_fn=lambda **_kwargs: calls.__setitem__("load", calls["load"] + 1),
+        build_scope_cache_caption_fn=lambda _stats: "",
+        build_scope_signature_fn=lambda docs: f"sig:{len(docs)}",
+        has_cached_session_fn=lambda *_args: True,
+        prepare_agent_session_fn=lambda *_args: calls.__setitem__("prepare", calls["prepare"] + 1),
+        ensure_conversation_messages_fn=lambda **_kwargs: None,
+        ensure_compact_summary_fn=lambda **_kwargs: None,
+        update_context_usage_fn=lambda *_args: None,
+    )
+    assert result is not None
+    assert result.scope_signature == "sig:1"
+    assert calls == {"load": 0, "prepare": 1}
+    assert result.scope_docs_with_text == [{"uid": "d1", "file_name": "A", "file_path": "/tmp/a"}]
 
 
 def test_gate_prompt_and_enqueue_states():

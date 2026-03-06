@@ -91,6 +91,7 @@ class AsyncPolicyPredictor:
                     llm=self._llm,
                     force_plan=self._force_plan,
                     force_team=self._force_team,
+                    emit_info_log=False,
                 )
                 now = time.monotonic()
                 with self._lock:

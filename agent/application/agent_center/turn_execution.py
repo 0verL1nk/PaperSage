@@ -11,6 +11,7 @@ class TurnRuntimeInputs:
     leader_llm: Any | None
     policy_llm: Any | None = None
     search_document_evidence_fn: Any | None = None
+    leader_tool_specs: list[dict[str, Any]] | None = None
 
 
 def resolve_turn_runtime_inputs(session_state: dict[str, Any]) -> TurnRuntimeInputs:
@@ -22,6 +23,7 @@ def resolve_turn_runtime_inputs(session_state: dict[str, Any]) -> TurnRuntimeInp
     leader_llm = session_state.get("paper_leader_llm")
     policy_llm = session_state.get("paper_policy_router_llm") or leader_llm
     search_document_evidence_fn = session_state.get("paper_evidence_retriever")
+    leader_tool_specs = session_state.get("paper_current_tool_specs")
     return TurnRuntimeInputs(
         leader_agent=leader_agent,
         leader_runtime_config=(
@@ -33,6 +35,9 @@ def resolve_turn_runtime_inputs(session_state: dict[str, Any]) -> TurnRuntimeInp
             search_document_evidence_fn
             if callable(search_document_evidence_fn)
             else None
+        ),
+        leader_tool_specs=(
+            leader_tool_specs if isinstance(leader_tool_specs, list) else []
         ),
     )
 
@@ -55,6 +60,7 @@ def execute_turn_with_runtime(
         leader_llm=runtime_inputs.leader_llm,
         policy_llm=runtime_inputs.policy_llm,
         search_document_evidence_fn=runtime_inputs.search_document_evidence_fn,
+        leader_tool_specs=runtime_inputs.leader_tool_specs,
         force_plan=force_plan,
         force_team=force_team,
         routing_context=routing_context,

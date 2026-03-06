@@ -83,12 +83,22 @@ def configure_application_logging(
     root = logging.getLogger()
     root.setLevel(final_level)
 
-    # Streamlit rerun / hot-reload may leave previously registered handlers alive.
-    # Always clean up marked handlers first to avoid duplicated log lines.
-    existing_marked_handlers = [
-        handler for handler in list(root.handlers) if getattr(handler, _HANDLER_MARKER, False)
-    ]
-    for handler in existing_marked_handlers:
+    def _is_app_handler(handler: logging.Handler) -> bool:
+        if getattr(handler, _HANDLER_MARKER, False):
+            return True
+        formatter = getattr(handler, "formatter", None)
+        fmt = getattr(formatter, "_fmt", "")
+        has_context_fmt = isinstance(fmt, str) and "run=%(run_id)s" in fmt and "project=%(project_uid)s" in fmt
+        has_namespace_filter = any(
+            isinstance(filter_obj, _NamespaceFilter)
+            for filter_obj in getattr(handler, "filters", [])
+        )
+        return has_context_fmt and has_namespace_filter
+
+    # Streamlit rerun / hot-reload may leave handlers from previous runs.
+    # Remove all app-owned handlers, including legacy unmarked ones.
+    existing_app_handlers = [handler for handler in list(root.handlers) if _is_app_handler(handler)]
+    for handler in existing_app_handlers:
         root.removeHandler(handler)
         try:
             handler.close()

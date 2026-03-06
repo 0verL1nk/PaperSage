@@ -45,19 +45,33 @@ def prepare_scope_runtime(
     load_scope_docs_with_text_fn,
     build_scope_cache_caption_fn,
     build_scope_signature_fn,
+    has_cached_session_fn=None,
     prepare_agent_session_fn,
     ensure_conversation_messages_fn,
     ensure_compact_summary_fn,
     update_context_usage_fn,
 ) -> ScopeRuntimeResult | None:
-    scope_docs_with_text, cache_stats, failed_uid = load_scope_docs_with_text_fn(
-        scope_docs=scope_docs,
-    )
-    if failed_uid:
-        logger.warning("Scope document loading interrupted: uid=%s", failed_uid)
-        return None
+    scope_signature = build_scope_signature_fn(scope_docs)
+    has_cached_session = False
+    if callable(has_cached_session_fn):
+        try:
+            has_cached_session = bool(
+                has_cached_session_fn(project_uid, session_uid, scope_signature)
+            )
+        except Exception as exc:
+            logger.warning("Failed to check cached agent session status: %s", exc)
 
-    scope_signature = build_scope_signature_fn(scope_docs_with_text)
+    if has_cached_session:
+        scope_docs_with_text = [dict(item) for item in scope_docs]
+        cache_stats = {"session_hit": 0, "db_restore": 0, "extracted": 0}
+    else:
+        scope_docs_with_text, cache_stats, failed_uid = load_scope_docs_with_text_fn(
+            scope_docs=scope_docs,
+        )
+        if failed_uid:
+            logger.warning("Scope document loading interrupted: uid=%s", failed_uid)
+            return None
+
     prepare_agent_session_fn(
         project_uid,
         session_uid,
@@ -80,8 +94,15 @@ def prepare_scope_runtime(
         conversation_key=conversation_key,
     )
     update_context_usage_fn(project_uid, conversation_key)
+    # The agent runtime/retriever has already consumed raw text. Avoid holding
+    # duplicated large strings in page state and downstream orchestration.
+    lightweight_scope_docs = []
+    for item in scope_docs_with_text:
+        normalized = dict(item)
+        normalized.pop("text", None)
+        lightweight_scope_docs.append(normalized)
     return ScopeRuntimeResult(
-        scope_docs_with_text=scope_docs_with_text,
+        scope_docs_with_text=lightweight_scope_docs,
         scope_signature=scope_signature,
         cache_caption=str(build_scope_cache_caption_fn(cache_stats)),
     )

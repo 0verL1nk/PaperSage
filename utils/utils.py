@@ -119,6 +119,7 @@ def init_database(db_name: str):
     ensure_users_policy_router_model_name_column(db_name)
     ensure_users_policy_router_base_url_column(db_name)
     ensure_users_policy_router_api_key_column(db_name)
+    ensure_users_runtime_tuning_columns(db_name)
     ensure_projects_tables(db_name)
 
     # 初始化任务状态表
@@ -1551,8 +1552,11 @@ def ensure_users_model_name_column(db_name="./database.sqlite"):
     columns = cursor.fetchall()
     has_model_name = any(row[1] == "model_name" for row in columns)
     if not has_model_name:
-        cursor.execute("ALTER TABLE users ADD COLUMN model_name TEXT DEFAULT NULL")
-        conn.commit()
+        if _try_add_users_column(
+            cursor,
+            "ALTER TABLE users ADD COLUMN model_name TEXT DEFAULT NULL",
+        ):
+            conn.commit()
     conn.close()
 
 
@@ -1563,8 +1567,11 @@ def ensure_users_base_url_column(db_name="./database.sqlite"):
     columns = cursor.fetchall()
     has_base_url = any(row[1] == "base_url" for row in columns)
     if not has_base_url:
-        cursor.execute("ALTER TABLE users ADD COLUMN base_url TEXT DEFAULT NULL")
-        conn.commit()
+        if _try_add_users_column(
+            cursor,
+            "ALTER TABLE users ADD COLUMN base_url TEXT DEFAULT NULL",
+        ):
+            conn.commit()
     conn.close()
 
 
@@ -1575,10 +1582,11 @@ def ensure_users_policy_router_model_name_column(db_name="./database.sqlite"):
     columns = cursor.fetchall()
     has_column = any(row[1] == "policy_router_model_name" for row in columns)
     if not has_column:
-        cursor.execute(
-            "ALTER TABLE users ADD COLUMN policy_router_model_name TEXT DEFAULT NULL"
-        )
-        conn.commit()
+        if _try_add_users_column(
+            cursor,
+            "ALTER TABLE users ADD COLUMN policy_router_model_name TEXT DEFAULT NULL",
+        ):
+            conn.commit()
     conn.close()
 
 
@@ -1589,10 +1597,11 @@ def ensure_users_policy_router_base_url_column(db_name="./database.sqlite"):
     columns = cursor.fetchall()
     has_column = any(row[1] == "policy_router_base_url" for row in columns)
     if not has_column:
-        cursor.execute(
-            "ALTER TABLE users ADD COLUMN policy_router_base_url TEXT DEFAULT NULL"
-        )
-        conn.commit()
+        if _try_add_users_column(
+            cursor,
+            "ALTER TABLE users ADD COLUMN policy_router_base_url TEXT DEFAULT NULL",
+        ):
+            conn.commit()
     conn.close()
 
 
@@ -1603,9 +1612,97 @@ def ensure_users_policy_router_api_key_column(db_name="./database.sqlite"):
     columns = cursor.fetchall()
     has_column = any(row[1] == "policy_router_api_key" for row in columns)
     if not has_column:
-        cursor.execute(
-            "ALTER TABLE users ADD COLUMN policy_router_api_key TEXT DEFAULT NULL"
+        if _try_add_users_column(
+            cursor,
+            "ALTER TABLE users ADD COLUMN policy_router_api_key TEXT DEFAULT NULL",
+        ):
+            conn.commit()
+    conn.close()
+
+
+def _try_add_users_column(cursor, sql: str) -> bool:
+    try:
+        cursor.execute(sql)
+        return True
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" in str(exc).lower():
+            return False
+        raise
+
+
+def ensure_users_runtime_tuning_columns(db_name="./database.sqlite"):
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(users)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    altered = False
+    if "agent_policy_async_enabled" not in columns:
+        altered = (
+            _try_add_users_column(
+                cursor,
+                "ALTER TABLE users ADD COLUMN agent_policy_async_enabled INTEGER DEFAULT NULL",
+            )
+            or altered
         )
+    if "agent_policy_async_refresh_seconds" not in columns:
+        altered = (
+            _try_add_users_column(
+                cursor,
+                "ALTER TABLE users ADD COLUMN agent_policy_async_refresh_seconds REAL DEFAULT NULL",
+            )
+            or altered
+        )
+    if "agent_policy_async_min_confidence" not in columns:
+        altered = (
+            _try_add_users_column(
+                cursor,
+                "ALTER TABLE users ADD COLUMN agent_policy_async_min_confidence REAL DEFAULT NULL",
+            )
+            or altered
+        )
+    if "agent_policy_async_max_staleness_seconds" not in columns:
+        altered = (
+            _try_add_users_column(
+                cursor,
+                "ALTER TABLE users ADD COLUMN agent_policy_async_max_staleness_seconds REAL DEFAULT NULL",
+            )
+            or altered
+        )
+    if "rag_index_batch_size" not in columns:
+        altered = (
+            _try_add_users_column(
+                cursor,
+                "ALTER TABLE users ADD COLUMN rag_index_batch_size INTEGER DEFAULT NULL",
+            )
+            or altered
+        )
+    if "agent_document_text_cache_max_chars" not in columns:
+        altered = (
+            _try_add_users_column(
+                cursor,
+                "ALTER TABLE users ADD COLUMN agent_document_text_cache_max_chars INTEGER DEFAULT NULL",
+            )
+            or altered
+        )
+    if "local_rag_project_max_chars" not in columns:
+        altered = (
+            _try_add_users_column(
+                cursor,
+                "ALTER TABLE users ADD COLUMN local_rag_project_max_chars INTEGER DEFAULT NULL",
+            )
+            or altered
+        )
+    if "local_rag_project_max_chunks" not in columns:
+        altered = (
+            _try_add_users_column(
+                cursor,
+                "ALTER TABLE users ADD COLUMN local_rag_project_max_chunks INTEGER DEFAULT NULL",
+            )
+            or altered
+        )
+
+    if altered:
         conn.commit()
     conn.close()
 
@@ -2547,6 +2644,209 @@ def get_policy_router_api_key(uuid: str, db_name="./database.sqlite") -> str | N
     result = cursor.fetchone()
     conn.close()
     return result[0] if result and result[0] else None
+
+
+def save_runtime_tuning_settings(
+    uuid: str,
+    *,
+    agent_policy_async_enabled: bool | None,
+    agent_policy_async_refresh_seconds: float | None,
+    agent_policy_async_min_confidence: float | None,
+    agent_policy_async_max_staleness_seconds: float | None,
+    rag_index_batch_size: int | None,
+    agent_document_text_cache_max_chars: int | None,
+    local_rag_project_max_chars: int | None,
+    local_rag_project_max_chunks: int | None,
+    db_name="./database.sqlite",
+):
+    ensure_users_runtime_tuning_columns(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    normalized_async_enabled = (
+        int(bool(agent_policy_async_enabled))
+        if agent_policy_async_enabled is not None
+        else None
+    )
+    normalized_refresh_seconds = (
+        max(0.5, float(agent_policy_async_refresh_seconds))
+        if agent_policy_async_refresh_seconds is not None
+        else None
+    )
+    normalized_min_confidence = (
+        min(1.0, max(0.0, float(agent_policy_async_min_confidence)))
+        if agent_policy_async_min_confidence is not None
+        else None
+    )
+    normalized_max_staleness = (
+        max(1.0, float(agent_policy_async_max_staleness_seconds))
+        if agent_policy_async_max_staleness_seconds is not None
+        else None
+    )
+    normalized_batch_size = (
+        max(1, int(rag_index_batch_size))
+        if rag_index_batch_size is not None
+        else None
+    )
+    normalized_document_cache_max_chars = (
+        max(0, int(agent_document_text_cache_max_chars))
+        if agent_document_text_cache_max_chars is not None
+        else None
+    )
+    normalized_project_max_chars = (
+        max(0, int(local_rag_project_max_chars))
+        if local_rag_project_max_chars is not None
+        else None
+    )
+    normalized_project_max_chunks = (
+        max(0, int(local_rag_project_max_chunks))
+        if local_rag_project_max_chunks is not None
+        else None
+    )
+
+    cursor.execute(
+        """
+        UPDATE users
+        SET
+            agent_policy_async_enabled = ?,
+            agent_policy_async_refresh_seconds = ?,
+            agent_policy_async_min_confidence = ?,
+            agent_policy_async_max_staleness_seconds = ?,
+            rag_index_batch_size = ?,
+            agent_document_text_cache_max_chars = ?,
+            local_rag_project_max_chars = ?,
+            local_rag_project_max_chunks = ?
+        WHERE uuid = ?
+    """,
+        (
+            normalized_async_enabled,
+            normalized_refresh_seconds,
+            normalized_min_confidence,
+            normalized_max_staleness,
+            normalized_batch_size,
+            normalized_document_cache_max_chars,
+            normalized_project_max_chars,
+            normalized_project_max_chunks,
+            uuid,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_runtime_tuning_settings(
+    uuid: str,
+    db_name="./database.sqlite",
+) -> dict[str, bool | int | float | None]:
+    ensure_users_runtime_tuning_columns(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT
+            agent_policy_async_enabled,
+            agent_policy_async_refresh_seconds,
+            agent_policy_async_min_confidence,
+            agent_policy_async_max_staleness_seconds,
+            rag_index_batch_size,
+            agent_document_text_cache_max_chars,
+            local_rag_project_max_chars,
+            local_rag_project_max_chunks
+        FROM users
+        WHERE uuid = ?
+    """,
+        (uuid,),
+    )
+    result = cursor.fetchone()
+    conn.close()
+    if not result:
+        return {
+            "agent_policy_async_enabled": None,
+            "agent_policy_async_refresh_seconds": None,
+            "agent_policy_async_min_confidence": None,
+            "agent_policy_async_max_staleness_seconds": None,
+            "rag_index_batch_size": None,
+            "agent_document_text_cache_max_chars": None,
+            "local_rag_project_max_chars": None,
+            "local_rag_project_max_chunks": None,
+        }
+    return {
+        "agent_policy_async_enabled": (
+            None if result[0] is None else bool(int(result[0]))
+        ),
+        "agent_policy_async_refresh_seconds": (
+            None if result[1] is None else float(result[1])
+        ),
+        "agent_policy_async_min_confidence": (
+            None if result[2] is None else float(result[2])
+        ),
+        "agent_policy_async_max_staleness_seconds": (
+            None if result[3] is None else float(result[3])
+        ),
+        "rag_index_batch_size": None if result[4] is None else int(result[4]),
+        "agent_document_text_cache_max_chars": (
+            None if result[5] is None else int(result[5])
+        ),
+        "local_rag_project_max_chars": None if result[6] is None else int(result[6]),
+        "local_rag_project_max_chunks": None if result[7] is None else int(result[7]),
+    }
+
+
+def get_user_runtime_tuning_settings(
+    uuid: str | None = None,
+) -> dict[str, bool | int | float | None]:
+    if not uuid:
+        if "uuid" not in st.session_state or not st.session_state["uuid"]:
+            return {
+                "agent_policy_async_enabled": None,
+                "agent_policy_async_refresh_seconds": None,
+                "agent_policy_async_min_confidence": None,
+                "agent_policy_async_max_staleness_seconds": None,
+                "rag_index_batch_size": None,
+                "agent_document_text_cache_max_chars": None,
+                "local_rag_project_max_chars": None,
+                "local_rag_project_max_chunks": None,
+            }
+        candidate_uuid = st.session_state["uuid"]
+        if not isinstance(candidate_uuid, str):
+            return {
+                "agent_policy_async_enabled": None,
+                "agent_policy_async_refresh_seconds": None,
+                "agent_policy_async_min_confidence": None,
+                "agent_policy_async_max_staleness_seconds": None,
+                "rag_index_batch_size": None,
+                "agent_document_text_cache_max_chars": None,
+                "local_rag_project_max_chars": None,
+                "local_rag_project_max_chunks": None,
+            }
+        uuid = candidate_uuid
+    return get_runtime_tuning_settings(uuid)
+
+
+def apply_user_runtime_tuning_env(uuid: str | None = None) -> dict[str, str]:
+    settings = get_user_runtime_tuning_settings(uuid)
+    env_by_key = {
+        "agent_policy_async_enabled": "AGENT_POLICY_ASYNC_ENABLED",
+        "agent_policy_async_refresh_seconds": "AGENT_POLICY_ASYNC_REFRESH_SECONDS",
+        "agent_policy_async_min_confidence": "AGENT_POLICY_ASYNC_MIN_CONFIDENCE",
+        "agent_policy_async_max_staleness_seconds": "AGENT_POLICY_ASYNC_MAX_STALENESS_SECONDS",
+        "rag_index_batch_size": "RAG_INDEX_BATCH_SIZE",
+        "agent_document_text_cache_max_chars": "AGENT_DOCUMENT_TEXT_CACHE_MAX_CHARS",
+        "local_rag_project_max_chars": "LOCAL_RAG_PROJECT_MAX_CHARS",
+        "local_rag_project_max_chunks": "LOCAL_RAG_PROJECT_MAX_CHUNKS",
+    }
+    applied: dict[str, str] = {}
+    for key, env_name in env_by_key.items():
+        value = settings.get(key)
+        if value is None:
+            os.environ.pop(env_name, None)
+            continue
+        if isinstance(value, bool):
+            normalized = "true" if value else "false"
+        else:
+            normalized = str(value)
+        os.environ[env_name] = normalized
+        applied[env_name] = normalized
+    return applied
 
 
 def get_user_model_name(uuid: str | None = None) -> str | None:

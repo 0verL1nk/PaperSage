@@ -6,7 +6,14 @@
 """
 import logging
 import os
+import hashlib
+import json
+import math
+import pickle
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
@@ -17,6 +24,7 @@ from .evidence import EvidenceItem, EvidencePayload
 from ..settings import load_agent_settings
 
 logger = logging.getLogger(__name__)
+PROJECT_INDEX_SCHEMA_VERSION = 1
 
 
 # BM25 依赖可用性检查
@@ -70,6 +78,256 @@ class RetrievalTrace:
     final_count: int = 0
     neighbor_expanded: bool = False
     fallback_reason: str | None = None
+
+
+def _resolve_index_batch_size() -> int:
+    try:
+        raw = int(os.getenv("RAG_INDEX_BATCH_SIZE", "256"))
+    except Exception:
+        raw = 256
+    return max(16, raw)
+
+
+def _build_vectorstore_in_batches(
+    *,
+    texts: list[str],
+    embedding: Any,
+    metadatas: list[dict[str, Any]] | None = None,
+) -> InMemoryVectorStore:
+    vectorstore = InMemoryVectorStore(embedding=embedding)
+    if not texts:
+        return vectorstore
+    batch_size = _resolve_index_batch_size()
+    total = len(texts)
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
+        batch_texts = texts[start:end]
+        batch_metas = (
+            metadatas[start:end]
+            if isinstance(metadatas, list) and len(metadatas) >= end
+            else None
+        )
+        vectorstore.add_texts(batch_texts, metadatas=batch_metas)
+    return vectorstore
+
+
+def _project_index_cache_root() -> Path:
+    raw = str(os.getenv("AGENT_PROJECT_INDEX_CACHE_DIR", "./.cache/project_indexes") or "").strip()
+    if not raw:
+        raw = "./.cache/project_indexes"
+    return Path(raw)
+
+
+def _sha1_text(value: str) -> str:
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()
+
+
+def _settings_signature_for_project_index(settings: Any) -> str:
+    payload = {
+        "v": PROJECT_INDEX_SCHEMA_VERSION,
+        "embedding_model": str(getattr(settings, "local_embedding_model", "") or ""),
+        "chunk_size": int(getattr(settings, "rag_chunk_size", 500) or 500),
+        "chunk_overlap": int(getattr(settings, "rag_chunk_overlap", 80) or 80),
+    }
+    digest_input = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+    return _sha1_text(digest_input)[:16]
+
+
+def _project_doc_index_path(
+    *,
+    project_uid: str,
+    doc_uid: str,
+    settings_signature: str,
+    text_hash: str,
+) -> Path:
+    root = _project_index_cache_root()
+    project_key = _sha1_text(str(project_uid or "__default__"))[:16]
+    doc_key = _sha1_text(str(doc_uid or "__doc__"))[:16]
+    return root / project_key / f"{doc_key}.{settings_signature}.{text_hash}.pkl"
+
+
+def _normalize_embedding_vectors(values: Any) -> list[list[float]]:
+    normalized: list[list[float]] = []
+    if not isinstance(values, list):
+        return normalized
+    for row in values:
+        if hasattr(row, "tolist"):
+            try:
+                row = row.tolist()
+            except Exception:
+                pass
+        if not isinstance(row, list):
+            continue
+        vector: list[float] = []
+        for item in row:
+            try:
+                vector.append(float(item))
+            except Exception:
+                vector.append(0.0)
+        normalized.append(vector)
+    return normalized
+
+
+def _normalize_embedding_vector(value: Any) -> list[float]:
+    if hasattr(value, "tolist"):
+        try:
+            value = value.tolist()
+        except Exception:
+            pass
+    if not isinstance(value, list):
+        return []
+    normalized: list[float] = []
+    for item in value:
+        try:
+            normalized.append(float(item))
+        except Exception:
+            normalized.append(0.0)
+    return normalized
+
+
+def _build_project_doc_index_artifact(
+    *,
+    project_uid: str,
+    doc_uid: str,
+    doc_name: str,
+    normalized_text: str,
+    settings_signature: str,
+    text_hash: str,
+    splitter: RecursiveCharacterTextSplitter,
+    embeddings: FastEmbedEmbeddings,
+) -> dict[str, Any]:
+    doc_docs = splitter.create_documents(
+        [normalized_text],
+        metadatas=[
+            {
+                "doc_uid": doc_uid,
+                "doc_name": doc_name,
+                "project_uid": project_uid,
+            }
+        ],
+    )
+    chunks = [doc.page_content for doc in doc_docs]
+    metadatas = [
+        dict(doc.metadata) if isinstance(doc.metadata, dict) else {}
+        for doc in doc_docs
+    ]
+    embedding_vectors = _normalize_embedding_vectors(
+        embeddings.embed_documents(chunks) if chunks else []
+    )
+    return {
+        "schema_version": PROJECT_INDEX_SCHEMA_VERSION,
+        "project_uid": project_uid,
+        "doc_uid": doc_uid,
+        "doc_name": doc_name,
+        "text_hash": text_hash,
+        "settings_signature": settings_signature,
+        "chunks": chunks,
+        "metadatas": metadatas,
+        "embeddings": embedding_vectors,
+    }
+
+
+def _load_project_doc_index_artifact(path: Path) -> dict[str, Any] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        with path.open("rb") as handle:
+            payload = pickle.load(handle)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if int(payload.get("schema_version", 0) or 0) != PROJECT_INDEX_SCHEMA_VERSION:
+        return None
+    chunks = payload.get("chunks")
+    metadatas = payload.get("metadatas")
+    embeddings = payload.get("embeddings")
+    if not isinstance(chunks, list) or not isinstance(metadatas, list) or not isinstance(embeddings, list):
+        return None
+    if len(chunks) != len(metadatas) or len(chunks) != len(embeddings):
+        return None
+    payload["embeddings"] = _normalize_embedding_vectors(embeddings)
+    if len(payload["embeddings"]) != len(chunks):
+        return None
+    return payload
+
+
+def _save_project_doc_index_artifact(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=str(path.parent), delete=False) as tmp:
+        pickle.dump(payload, tmp, protocol=pickle.HIGHEST_PROTOCOL)
+        tmp_path = Path(tmp.name)
+    os.replace(str(tmp_path), str(path))
+
+
+def _load_or_build_project_doc_index_artifact(
+    *,
+    project_uid: str,
+    doc_uid: str,
+    doc_name: str,
+    normalized_text: str,
+    settings_signature: str,
+    splitter: RecursiveCharacterTextSplitter,
+    embeddings: FastEmbedEmbeddings,
+) -> tuple[dict[str, Any], bool]:
+    text_hash = _sha1_text(normalized_text)
+    path = _project_doc_index_path(
+        project_uid=project_uid,
+        doc_uid=doc_uid,
+        settings_signature=settings_signature,
+        text_hash=text_hash,
+    )
+    cached = _load_project_doc_index_artifact(path)
+    if isinstance(cached, dict):
+        return cached, True
+    built = _build_project_doc_index_artifact(
+        project_uid=project_uid,
+        doc_uid=doc_uid,
+        doc_name=doc_name,
+        normalized_text=normalized_text,
+        settings_signature=settings_signature,
+        text_hash=text_hash,
+        splitter=splitter,
+        embeddings=embeddings,
+    )
+    try:
+        _save_project_doc_index_artifact(path, built)
+    except Exception as exc:
+        logger.warning("Failed to persist project index artifact: project=%s doc=%s err=%s", project_uid, doc_uid, exc)
+    return built, False
+
+
+def _cosine_topk(
+    *,
+    query_vector: list[float],
+    candidate_vectors: list[list[float]],
+    k: int,
+) -> list[tuple[int, float]]:
+    if not query_vector or not candidate_vectors or k <= 0:
+        return []
+    query_norm = math.sqrt(sum(value * value for value in query_vector))
+    if query_norm <= 0.0:
+        return []
+    scored: list[tuple[int, float]] = []
+    for index, vector in enumerate(candidate_vectors):
+        if not vector:
+            continue
+        dim = min(len(query_vector), len(vector))
+        if dim <= 0:
+            continue
+        dot = 0.0
+        norm_v = 0.0
+        for i in range(dim):
+            qv = query_vector[i]
+            vv = vector[i]
+            dot += qv * vv
+            norm_v += vv * vv
+        if norm_v <= 0.0:
+            continue
+        score = dot / (query_norm * math.sqrt(norm_v))
+        scored.append((index, float(score)))
+    scored.sort(key=lambda item: item[1], reverse=True)
+    return scored[:k]
 
 
 def _retrieval_result_to_evidence_payload(
@@ -307,7 +565,10 @@ class HybridRetriever:
             model_name=embedding_model,
             cache_dir=embedding_cache_dir,
         )
-        self.vectorstore = InMemoryVectorStore.from_texts(chunks, embedding=embeddings)
+        self.vectorstore = _build_vectorstore_in_batches(
+            texts=chunks,
+            embedding=embeddings,
+        )
 
         # 初始化 Sparse 检索（BM25）
         self.bm25_search = _build_bm25_retriever(chunks, k=sparse_k)
@@ -813,8 +1074,10 @@ def build_project_evidence_retriever_with_settings(
     project_uid: str = "",
 ) -> Callable[[str], dict[str, Any]]:
     settings = load_agent_settings()
-    max_project_chars = max(int(settings.rag_project_max_chars), 1)
-    max_project_chunks = max(int(settings.rag_project_max_chunks), 1)
+    raw_max_project_chars = int(settings.rag_project_max_chars)
+    raw_max_project_chunks = int(settings.rag_project_max_chunks)
+    max_project_chars = raw_max_project_chars if raw_max_project_chars > 0 else None
+    max_project_chunks = raw_max_project_chunks if raw_max_project_chunks > 0 else None
     project_rerank_enabled = (
         bool(settings.rag_rerank_enabled) and bool(settings.rag_project_rerank_enabled)
     )
@@ -827,13 +1090,24 @@ def build_project_evidence_retriever_with_settings(
 
     chunks: list[str] = []
     metadatas: list[dict[str, Any]] = []
+    chunk_embeddings: list[list[float]] = []
     chunk_counter = 0
     doc_count = 0
-    remaining_chars = max_project_chars
+    remaining_chars = max_project_chars if isinstance(max_project_chars, int) else None
     truncated_by_chars = False
     truncated_by_chunks = False
+    reused_doc_indexes = 0
+    built_doc_indexes = 0
+    settings_signature = _settings_signature_for_project_index(settings)
+    embeddings = FastEmbedEmbeddings(
+        model_name=settings.local_embedding_model,
+        cache_dir=settings.local_embedding_cache_dir,
+    )
     for item in documents:
-        if remaining_chars <= 0 or truncated_by_chunks:
+        if (
+            (isinstance(remaining_chars, int) and remaining_chars <= 0)
+            or truncated_by_chunks
+        ):
             break
         if not isinstance(item, dict):
             continue
@@ -845,33 +1119,53 @@ def build_project_evidence_retriever_with_settings(
         if not isinstance(doc_uid, str) or not doc_uid.strip():
             continue
         normalized_text = text.strip()
-        if len(normalized_text) > remaining_chars:
-            normalized_text = normalized_text[:remaining_chars]
+        if isinstance(remaining_chars, int) and len(normalized_text) > remaining_chars:
+            normalized_text = normalized_text[: max(remaining_chars, 0)]
             truncated_by_chars = True
         if not normalized_text:
             continue
-        remaining_chars -= len(normalized_text)
+        if isinstance(remaining_chars, int):
+            remaining_chars -= len(normalized_text)
         normalized_doc_name = doc_name if isinstance(doc_name, str) else ""
-        doc_docs = splitter.create_documents(
-            [normalized_text],
-            metadatas=[
-                {
-                    "doc_uid": doc_uid,
-                    "doc_name": normalized_doc_name,
-                    "project_uid": project_uid,
-                }
-            ],
+        doc_index_artifact, reused_from_cache = _load_or_build_project_doc_index_artifact(
+            project_uid=project_uid,
+            doc_uid=doc_uid,
+            doc_name=normalized_doc_name,
+            normalized_text=normalized_text,
+            settings_signature=settings_signature,
+            splitter=splitter,
+            embeddings=embeddings,
         )
+        if reused_from_cache:
+            reused_doc_indexes += 1
+        else:
+            built_doc_indexes += 1
         doc_count += 1
-        for doc in doc_docs:
-            if chunk_counter >= max_project_chunks:
+        doc_chunks = doc_index_artifact.get("chunks", [])
+        doc_metadatas = doc_index_artifact.get("metadatas", [])
+        doc_embeddings = doc_index_artifact.get("embeddings", [])
+        doc_chunk_count = min(len(doc_chunks), len(doc_metadatas), len(doc_embeddings))
+        for index in range(doc_chunk_count):
+            if isinstance(max_project_chunks, int) and chunk_counter >= max_project_chunks:
                 truncated_by_chunks = True
                 break
-            chunks.append(doc.page_content)
-            metadata = dict(doc.metadata) if isinstance(doc.metadata, dict) else {}
+            chunk_text = doc_chunks[index]
+            metadata = (
+                dict(doc_metadatas[index]) if isinstance(doc_metadatas[index], dict) else {}
+            )
+            chunk_vector = doc_embeddings[index]
+            if not isinstance(chunk_text, str):
+                continue
+            if not isinstance(chunk_vector, list) or not chunk_vector:
+                continue
             metadata["chunk_index"] = chunk_counter
             metadata["chunk_id"] = f"{doc_uid}:chunk_{chunk_counter}"
+            metadata["doc_uid"] = doc_uid
+            metadata["doc_name"] = normalized_doc_name
+            metadata["project_uid"] = project_uid
+            chunks.append(chunk_text)
             metadatas.append(metadata)
+            chunk_embeddings.append(chunk_vector)
             chunk_counter += 1
 
     if truncated_by_chars or truncated_by_chunks:
@@ -880,10 +1174,17 @@ def build_project_evidence_retriever_with_settings(
             project_uid,
             doc_count,
             len(chunks),
-            max_project_chars,
-            max_project_chunks,
+            max_project_chars if max_project_chars is not None else "unlimited",
+            max_project_chunks if max_project_chunks is not None else "unlimited",
             truncated_by_chars,
             truncated_by_chunks,
+        )
+    if reused_doc_indexes > 0 or built_doc_indexes > 0:
+        logger.info(
+            "Project index cache stats: project=%s reused_docs=%s built_docs=%s",
+            project_uid,
+            reused_doc_indexes,
+            built_doc_indexes,
         )
 
     if not chunks:
@@ -901,17 +1202,7 @@ def build_project_evidence_retriever_with_settings(
 
         return _empty
 
-    embeddings = FastEmbedEmbeddings(
-        model_name=settings.local_embedding_model,
-        cache_dir=settings.local_embedding_cache_dir,
-    )
-    vectorstore = InMemoryVectorStore.from_texts(
-        texts=chunks,
-        embedding=embeddings,
-        metadatas=metadatas,
-    )
     dense_k = max(1, min(int(settings.rag_dense_candidate_k), len(chunks)))
-    retriever = vectorstore.as_retriever(search_kwargs={"k": dense_k})
     reranker = (
         _build_local_reranker(settings.rag_rerank_model)
         if project_rerank_enabled
@@ -919,7 +1210,16 @@ def build_project_evidence_retriever_with_settings(
     )
 
     def search_project_evidence(query: str) -> dict[str, Any]:
-        docs = retriever.invoke(query)
+        query_vector = _normalize_embedding_vector(embeddings.embed_query(query))
+        dense_candidates = _cosine_topk(
+            query_vector=query_vector,
+            candidate_vectors=chunk_embeddings,
+            k=dense_k,
+        )
+        docs = [
+            SimpleNamespace(page_content=chunks[index], metadata=metadatas[index])
+            for index, _score in dense_candidates
+        ]
         ranked_chunks = _rerank_docs(
             query=query,
             docs=docs,
@@ -977,6 +1277,8 @@ def build_project_evidence_retriever_with_settings(
                 "rerank_enabled": project_rerank_enabled,
                 "truncated_by_chars": truncated_by_chars,
                 "truncated_by_chunks": truncated_by_chunks,
+                "index_cache_reused_docs": reused_doc_indexes,
+                "index_cache_built_docs": built_doc_indexes,
             },
         )
         return payload.model_dump()

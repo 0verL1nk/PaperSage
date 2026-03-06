@@ -472,23 +472,53 @@ def extract_active_skills_from_trace(trace_payload: list[dict[str, Any]]) -> set
     for item in trace_payload:
         if not isinstance(item, dict):
             continue
-        receiver = str(item.get("receiver") or "")
+        receiver = str(item.get("receiver") or "").strip()
+        performative = str(item.get("performative") or "").strip()
+        content = str(item.get("content") or "").strip()
+
+        if receiver.startswith("skill:"):
+            skill_name = receiver.split(":", 1)[1].strip().lower()
+            if skill_name:
+                skills.add(skill_name)
+            continue
+
         if receiver != "use_skill":
             continue
-        content = str(item.get("content") or "")
-        if not content.strip():
-            continue
-        try:
-            payload = json.loads(content)
-        except Exception:
+
+        if not performative and content:
             try:
-                payload = literal_eval(content)
+                payload = json.loads(content)
             except Exception:
-                payload = None
-        if isinstance(payload, dict):
-            skill_name = payload.get("skill_name")
-            if isinstance(skill_name, str) and skill_name.strip():
-                skills.add(skill_name.strip().lower())
+                try:
+                    payload = literal_eval(content)
+                except Exception:
+                    payload = None
+            if isinstance(payload, dict):
+                skill_name = payload.get("skill_name")
+                if isinstance(skill_name, str) and skill_name.strip():
+                    skills.add(skill_name.strip().lower())
+            continue
+
+        if performative == "tool_call" and content:
+            try:
+                payload = json.loads(content)
+            except Exception:
+                try:
+                    payload = literal_eval(content)
+                except Exception:
+                    payload = None
+            if isinstance(payload, dict):
+                skill_name = payload.get("skill_name")
+                if isinstance(skill_name, str) and skill_name.strip():
+                    skills.add(skill_name.strip().lower())
+            continue
+
+        if performative == "tool_result" and content:
+            first_line = content.splitlines()[0].strip()
+            if first_line.lower().startswith("skill:"):
+                parsed = first_line.split(":", 1)[1].strip().lower()
+                if parsed:
+                    skills.add(parsed)
     return skills
 
 
@@ -498,9 +528,16 @@ def extract_skill_context_texts_from_trace(trace_payload: list[dict[str, Any]]) 
     for item in trace_payload:
         if not isinstance(item, dict):
             continue
-        sender = str(item.get("sender") or "")
-        performative = str(item.get("performative") or "")
-        if sender != "use_skill" or performative != "tool_result":
+        sender = str(item.get("sender") or "").strip()
+        receiver = str(item.get("receiver") or "").strip()
+        performative = str(item.get("performative") or "").strip()
+        if performative == "skill_activate":
+            pass
+        elif performative == "tool_result" and sender == "use_skill":
+            pass
+        elif performative == "tool_call" and receiver == "use_skill":
+            pass
+        else:
             continue
         content = str(item.get("content") or "").strip()
         if not content or content in seen:

@@ -1,4 +1,41 @@
+import os
 from typing import Any
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except Exception:
+        return default
+
+
+def _prune_document_text_cache(
+    *,
+    document_text_cache: dict[str, str],
+    preserve_uid: str,
+    max_cache_chars: int,
+) -> tuple[int, int]:
+    if not isinstance(document_text_cache, dict) or max_cache_chars <= 0:
+        return 0, 0
+    total_chars = 0
+    for value in document_text_cache.values():
+        if isinstance(value, str):
+            total_chars += len(value)
+    if total_chars <= max_cache_chars:
+        return total_chars, 0
+
+    evicted = 0
+    keys = list(document_text_cache.keys())
+    for uid in keys:
+        if total_chars <= max_cache_chars:
+            break
+        if uid == preserve_uid and len(keys) > 1:
+            continue
+        cached = document_text_cache.pop(uid, None)
+        if isinstance(cached, str):
+            total_chars -= len(cached)
+            evicted += 1
+    return max(total_chars, 0), evicted
 
 
 def has_cached_agent_session(
@@ -62,16 +99,16 @@ def load_document_text(
     document_text_cache = session_state.get("document_text_cache", {})
     document_text = document_text_cache.get(selected_uid)
     if isinstance(document_text, str):
-        logger.info("Document text cache hit")
+        logger.debug("Document text cache hit")
         return document_text, "session_hit", None
 
-    logger.info("Document text session cache miss: uid=%s", selected_uid)
+    logger.debug("Document text session cache miss: uid=%s", selected_uid)
     persisted_text: str | None = None
     try:
         cached_from_db = load_cached_extraction_fn(selected_uid)
         if isinstance(cached_from_db, str) and cached_from_db.strip():
             persisted_text = cached_from_db
-            logger.info(
+            logger.debug(
                 "Document text restored from DB cache: uid=%s text_len=%s",
                 selected_uid,
                 len(persisted_text),
@@ -80,7 +117,7 @@ def load_document_text(
         logger.warning("Failed to load persisted document extraction: %s", exc)
 
     if persisted_text is None:
-        logger.info("Document text DB cache miss, extracting: path=%s", file_path)
+        logger.debug("Document text DB cache miss, extracting: path=%s", file_path)
         document_result = extract_document_fn(file_path)
         if document_result.get("result") != 1:
             reason = str(document_result.get("text") or "unknown")
@@ -96,7 +133,7 @@ def load_document_text(
                 file_path=file_path,
                 content=document_text,
             )
-            logger.info(
+            logger.debug(
                 "Document extraction persisted to DB cache: uid=%s text_len=%s",
                 selected_uid,
                 len(document_text),
@@ -109,6 +146,20 @@ def load_document_text(
         source = "db_restore"
 
     document_text_cache[selected_uid] = document_text
+    max_cache_chars = max(
+        0,
+        _env_int("AGENT_DOCUMENT_TEXT_CACHE_MAX_CHARS", 1_200_000),
+    )
+    current_total_chars, evicted_items = _prune_document_text_cache(
+        document_text_cache=document_text_cache,
+        preserve_uid=selected_uid,
+        max_cache_chars=max_cache_chars,
+    )
     session_state["document_text_cache"] = document_text_cache
-    logger.info("Document text cached in session: text_len=%s", len(document_text))
+    logger.debug(
+        "Document text cached in session: text_len=%s cache_chars=%s evicted=%s",
+        len(document_text),
+        current_total_chars,
+        evicted_items,
+    )
     return document_text, source, None

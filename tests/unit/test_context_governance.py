@@ -2,6 +2,7 @@ from agent.context_governance import (
     auto_compact_messages,
     build_context_usage_snapshot,
     extract_active_skills_from_trace,
+    extract_skill_context_texts_from_trace,
     inject_compact_summary,
     should_trigger_auto_compact,
 )
@@ -107,6 +108,42 @@ def test_extract_active_skills_supports_python_dict_content():
         }
     ]
     assert extract_active_skills_from_trace(trace_payload) == {"summary"}
+
+
+def test_extract_active_skills_supports_skill_activate_event():
+    trace_payload = [
+        {
+            "performative": "skill_activate",
+            "receiver": "skill:mindmap",
+            "content": "activate mindmap",
+        }
+    ]
+    assert extract_active_skills_from_trace(trace_payload) == {"mindmap"}
+
+
+def test_extract_skill_context_texts_from_trace_supports_new_skill_events():
+    trace_payload = [
+        {
+            "performative": "tool_call",
+            "receiver": "use_skill",
+            "content": "{'skill_name': 'summary', 'task': 'x'}",
+        },
+        {
+            "performative": "skill_activate",
+            "receiver": "skill:summary",
+            "content": "activate summary",
+        },
+        {
+            "performative": "tool_result",
+            "sender": "use_skill",
+            "content": "Skill: summary\nDescription: ...",
+        },
+    ]
+    texts = extract_skill_context_texts_from_trace(trace_payload)
+    assert len(texts) == 3
+    assert any("skill_name" in item for item in texts)
+    assert any(item.startswith("activate summary") for item in texts)
+    assert any(item.startswith("Skill: summary") for item in texts)
 
 
 def test_should_trigger_auto_compact(monkeypatch):

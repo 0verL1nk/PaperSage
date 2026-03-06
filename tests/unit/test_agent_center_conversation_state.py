@@ -137,6 +137,44 @@ def test_compact_summary_context_and_auto_compact():
     assert st.captions
 
 
+def test_update_context_usage_backfills_skill_texts_from_message_trace():
+    st = _FakeSt()
+    st.session_state["agent_messages"] = [
+        {
+            "role": "assistant",
+            "content": "done",
+            "acp_trace": [
+                {
+                    "performative": "skill_activate",
+                    "receiver": "skill:summary",
+                    "content": "activate summary",
+                }
+            ],
+        }
+    ]
+    st.session_state["paper_project_tool_specs"] = {"p1": [{"name": "use_skill"}]}
+    captured = {}
+
+    def _snapshot(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    update_context_usage(
+        st=st,
+        build_context_usage_snapshot_fn=_snapshot,
+        project_uid="p1",
+        conversation_key="p1:s1",
+        extract_skill_context_texts_from_trace_fn=lambda trace: [
+            str(item.get("content") or "") for item in trace if isinstance(item, dict)
+        ],
+    )
+
+    assert captured["skill_context_texts"] == ["activate summary"]
+    assert st.session_state["paper_project_skill_context_texts"]["p1:s1"] == [
+        "activate summary"
+    ]
+
+
 def test_ensure_conversation_messages_loads_latest_page_and_load_more():
     st = _FakeSt()
     all_messages = [{"role": "user", "content": f"m{i}"} for i in range(8)]

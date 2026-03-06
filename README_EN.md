@@ -1,127 +1,199 @@
-# Literature Reading Assistant
-[简体中文](README.md) | English
+<div align="center">
 
-An AI-powered literature reading platform built with **Streamlit + LangChain + LangGraph** for research workflows.  
-Core concept: a project-based paper Q&A workbench — organise documents by project, scope retrieval to the active project, auto-route agent workflows, and surface traceable evidence.
+# 📚 PaperSage
 
-## Features
+**AI-Powered Research Reading & Writing Workbench**
 
-- User & file management
-- Literature analysis:
-  - Hybrid RAG document search
-  - Paper summarization
-  - Text rewriting / paraphrasing / translation
-  - Agent-based paper Q&A with evidence
-  - Method comparison
-- Mind map visualization (pyecharts)
-- Long-term & short-term memory system
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-0.1.0-informational)](CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![LangChain](https://img.shields.io/badge/LangChain-1.x-blueviolet?logo=langchain)](https://python.langchain.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-0.3%2B-orange)](https://langchain-ai.github.io/langgraph/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.54%2B-red?logo=streamlit)](https://streamlit.io/)
+[![A2A](https://img.shields.io/badge/A2A-Compatible-brightgreen)](https://google.github.io/A2A/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
+[![uv](https://img.shields.io/badge/uv-managed-6E40C9)](https://github.com/astral-sh/uv)
 
-## Agent Workflows
+[简体中文](README.md) · [English](#) · [CHANGELOG](CHANGELOG.md) · [Docs](docs/)
 
-The main entry (`main.py`, Agent Center) supports three workflow modes:
+</div>
 
-| Mode | When |
-|------|------|
-| `ReAct (Tool+Memory)` | Simple Q&A, single-hop retrieval |
-| `Plan-Act (Orchestration)` | Medium-complexity tasks, LLM-generated plan + multi-role team execution |
-| `Plan-Act-RePlan (Orchestration)` | High-complexity tasks with review and replanning loop |
+---
 
-Key points:
-- **Smart routing**: keyword fast-path → LLM routing → fallback `ReAct`. Complexity scoring driven by text length, sentence count, punctuation, etc. — all thresholds configurable via env vars.
-- **Structured Orchestration** (`agent/orchestration/`): `planning_service` (LLM plan generation), `policy_engine` (complexity scoring & policy decision), `team_runtime` (dynamic role assignment & multi-round execution), `orchestrator` (unified entry point).
-- **Turn service**: `turn_service.py` wraps a full single-round execution, including evidence normalisation, phase label aggregation, and method-compare parsing.
+<div align="center">
 
-## Memory System
+![PaperSage Main Interface](images/main.png)
 
-- **Long-term memory** (`memory_repository.py`): SQLite-backed `project_memory_items` table, isolated by user and project.
-- **Memory type classification** (`memory_policy.py`): auto-classifies turns as `episodic`, `semantic`, or `procedural`, with type-specific TTL.
-- **Memory retrieval** (`memory_service.py`): hybrid scoring — term-overlap + recency decay.
-- **Memory facade** (`memory_store.py`): exposes `upsert / search / compact_memory` operations; `memory_policy.py` provides a `query_long_term_memory` high-level API.
+> Built with **Streamlit + LangChain + LangGraph**.  
+> A project-based paper Q&A workbench: organise documents by project, scope retrieval to the active context, auto-route agent workflows, and surface traceable evidence.
 
-## Project Structure
+</div>
+
+---
+
+## ✨ Feature Overview
+
+| Feature | Description |
+|---------|-------------|
+| 🔀 **Multi-mode Agent Workflows** | ReAct / Plan-Act / Plan-Act-RePlan — auto-routed by query complexity |
+| 🤝 **Multi-Agent Team Collaboration** | Leader-centric dispatch, LLM-generated roles, dependency-topological execution, multi-round review-replan |
+| 🔍 **Local Hybrid RAG** | Dense + BM25 + RRF + Rerank four-stage retrieval with structured, traceable evidence |
+| 🧠 **Long/Short-term Memory** | Episodic / semantic / procedural memory, differentiated TTL, recency-decay retrieval |
+| 🛠️ **14+ Built-in Tools** | RAG search, file I/O, academic search, web search, Todo management, human-in-the-loop confirmation |
+| 📝 **Pluggable Skills** | Paper summary, critical reading, method comparison, translation, mind map — dynamically loaded from `SKILL.md` |
+| 🗂️ **Project Workspaces** | Multi-project isolation, document binding, independent sessions and context |
+
+---
+
+## 🖼️ Screenshots
+
+### Agent Center — Intelligent Q&A
+![Agent Center](images/agent中心.png)
+
+### File Center — Document Management
+![File Center](images/文件中心.png)
+
+### Paper Q&A — Evidence Tracing
+![Evidence](images/证据链.png)
+
+### Mind Map — Visualization
+![Mind Map](images/思维导图1.png)
+
+### Paper Summary
+![Summary](images/总结.png)
+
+### Context Governance — Visualization
+![Context Governance](images/上下文可视化.png)
+
+---
+
+## 🏗️ Architecture
+
+### Workflow Routing & Dispatch
 
 ```text
-.
-├── main.py
-├── pages/
-│   ├── 0_🤖_Agent中心.py          # Thin page entrypoint
-│   ├── 1_📁_文件中心.py
-│   ├── 2_⚙️_设置中心.py
-│   └── 3_🗂️_项目中心.py
-├── ui/
-│   ├── agent_center_page.py       # Agent Center page implementation
-│   ├── project_workspace.py
-│   └── theme.py
-├── agent/
-│   ├── domain/                    # Domain contracts (policy/team/turn/trace)
-│   ├── application/               # Application use-cases (turn engine)
-│   │   └── agent_center/          # Agent Center application logic
-│   ├── adapters/                  # External adapters (LLM/RAG/document)
-│   ├── paper_agent.py             # ReAct session builder
-│   ├── multi_agent_a2a.py         # A2A multi-agent coordination
-│   ├── turn_service.py            # Backward-compatible facade to turn engine
-│   ├── capabilities.py            # Tools (DuckDuckGo + SearXNG)
-│   ├── rag_hybrid.py              # Hybrid RAG (Dense + BM25 + RRF)
-│   ├── memory_store.py            # Memory facade
-│   ├── memory_service.py          # Memory retrieval
-│   ├── memory_policy.py           # Memory classification & TTL
-│   ├── memory_repository.py       # Memory persistence (SQLite)
-│   ├── orchestration/
-│   │   ├── orchestrator.py
-│   │   ├── planning_service.py
-│   │   ├── policy_engine.py
-│   │   ├── team_runtime.py
-│   │   └── contracts.py
-│   └── ...
-├── utils/
-│   └── ...
-├── tests/
-│   ├── unit/                      # 30+ unit test files
-│   ├── integration/               # Integration + Live API E2E
-│   └── evals/
-├── pyproject.toml
-└── docker-compose.yml
+User Query
+  │
+  ├─→ Smart Router (keyword fast-path → LLM structured routing → fallback ReAct)
+  │
+  ├─ ReAct ──────────→ Single Agent + Tool loop
+  ├─ Plan-Act ────────→ Planner generates plan → Leader executes
+  └─ Plan-Act-RePlan ─→ Planner → Leader ⇄ Team (multi-role) → Reviewer → RePlan
+                                                                      ↓
+                                                               Quality gate loop
 ```
 
-## Requirements
+### Hybrid RAG Pipeline
 
-- Python `>=3.10`
+```text
+User Query
+  │
+  ├─→ Dense retrieval (FastEmbed bge-small-zh)
+  ├─→ BM25 sparse retrieval
+  │         │
+  │         ├─→ RRF fusion ranking
+  │         │         │
+  │         │         ├─→ FlashRank Rerank (optional)
+  │         │         │         │
+  │         │         │         └─→ Neighbour chunk expansion
+  │         │         │                   │
+  └─────────┴─────────┴───────────────────┴─→ Structured EvidenceItem
+                                                (doc_uid / chunk_id / score / page_no / offset)
+```
+
+### Memory Architecture
+
+```text
+┌────────────────────────────────────────────────┐
+│               Three-tier Memory                 │
+├────────────────────────────────────────────────┤
+│  Short-term: LangGraph InMemorySaver (session)  │
+├────────────────────────────────────────────────┤
+│  Mid-term: Auto context compression             │
+│  (token threshold → LLM summary + fact anchors) │
+├────────────────────────────────────────────────┤
+│  Long-term: SQLite persistence (per project)    │
+│  ├─ episodic   TTL 30 days                      │
+│  ├─ semantic   permanent                        │
+│  └─ procedural TTL 90 days                      │
+│  Retrieval: term overlap + recency decay score  │
+│  Injection: capacity circuit-breaker + conflict │
+│             resolution (evidence > memory)       │
+└────────────────────────────────────────────────┘
+```
+
+---
+
+## 📄 Pages
+
+| Page | Description |
+|------|-------------|
+| 🤖 **Agent Center** (default) | Main Q&A interface — workflow visualisation, evidence panel |
+| 📁 **File Center** | Document upload, format conversion, content preview |
+| ⚙️ **Settings** | API key, model, RAG params, agent behaviour config |
+| 🗂️ **Project Center** | Project management, document binding, workspace switching |
+
+---
+
+## 🚀 Quick Start
+
+### Requirements
+
+- Python `>= 3.10`
 - [uv](https://github.com/astral-sh/uv) (recommended)
 
-## Quick Start
-
-1. Clone repo
+### Local Run
 
 ```bash
-git clone <repository-url>
-cd <project-directory>
-```
-
-2. Install dependencies
-
-```bash
+# 1. Install dependencies
 uv sync --no-install-project
-```
 
-3. Run app
-
-```bash
+# 2. Start the app
 streamlit run main.py
 ```
 
-4. Open browser
+Open `http://localhost:8501` and configure your API key in **⚙️ Settings**.
 
-Visit `http://localhost:8501`
+### Docker
 
-## Runtime Settings
+```bash
+docker-compose up --build
+```
 
-Configure these in the sidebar (⚙️ Settings):
+---
 
-- `API Key`
-- `Model Name`
-- `OpenAI Compatible Base URL` (optional, defaults to Aliyun DashScope)
+## 🗂️ Project Structure
 
-## Environment Variables
+```text
+.
+├── main.py                     # Streamlit navigation entry
+├── pages/                      # Four feature pages
+├── agent/                      # 🧠 Agent core (77 modules / 12,500+ lines)
+│   ├── a2a/                    #   A2A coordination & protocol layer
+│   ├── orchestration/          #   Leader-centric orchestration
+│   ├── rag/                    #   Hybrid RAG (chunking / retrieval / evidence / fusion)
+│   ├── memory/                 #   Long-term memory (classify / retrieve / store / inject)
+│   ├── skills/                 #   Pluggable skills (summary / critical_reading / ...)
+│   ├── tools/                  #   Built-in tools (file / todo / bash / ask_human)
+│   ├── domain/                 #   Domain contracts
+│   ├── application/            #   Application use-case orchestration
+│   └── adapters/               #   External dependency adapters
+├── ui/                         # UI component layer
+├── utils/                      # Shared utilities
+├── tests/                      # 53 unit tests + integration + eval
+├── docs/                       # Design docs & dev notes
+├── models/embeddings/          # Local embedding model cache
+├── pyproject.toml              # Package config (hatch + uv)
+├── Dockerfile
+└── docker-compose.yml
+```
+
+---
+
+## ⚙️ Environment Variables
+
+<details>
+<summary>Click to expand full configuration</summary>
 
 ```bash
 # LLM
@@ -131,187 +203,77 @@ OPENAI_COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LOCAL_RAG_HYBRID_ENABLED=true
 LOCAL_RAG_TOP_K=8
 LOCAL_RAG_RERANK_ENABLED=false
-RAG_PROJECT_MAX_CHARS=300000
-RAG_PROJECT_MAX_CHUNKS=1200
 
-# Agent
+# Agent behaviour
 AGENT_TEMPERATURE=0.1
 AGENT_ENABLE_THINKING=false
-AGENT_REASONING_EFFORT=              # low / medium / high (OpenAI)
+AGENT_REASONING_EFFORT=            # low / medium / high (OpenAI)
 
-# Orchestration
+# Orchestration & team
 AGENT_TEAM_MAX_MEMBERS=3
 AGENT_TEAM_MAX_ROUNDS=2
 AGENT_PLANNER_MIN_STEPS=2
 AGENT_PLANNER_MAX_STEPS=4
 
-# Complexity scoring thresholds
-AGENT_POLICY_TEXT_LEN_MEDIUM=140
-AGENT_POLICY_TEXT_LEN_HIGH=240
+# Routing thresholds
 AGENT_POLICY_SCORE_PLAN=2
 AGENT_POLICY_SCORE_TEAM=4
 
 # Tools
 AGENT_DISABLE_SEARCH_WEB=false
-AGENT_SEARXNG_BASE_URLS=             # Comma-separated SearXNG instances (optional)
+AGENT_TODO_FILE=.agent/todo.json
+AGENT_HISTORY_PAGE_SIZE=40
+AGENT_PROJECT_INDEX_CACHE_DIR=./.cache/project_indexes
 
 # Logging
 APP_LOG_LEVEL=INFO
-APP_LOG_FILE=                        # Path for log file (stdout only if empty)
-
-# Task queue
-RQ_WORKER_COUNT=2
 ```
 
-## Logging (Dev Debugging)
+</details>
 
-Agent Center end-to-end logs are written to `./logs/agent_center.log` by default
-(rotating file: 10MB each, keep 7 backups).
+---
 
-Key trace fields:
-
-- `run`: per-query run id
-- `uid`: user id
-- `doc`: document uid
-- `workflow`: routed mode (`react` / `plan_act` / `plan_act_replan`)
-- `session`: agent session id (A2A session or ReAct thread)
-
-## Testing & Quality
-
-Install dev dependencies:
+## 🧪 Testing
 
 ```bash
+# Install dev dependencies
 uv sync --extra dev --no-install-project
-```
 
-Run unit tests:
-
-```bash
+# Unit tests
 uv run --extra dev python -m pytest tests/unit -q
-```
 
-Run integration / E2E tests:
-
-```bash
+# Integration tests
 uv run --extra dev python -m pytest tests/integration -q
-```
 
-Run live API E2E (requires env vars):
-
-```bash
-RUN_LIVE_E2E=1 \
-OPENAI_BASE_URL=... \
-OPENAI_MODEL_NAME=... \
-OPENAI_API_KEY=... \
+# Live API E2E (requires real API key)
 uv run --extra dev python -m pytest tests/integration/test_live_api_e2e.py -q
 ```
 
-Run coverage gate:
+---
 
-```bash
-uv run --extra dev python -m pytest \
-  --cov=utils \
-  --cov=agent \
-  --cov=pages \
-  --cov-report=term-missing \
-  --cov-fail-under=80
-```
+## 📦 Tech Stack
 
-## Docker (Optional)
+| Technology | Purpose |
+|------------|---------|
+| **Streamlit** | Web UI framework |
+| **LangChain / LangGraph** | LLM orchestration & agent state machine |
+| **FastEmbed** (bge-small-zh) | Local vector embeddings |
+| **FlashRank** | Local reranking |
+| **rank_bm25** | Sparse retrieval |
+| **a2a-sdk** | Google A2A protocol compatibility |
+| **SQLite** | Memory & data persistence |
+| **Redis + RQ** | Async task queue |
+| **pyecharts** | Mind map visualisation |
+| **Docker** | Containerised deployment |
 
-```bash
-docker-compose up --build
-```
+---
 
-## Contributing
+## 📄 License
 
-Issues and PRs are welcome.
+[MIT](LICENSE)
 
-- `run`: per-query run id
-- `uid`: user id
-- `doc`: document uid
-- `workflow`: routed mode (`react` / `plan_act` / `plan_act_replan`)
-- `session`: agent session id (A2A session or ReAct thread)
+---
 
-## Testing & Quality
+## 🤝 Contributing
 
-Install dev dependencies:
-
-```bash
-uv sync --extra dev --no-install-project
-```
-
-Run unit tests:
-
-```bash
-uv run --extra dev python -m pytest tests/unit -q
-```
-
-Run integration / E2E tests:
-
-```bash
-uv run --extra dev python -m pytest tests/integration -q
-```
-
-Run live API E2E (requires `.env`):
-
-Only these keys are supported in `.env`:
-
-```bash
-RUN_LIVE_E2E=1
-OPENAI_BASE_URL=...
-OPENAI_MODEL_NAME=...
-OPENAI_API_KEY=...
-AGENT_ENABLE_THINKING=0
-AGENT_REASONING_EFFORT=
-```
-
-Command:
-
-```bash
-uv run --extra dev python -m pytest tests/integration/test_live_api_e2e.py -q
-```
-
-Run coverage gate:
-
-```bash
-uv run --extra dev python -m pytest \
-  --cov=utils \
-  --cov=agent \
-  --cov=pages \
-  --cov-report=term-missing \
-  --cov-fail-under=80
-```
-
-## Docker (Optional)
-
-```bash
-docker-compose up --build
-```
-
-## Screenshots
-
-### Login
-![Login](images/登录.png)
-
-### File Center
-![File Center](images/%E6%96%87%E4%BB%B6%E4%B8%AD%E5%BF%83.png)
-
-### Extraction
-![Extraction](images/%E5%8E%9F%E6%96%87%E6%8F%90%E5%8F%96.png)
-
-### Rewriting
-![Rewrite Example](images/文段优化1.png)
-![Rewrite Example](images/文段优化3.png)
-![Rewrite Result](images/文段优化4.png)
-
-### Q&A
-![Q&A](images/论文问答.png)
-![Q&A Example](images/论文问答2.png)
-
-### Mind Map
-![Mind Map](images/思维导图.png)
-
-## Contributing
-
-Issues and PRs are welcome.
+Issues and PRs are welcome ❤️

@@ -73,6 +73,124 @@ def extract_tool_names_from_result(result: Any) -> set[str]:
     return tool_names
 
 
+def _iter_result_messages(result: Any) -> list[Any]:
+    raw_messages = result.get("messages", []) if isinstance(result, dict) else []
+    if not isinstance(raw_messages, list):
+        return []
+    return raw_messages
+
+
+def _extract_skill_name_from_args(args: Any) -> str:
+    if isinstance(args, str):
+        try:
+            parsed = json.loads(args)
+            args = parsed
+        except Exception:
+            return ""
+    if not isinstance(args, dict):
+        return ""
+    for key in ("skill_name", "name", "skill"):
+        value = str(args.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def extract_tool_trace_events_from_result(result: Any) -> list[dict[str, str]]:
+    messages = _iter_result_messages(result)
+    events: list[dict[str, str]] = []
+
+    for message in messages:
+        content = _message_text(message)
+        tool_calls = _message_attr(message, "tool_calls", None)
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                if isinstance(call, dict):
+                    call_name = str(call.get("name") or "tool").strip() or "tool"
+                    args = call.get("args", {})
+                else:
+                    call_name = str(getattr(call, "name", "tool") or "tool").strip() or "tool"
+                    args = getattr(call, "args", {})
+                events.append(
+                    {
+                        "sender": "leader",
+                        "receiver": call_name,
+                        "performative": "tool_call",
+                        "content": str(args) if args else content or "(tool call)",
+                    }
+                )
+
+        msg_type = str(_message_attr(message, "type", "") or "").lower()
+        role = str(_message_attr(message, "role", "") or "").lower()
+        if msg_type == "tool" or role == "tool":
+            tool_name = str(_message_attr(message, "name", "tool") or "tool").strip() or "tool"
+            events.append(
+                {
+                    "sender": tool_name,
+                    "receiver": "leader",
+                    "performative": "tool_result",
+                    "content": content or "(tool result)",
+                }
+            )
+    return events
+
+
+def extract_skill_activation_events_from_result(result: Any) -> list[dict[str, str]]:
+    messages = _iter_result_messages(result)
+    events: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _append(skill_name: str, content: str) -> None:
+        normalized_name = str(skill_name or "").strip()
+        if not normalized_name:
+            return
+        normalized_content = str(content or "").strip()
+        dedupe_key = (normalized_name, normalized_content)
+        if dedupe_key in seen:
+            return
+        seen.add(dedupe_key)
+        events.append(
+            {
+                "sender": "leader",
+                "receiver": f"skill:{normalized_name}",
+                "performative": "skill_activate",
+                "content": normalized_content or f"activate {normalized_name}",
+            }
+        )
+
+    for message in messages:
+        tool_calls = _message_attr(message, "tool_calls", None)
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                if isinstance(call, dict):
+                    call_name = str(call.get("name") or "").strip()
+                    args = call.get("args", {})
+                else:
+                    call_name = str(getattr(call, "name", "") or "").strip()
+                    args = getattr(call, "args", {})
+                if call_name != "use_skill":
+                    continue
+                skill_name = _extract_skill_name_from_args(args)
+                _append(skill_name, str(args) if args else "")
+
+        msg_type = str(_message_attr(message, "type", "") or "").lower()
+        role = str(_message_attr(message, "role", "") or "").lower()
+        if msg_type != "tool" and role != "tool":
+            continue
+        tool_name = str(_message_attr(message, "name", "") or "").strip()
+        if tool_name != "use_skill":
+            continue
+        content = _message_text(message).strip()
+        if not content:
+            continue
+        first_line = content.splitlines()[0].strip()
+        if first_line.lower().startswith("skill:"):
+            skill_name = first_line.split(":", 1)[1].strip()
+            _append(skill_name, first_line)
+
+    return events
+
+
 def extract_ask_human_requests_from_result(result: Any) -> list[dict[str, str]]:
     raw_messages = result.get("messages", []) if isinstance(result, dict) else []
     if not isinstance(raw_messages, list):

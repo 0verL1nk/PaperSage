@@ -290,12 +290,43 @@ def update_context_usage(
     build_context_usage_snapshot_fn,
     project_uid: str,
     conversation_key: str,
+    extract_skill_context_texts_from_trace_fn=None,
 ) -> None:
     compact_summaries = st.session_state.get("paper_project_compact_summaries", {})
     tool_specs_map = st.session_state.get("paper_project_tool_specs", {})
     tool_specs = tool_specs_map.get(project_uid, [])
     skill_texts_map = st.session_state.get("paper_project_skill_context_texts", {})
     skill_context_texts = skill_texts_map.get(conversation_key, [])
+    if (
+        (not isinstance(skill_context_texts, list) or not skill_context_texts)
+        and callable(extract_skill_context_texts_from_trace_fn)
+    ):
+        derived_skill_texts: list[str] = []
+        seen: set[str] = set()
+        for message in st.session_state.get("agent_messages", []):
+            if not isinstance(message, dict):
+                continue
+            trace_payload = message.get("acp_trace")
+            if not isinstance(trace_payload, list):
+                continue
+            try:
+                extracted = extract_skill_context_texts_from_trace_fn(trace_payload)
+            except Exception:
+                extracted = []
+            if not isinstance(extracted, list):
+                continue
+            for item in extracted:
+                value = str(item or "").strip()
+                if not value or value in seen:
+                    continue
+                seen.add(value)
+                derived_skill_texts.append(value)
+        if derived_skill_texts:
+            skill_context_texts = derived_skill_texts
+            if not isinstance(skill_texts_map, dict):
+                skill_texts_map = {}
+            skill_texts_map[conversation_key] = derived_skill_texts
+            st.session_state.paper_project_skill_context_texts = skill_texts_map
     usage_map = st.session_state.get("paper_project_context_usage", {})
     usage_map[conversation_key] = build_context_usage_snapshot_fn(
         messages=st.session_state.get("agent_messages", []),

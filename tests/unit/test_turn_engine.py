@@ -99,3 +99,41 @@ def test_execute_turn_core_without_document_rag_skips_evidence():
     assert result["used_document_rag"] is False
     assert result["evidence_items"] == []
     assert isinstance(result["mindmap_data"], dict)
+
+
+def test_execute_turn_core_emits_tool_load_event_from_tool_specs():
+    captured_events: list[dict] = []
+
+    def _fake_executor(**_kwargs):
+        return OrchestratedTurn(
+            answer="ok",
+            policy_decision=PolicyDecision(
+                plan_enabled=False,
+                team_enabled=False,
+                reason="heuristic",
+                confidence=None,
+                source="heuristic",
+            ),
+            team_execution=TeamExecution(enabled=False, rounds=0),
+            trace_payload=[],
+            leader_tool_names=[],
+        )
+
+    execute_turn_core(
+        prompt="q",
+        hinted_prompt="q",
+        leader_agent=object(),
+        leader_runtime_config={},
+        leader_tool_specs=[
+            {"name": "search_document"},
+            {"name": "use_skill"},
+        ],
+        orchestrated_turn_executor=_fake_executor,
+        on_event=lambda item: captured_events.append(item),
+    )
+
+    assert any(
+        item.get("performative") == "tool_load"
+        and "search_document" in str(item.get("content", ""))
+        for item in captured_events
+    )

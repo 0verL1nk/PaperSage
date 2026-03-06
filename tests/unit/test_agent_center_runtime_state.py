@@ -6,6 +6,9 @@ from agent.application.agent_center.runtime_state import (
 
 
 class _Logger:
+    def debug(self, *_args, **_kwargs):
+        return None
+
     def info(self, *_args, **_kwargs):
         return None
 
@@ -121,3 +124,22 @@ def test_load_document_text_extract_success_persists():
     assert err is None
     assert saved["called"] == 1
     assert session_state["document_text_cache"]["u1"] == "fresh"
+
+
+def test_load_document_text_prunes_cache_when_over_limit(monkeypatch):
+    monkeypatch.setenv("AGENT_DOCUMENT_TEXT_CACHE_MAX_CHARS", "10")
+    session_state = {"document_text_cache": {"old": "12345678"}}
+    text, source, err = load_document_text(
+        session_state=session_state,
+        logger=_Logger(),
+        selected_uid="u2",
+        file_path="/tmp/b.pdf",
+        load_cached_extraction_fn=lambda _uid: "abcde",
+        extract_document_fn=lambda _path: {"result": 1, "text": "x"},
+        save_cached_extraction_fn=lambda **_kwargs: None,
+    )
+    assert text == "abcde"
+    assert source == "db_restore"
+    assert err is None
+    assert "u2" in session_state["document_text_cache"]
+    assert "old" not in session_state["document_text_cache"]

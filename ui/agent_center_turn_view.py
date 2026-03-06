@@ -5,11 +5,11 @@ import streamlit as st
 from agent.ui_helpers import (
     _phase_label_from_performative,
     _preview_text,
-    _render_acp_trace,
     _render_ask_human_requests,
     _render_evidence_panel,
     _render_method_compare_if_any,
     _render_mindmap_if_any,
+    _render_trace_by_mode,
 )
 
 
@@ -68,7 +68,7 @@ def render_turn_result(
     if phase_path and phase_path != "无":
         st.caption(f"执行阶段：{phase_path}")
     if trace_payload:
-        _render_acp_trace(trace_payload)
+        _render_trace_by_mode(trace_payload, policy_decision=policy_decision)
 
     _render_method_compare_if_any(method_compare_data, key_prefix="live")
     _render_ask_human_requests(ask_human_requests, key_prefix="live")

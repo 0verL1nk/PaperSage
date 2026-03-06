@@ -2,7 +2,9 @@ from types import SimpleNamespace
 
 from agent.stream import (
     extract_ask_human_requests_from_result,
+    extract_skill_activation_events_from_result,
     extract_tool_names_from_result,
+    extract_tool_trace_events_from_result,
     extract_trace_events_from_update,
     extract_result_text,
     extract_stream_text,
@@ -164,3 +166,47 @@ def test_extract_ask_human_requests_from_result_collects_from_tool_messages():
     assert len(requests) == 1
     assert requests[0]["question"] == "是否继续？"
     assert requests[0]["urgency"] == "high"
+
+
+def test_extract_tool_trace_events_from_result_collects_calls_and_results():
+    result = {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"name": "search_document", "args": {"query": "abc"}},
+                ],
+            },
+            {"role": "tool", "name": "search_document", "content": "hit"},
+        ]
+    }
+
+    events = extract_tool_trace_events_from_result(result)
+    assert any(item["performative"] == "tool_call" for item in events)
+    assert any(item["performative"] == "tool_result" for item in events)
+
+
+def test_extract_skill_activation_events_from_result_collects_use_skill_calls():
+    result = {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "name": "use_skill",
+                        "args": {"skill_name": "mindmap", "task": "生成导图"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "name": "use_skill",
+                "content": "Skill: mindmap\nDescription: ...",
+            },
+        ]
+    }
+
+    events = extract_skill_activation_events_from_result(result)
+    assert events
+    assert any(item["performative"] == "skill_activate" for item in events)
+    assert any(item["receiver"] == "skill:mindmap" for item in events)
