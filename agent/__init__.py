@@ -1,4 +1,4 @@
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 from .archive import list_agent_outputs, save_agent_output
 from .a2a.standard import (
