@@ -1,6 +1,6 @@
 [project]
 name = "paper-sage"
-version = "0.1.0"
+version = "1.0.0"
 description = "AI-powered literature reading assistant with multi-agent orchestration and hybrid RAG"
 readme = "README.md"
 license = "MIT"
