@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from agent.stream import (
+    extract_ask_human_requests_from_result,
     extract_tool_names_from_result,
     extract_trace_events_from_update,
     extract_result_text,
@@ -133,3 +134,33 @@ def test_extract_tool_names_from_result_collects_calls_and_tool_messages():
     }
 
     assert extract_tool_names_from_result(result) == {"search_document", "search_web"}
+
+
+def test_extract_ask_human_requests_from_result_collects_from_tool_messages():
+    result = {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "name": "ask_human",
+                        "args": {
+                            "question": "是否继续？",
+                            "context": "需要人工批准",
+                            "urgency": "high",
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "name": "ask_human",
+                "content": '{"type":"ask_human","question":"是否继续？","context":"需要人工批准","urgency":"high"}',
+            },
+        ]
+    }
+
+    requests = extract_ask_human_requests_from_result(result)
+    assert len(requests) == 1
+    assert requests[0]["question"] == "是否继续？"
+    assert requests[0]["urgency"] == "high"

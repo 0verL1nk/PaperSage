@@ -1,0 +1,3 @@
+interface:
+  display_name: "Agentic Search"
+  short_description: "Multi-step evidence-grounded research workflow"

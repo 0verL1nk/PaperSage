@@ -6,6 +6,7 @@ from agent.ui_helpers import (
     _phase_label_from_performative,
     _preview_text,
     _render_acp_trace,
+    _render_ask_human_requests,
     _render_evidence_panel,
     _render_method_compare_if_any,
     _render_mindmap_if_any,
@@ -33,8 +34,11 @@ def render_turn_result(
     evidence_items: list[dict],
     mindmap_data: dict | None,
     method_compare_data: dict | None,
+    ask_human_requests: list[dict[str, str]] | None,
     run_latency_ms: float,
     phase_path: str,
+    mindmap_html: str | None = None,
+    mindmap_render_error: str | None = None,
 ) -> None:
     st.markdown(
         (
@@ -51,7 +55,11 @@ def render_turn_result(
         st.caption(f"策略原因：{policy_reason}")
 
     if mindmap_data:
-        _render_mindmap_if_any(mindmap_data)
+        _render_mindmap_if_any(
+            mindmap_data,
+            mindmap_html=mindmap_html,
+            render_error=mindmap_render_error,
+        )
         with st.expander("查看思维导图 JSON", expanded=False):
             st.code(answer, language="json")
     else:
@@ -63,6 +71,7 @@ def render_turn_result(
         _render_acp_trace(trace_payload)
 
     _render_method_compare_if_any(method_compare_data, key_prefix="live")
+    _render_ask_human_requests(ask_human_requests, key_prefix="live")
     _render_evidence_panel(evidence_items, key_prefix="live")
     st.caption(
         f"本次耗时：{run_latency_ms:.0f} ms | Team rounds：{int(team_execution.get('rounds', 0))}"

@@ -201,7 +201,10 @@ def apply_turn_result(
     trace_payload = turn_result["trace_payload"]
     evidence_items = turn_result["evidence_items"]
     mindmap_data = turn_result["mindmap_data"]
+    mindmap_html = turn_result.get("mindmap_html")
+    mindmap_render_error = turn_result.get("mindmap_render_error")
     method_compare_data = turn_result["method_compare_data"]
+    ask_human_requests = turn_result.get("ask_human_requests", [])
     run_latency_ms = float(turn_result["run_latency_ms"])
     team_rounds = int(turn_result["team_rounds"])
     phase_path = turn_result["phase_path"]
@@ -232,7 +235,10 @@ def apply_turn_result(
         answer=answer,
         trace_payload=trace_payload,
         mindmap_data=mindmap_data,
+        mindmap_html=mindmap_html,
+        mindmap_render_error=mindmap_render_error,
         method_compare_data=method_compare_data,
+        ask_human_requests=ask_human_requests if isinstance(ask_human_requests, list) else [],
         evidence_items=evidence_items,
         policy_decision=policy_decision,
         team_execution=team_execution,

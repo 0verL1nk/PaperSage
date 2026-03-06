@@ -34,6 +34,7 @@ def test_build_routing_context(monkeypatch):
             {
                 "role": "assistant",
                 "content": "A1",
+                "mindmap_html": "<html>very long html payload</html>",
                 "policy_decision": {"plan_enabled": True, "team_enabled": False, "reason": "r"},
                 "team_execution": {"enabled": False, "rounds": 0, "roles": []},
             },
@@ -42,6 +43,7 @@ def test_build_routing_context(monkeypatch):
     )
     assert "[会话压缩摘要]" in context
     assert "[上一轮执行策略]" in context
+    assert "very long html payload" not in context
 
 
 def test_persist_turn_memory(monkeypatch):

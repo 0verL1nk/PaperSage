@@ -2,7 +2,8 @@ import logging
 from typing import Any
 
 from .coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
-from ..orchestration.policy_engine import decide_execution_policy
+from ..domain.request_context import RequestContext
+from ..orchestration.policy_engine import decide_execution_policy, intercept
 
 logger = logging.getLogger(__name__)
 
@@ -38,27 +39,32 @@ def _policy_to_workflow_mode(plan_enabled: bool, team_enabled: bool) -> str:
 
 
 def auto_select_workflow_mode(
-    prompt: str,
+    prompt_or_ctx: str | RequestContext,
     coordinator: Any | None = None,
 ) -> tuple[str, str]:
-    """根据 prompt 自动选择工作流模式。
+    """根据 prompt 或 RequestContext 自动选择工作流模式。
 
-    统一复用 policy_engine.decide_execution_policy，避免与 orchestration 路由逻辑分叉。
-    coordinator 中的 llm 会被传入 policy_engine 做 LLM 路由（含置信度门控）。
+    - 传入 RequestContext：携带 context_digest 等上下文信号走拦截器路径。
+    - 传入 str（向下兼容）：包装为 RequestContext(prompt=...) 后走相同路径。
     """
+    ctx = (
+        prompt_or_ctx
+        if isinstance(prompt_or_ctx, RequestContext)
+        else RequestContext(prompt=prompt_or_ctx)
+    )
+
     llm = None
     if coordinator is not None:
         llm = getattr(coordinator, "llm", None) or getattr(
             getattr(coordinator, "planner_agent", None), "llm", None
         )
 
-    decision = decide_execution_policy(prompt, llm=llm)
+    decision = intercept(ctx, llm=llm)
     mode = _policy_to_workflow_mode(decision.plan_enabled, decision.team_enabled)
     logger.info(
-        "Workflow auto-selected: mode=%s source=%s confidence=%s reason=%s",
+        "Workflow auto-selected: mode=%s source=%s reason=%s",
         mode,
         decision.source,
-        f"{decision.confidence:.2f}" if isinstance(decision.confidence, float) else "n/a",
         decision.reason,
     )
     return mode, decision.reason

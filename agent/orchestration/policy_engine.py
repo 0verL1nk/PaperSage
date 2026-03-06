@@ -6,6 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from ..domain.orchestration import PolicyDecision
+from ..domain.request_context import RequestContext
 from ..settings import load_agent_settings
 
 logger = logging.getLogger(__name__)
@@ -244,4 +245,82 @@ def decide_execution_policy(
             confidence=decision.confidence,
             source=decision.source,
         )
+    return decision
+
+
+def intercept(
+    ctx: RequestContext,
+    *,
+    llm: Any | None = None,
+    force_plan: bool | None = None,
+    force_team: bool | None = None,
+) -> PolicyDecision:
+    """请求前拦截器：携带结构化 RequestContext 统一决策执行策略。
+
+    以 prompt + context_digest 作为路由输入，优先走 LLM 判断，
+    LLM 不可用或失败时降级到启发式评分。
+    """
+    try:
+        llm_decision = _route_with_llm(
+            ctx.prompt,
+            llm,
+            context_digest=ctx.context_digest,
+        )
+    except Exception:
+        logger.exception("Interceptor LLM routing failed, fallback to heuristic")
+        llm_decision = None
+    heuristic_decision = _heuristic_route(
+        ctx.prompt,
+        context_digest=ctx.context_digest,
+    )
+
+    if llm_decision is None:
+        decision = heuristic_decision
+    elif (
+        llm_decision.confidence is not None
+        and llm_decision.confidence < _LOW_CONFIDENCE_THRESHOLD
+    ):
+        logger.info(
+            "Interceptor low confidence (%.2f), merging with heuristic: llm=%s heuristic=%s",
+            llm_decision.confidence,
+            llm_decision.reason,
+            heuristic_decision.reason,
+        )
+        decision = _merge_conservative(llm_decision, heuristic_decision)
+    else:
+        decision = llm_decision
+
+    if force_plan is not None:
+        decision = PolicyDecision(
+            plan_enabled=bool(force_plan),
+            team_enabled=decision.team_enabled,
+            reason=f"手动覆盖 plan={bool(force_plan)} | {decision.reason}",
+            confidence=decision.confidence,
+            source="manual",
+        )
+    if force_team is not None:
+        decision = PolicyDecision(
+            plan_enabled=decision.plan_enabled,
+            team_enabled=bool(force_team),
+            reason=f"手动覆盖 team={bool(force_team)} | {decision.reason}",
+            confidence=decision.confidence,
+            source="manual",
+        )
+
+    if decision.team_enabled and not decision.plan_enabled:
+        decision = PolicyDecision(
+            plan_enabled=True,
+            team_enabled=True,
+            reason=f"{decision.reason}（team 启用时自动开启 plan）",
+            confidence=decision.confidence,
+            source=decision.source,
+        )
+
+    logger.info(
+        "Interceptor decision: plan=%s team=%s source=%s reason=%s",
+        decision.plan_enabled,
+        decision.team_enabled,
+        decision.source,
+        decision.reason,
+    )
     return decision

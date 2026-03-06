@@ -19,3 +19,4 @@ class TurnCoreResult(TypedDict):
     team_rounds: int
     phase_path: str
     used_document_rag: bool
+    ask_human_requests: list[dict[str, str]]

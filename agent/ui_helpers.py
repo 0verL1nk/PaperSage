@@ -229,14 +229,30 @@ def _try_parse_mindmap(answer: str) -> dict | None:
     return parsed
 
 
-def _render_mindmap_if_any(mindmap_data: dict | None) -> None:
+def _render_mindmap_if_any(
+    mindmap_data: dict | None,
+    *,
+    mindmap_html: str | None = None,
+    render_error: str | None = None,
+) -> None:
     if not mindmap_data:
         return
+    if isinstance(mindmap_html, str) and mindmap_html.strip():
+        try:
+            components.html(mindmap_html, height=560, scrolling=True)
+        except Exception:
+            render_error = "思维导图 HTML 渲染失败，已自动回退到内置渲染。"
+        else:
+            if isinstance(render_error, str) and render_error.strip():
+                st.warning(render_error)
+            return
     try:
         chart = _create_mindmap_chart(mindmap_data)
         components.html(chart.render_embed(), height=460, scrolling=True)
     except Exception:
         st.warning("思维导图 JSON 已识别，但渲染失败。")
+    if isinstance(render_error, str) and render_error.strip():
+        st.warning(render_error)
 
 
 def _normalize_evidence_items(raw_payload) -> list[dict]:
@@ -307,6 +323,62 @@ def _render_evidence_panel(
                     mime="text/plain",
                     key=f"{key_prefix}_evidence_{index}",
                 )
+
+
+def _normalize_ask_human_requests(raw_payload: Any) -> list[dict[str, str]]:
+    if not isinstance(raw_payload, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in raw_payload:
+        if not isinstance(item, dict):
+            continue
+        question = str(item.get("question") or "").strip()
+        if not question:
+            continue
+        context = str(item.get("context") or "").strip()
+        urgency = str(item.get("urgency") or "normal").strip().lower()
+        if urgency not in {"low", "normal", "high"}:
+            urgency = "normal"
+        key = (question, context, urgency)
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(
+            {
+                "question": question,
+                "context": context,
+                "urgency": urgency,
+            }
+        )
+    return normalized
+
+
+def _render_ask_human_requests(
+    requests: list[dict[str, str]] | None,
+    *,
+    key_prefix: str,
+) -> None:
+    normalized = _normalize_ask_human_requests(requests)
+    if not normalized:
+        return
+    urgency_badge = {"low": "低", "normal": "中", "high": "高"}
+    with st.expander("需要人工确认", expanded=True):
+        for index, item in enumerate(normalized, start=1):
+            question = item["question"]
+            context = item["context"]
+            urgency = item["urgency"]
+            st.markdown(
+                f"**Q{index}**（紧急度：`{urgency_badge.get(urgency, '中')}`）"
+            )
+            st.write(question)
+            if context:
+                st.caption(f"上下文：{context}")
+            st.text_input(
+                "你的回复",
+                key=f"{key_prefix}_ask_human_reply_{index}",
+                placeholder="请输入你的确认或补充信息（当前仅展示，不自动回传）",
+            )
 
 
 def _try_parse_method_compare(answer: str) -> dict | None:
@@ -638,7 +710,11 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
                 continue
             mindmap_data = message.get("mindmap_data")
             if mindmap_data:
-                _render_mindmap_if_any(mindmap_data)
+                _render_mindmap_if_any(
+                    mindmap_data,
+                    mindmap_html=message.get("mindmap_html"),
+                    render_error=message.get("mindmap_render_error"),
+                )
                 with st.expander("查看思维导图 JSON", expanded=False):
                     st.code(str(message.get("content", "")), language="json")
             else:
@@ -728,6 +804,10 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
                 _render_acp_trace(trace_payload)
             _render_method_compare_if_any(
                 message.get("method_compare_data"),
+                key_prefix=f"history_{message_index}",
+            )
+            _render_ask_human_requests(
+                message.get("ask_human_requests"),
                 key_prefix=f"history_{message_index}",
             )
             _render_evidence_panel(

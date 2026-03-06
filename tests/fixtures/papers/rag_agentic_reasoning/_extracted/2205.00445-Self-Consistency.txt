@@ -1,0 +1,976 @@
+MRKL Systems
+A modular, neuro-symbolic architecture that combines large language
+models, external knowledge sources and discrete reasoning
+Ehud Karpas, Omri Abend, Yonatan Belinkov, Barak Lenz, Opher Lieber,
+Nir Ratner, Yoav Shoham, Hoﬁt Bata, Yoav Levine, Kevin Leyton-Brown,
+Dor Muhlgay, Noam Rozen, Erez Schwartz, Gal Shachaf, Shai
+Shalev-Shwartz, Amnon Shashua, Moshe Tenenholtz
+AI21 Labs
+May 3, 2022
+Abstract
+Huge language models (LMs) have ushered in a new era for AI, serving as a gate-
+way to natural-language-based knowledge tasks. Although an essential element of
+modern AI, LMs are also inherently limited in a number of ways. We discuss these
+limitations and how they can be avoided by adopting a systems approach. Con-
+ceptualizing the challenge as one that involves knowledge and reasoning in addition
+to linguistic processing, we deﬁne a ﬂexible architecture with multiple neural mod-
+els, complemented by discrete knowledge and reasoning modules. We describe this
+neuro-symbolic architecture, dubbed the Modular Reasoning, Knowledge and Lan-
+guage (MRKL, pronounced “miracle”) system, some of the technical challenges in
+implementing it, and Jurassic-X, AI21 Labs’ MRKL system implementation.
+1
+Introduction
+Huge language models (LMs) such as BERT [1], GPT-3 [2], Jurassic-1 [3], PaLM [4],
+and others [5–9], have taken AI by storm, with the promise of serving as versatile,
+general-purpose foundations for many applications. Indeed, partly for this reason,
+they have been rebranded by some as “foundation models” [10]. The term is meant
+broadly, covering language models as well as models that were trained on more than
+just text, and although such multimodal models are not the focus of this paper,
+there’s another reason to take the term “language model” with a grain of salt. While
+LMs indeed model syntax, and other linguistic elements, their most striking feature
+is that they model the world, as described by the data on which they were trained.
+1
+arXiv:2205.00445v1  [cs.CL]  1 May 2022
+
+And so really LMs serve as a textual gateway to the universe of knowledge [11, 12],
+and perhaps should instead be called “language and knowledge” models.
+When viewed this way, it becomes clear that, despite their value, current LMs
+have inherent limitations. While versatile and impressive, the output of even huge
+LMs is in many cases wrong, and often ridiculously so [13]. Here is a sample output
+of GPT-3 on some simple queries. (To be clear, this is not a critique of GPT-3 specif-
+ically, and other LMs — including our own Jurassic-1 — exhibit similar silliness.)
+For example, LMs can struggle to understand that there are no US cities with
+more than 20m citizens, that a math teacher is a person, don’t know what today’s
+date is, nor can they engage in even simple (e.g., mathematical) reasoning.
+When you look for the root cause, you realize the core limitations of LMs: They
+don’t have access to all relevant knowledge, and neural models are ill-suited for
+certain types of calculation. More speciﬁcally:
+1. Lack of access to current information. Certain data constantly change – the
+exchange rate between the dollar and the Moroccan Dirham, current COVID
+numbers, the stock price of AAPL, the weather in Vancouver (OK, not so
+much), or even the current date. It’s impossible, by their design, for pretrained
+language models to keep up with this dynamic information [14].
+2. Lack of access to proprietary information sources.
+As an important special
+case of 1, the models don’t have access to proprietary information, such as
+the client roster in a company’s database or the state of an online game.
+3. Lack of reasoning. Certain reasoning is beyond the reach of the neural ap-
+proach, and requires a dedicated reasoning process. We saw above the classic
+example of arithmetic reasoning. GPT-3 and Jurassic-1 perform well on 2-digit
+addition, which is impressive, but conﬁdently spit out nonsensical answers on
+4-digit additions. With increased training time, better data, and larger mod-
+els, the performance of LMs will improve, but will not reach the robustness of
+an HP calculator from the 1970s. And mathematical reasoning is just the tip
+of an iceberg.
+2
+
+In addition to these shortcomings, there is another inherent problem with the
+traditional approach to deploying LMs:
+4. Model explosion. Today’s LM’s zero-shot performance trails that of ﬁne-tuned
+models. One can ﬁne-tune the LM to a speciﬁc task, but then lose versatil-
+ity. Contemporary eﬀorts to mitigate the problem focus on training a huge
+LM jointly on many sets of curated NLP tasks in a massive multi-task setting
+(several leading studies reaching 100+ tasks) [6, 7, 15, 16]. These formidable
+eﬀorts are eﬀective; the resulting models exhibit versatility and high perfor-
+mance when encountering inputs resembling those of the curated tasks. But
+the performance of these models on tasks that are not close enough to those
+included in the curated tasks can signiﬁcantly deteriorate (for example, per-
+plexity degrades signiﬁcantly). It is not practical to ﬁne-tune and serve multi-
+ple large models. Nor can one further tune a multi-task-trained LM [6, 7, 15,
+16] on a new task that hadn’t been covered in its training; due to catastrophic
+forgetting, adding the new task necessitates retraining on the entire task set.
+Given the cost of training such models [17–19], this is clearly infeasible to do
+repeatedly.
+Despite all these shortcomings, large language models are an essential backbone
+of any future AI system. So the question is how to have our cake and eat it too,
+enjoying the beneﬁts of self-supervised deep language models without suﬀering these
+drawbacks. The solution we oﬀer takes the form of a ﬂexible architecture dubbed
+the Modular Reasoning, Knowledge and Language (MRKL, pronounced “miracle”)
+system, whose high-level design is depicted below.
+A
+3
+
+Thus a MRKL system consists of an extendable set of modules, which we term
+’experts’, and a router that routes every incoming natural language input to a module
+that can best respond to the input (the output of that module can be the output of
+the MRKL system, or be routed to another module). These modules can be:
+• Neural, including the general-purpose huge language model as well as other
+smaller, specialized LMs.
+• Symbolic, for example a math calculator, a currency converter or an API call
+to a database.
+MRKL systems enjoy important beneﬁts when compared to ﬁne-tuned multi-task
+models:
+1. Safe fallback: In case the input doesn’t match any existing expert module, the
+router sends the input directly to the general-purpose huge LM.
+2. Robust extensibility: Since each expert is trained independently we are able to
+cheaply add new capabilities while guaranteeing that they do not compromise
+the performance of existing ones. The only component that requires retraining
+is the router which is a relatively lightweight task.
+3. Interpretability: When the router invokes a speciﬁc module, that often has the
+side beneﬁt of providing a rationale for the MRKL system’s output (“1+1 = 2
+because the calculator said so”); such explanations are crucially lacking in
+existing language models.
+4. Up-to-date information: The integration of external APIs allows the MRKL
+system to hook into dynamic knowledge bases, and correctly answer inputs
+that static models cannot.
+5. Proprietary knowledge: Access to proprietary databases and other information
+sources.
+6. Compositionality: By routing compounded multi-hop inputs to diﬀerent ex-
+perts we are able to naturally integrate their responses and correctly address
+complex inputs [20].
+2
+Jurassic-X: AI21 Labs’ MRKL system
+We have implemented a MRKL system called Jurassic-X, which is being piloted by
+a few partners.
+Jurassic-X will soon be available to developers; you can apply for early access here.
+Meanwhile, you can experience Jurassic-X via a demo (link).
+4
+
+3
+Crossing the neuro-symbolic chasm: A calculator test
+case
+There are of course many details involved in implementing a MRKL system. In
+connection with avoiding model explosion, see our detailed discussion here. There
+is also an interesting challenge of how to intelligently route input among modules,
+which we leave for a separate discussion. Here we discuss one particularly interest-
+ing challenge, that of extracting from the text the formal arguments to symbolic
+reasoners.
+3.1
+Arithmetic as a test case for chasm crossing
+The relation between neural and symbolic approaches to AI is guaranteed to raise
+heated discussions about their relative merits with neuro-skeptics on one extreme,
+neuro-diehards on the other, and the rest trying to have a rational conversation.
+Before discussing our technical approach we’d like to clarify our guiding ideology. We
+believe that neural LMs are essential; we didn’t build Jurassic-1 [3] for no reason, and
+it serves as a backbone to our applications as well as those of developers using AI21
+Studio. But as we’ve made clear, we also believe they have inherent shortcomings.
+We don’t take a ﬁrm position on which types of computation are best relegated to
+the neural machinery, and which should be carved out to symbolic methods. That
+will surely be an evolving process. What we do ﬁrmly believe is that some tasks
+should be handled by discrete methods, and we should have a clear methodology for
+how to hand oﬀthe computation from the neural net to the symbolic procedure.
+Once the router has made the decision of which module to call upon, it needs to
+pass the right information to it. The router is a specialized neural net and there-
+fore invoking a neural module is easy since the neural-to-neural interface is natural.
+However, when a neural network needs to access a database, make an API call, or
+invoke another symbolic computation, it must extract from the text discrete param-
+eters required by the module. The main message here is that there is no free lunch,
+but that lunch is in many cases aﬀordable. The cost is in training the router to
+extract the arguments reliably, which must be done rigorously. We make the point
+by discussing how we trained Jurassic-X to extract basic arithmetic operations.
+There are many ways to describe in language a situation that calls for perform-
+ing arithmetic. The most straightforward way is to use mathematical notation, say
+“3 −1 =?′′. Google search handles it well:
+5
+
+Not much harder is to express it in words, as in “How much is three minus 1”. Google
+search does this well too:
+But then it gets tricky. At the lexical level, one may use diﬀerent synonyms that
+carry the same meaning: (“twelve”, “12” and “a dozen”). But beyond simple lexical
+issues, there are phrases that require world knowledge to understand that there is
+an arithmetic exercise encoded in the text (“I lost one ball”, “I dropped one ball”,
+“One ball was taken from me”) and what the speciﬁc exercise is. Here Google search
+starts to stumble:
+This is where language models come in. Note that we limit their role to extracting
+the right arguments for the symbolic calculator, not performing the calculation itself.
+6
+
+But we should approach even this task with sober expectations. As anyone knows
+from elementary school, it’s harder to teach children to solve verbal math problems
+than to solve explicitly stated math problems. It’s harder for adults too, and it’s
+no diﬀerent for the computer. At some point the machine will stumble (indeed, at
+some point humans will disagree about the underlying math problem). But when
+we decide to invoke a symbolic method we should expect reasonable robustness.
+The solution is to train the router to extract the right input independently for
+each module, with rigorous evaluation of the performance. By way of example, here
+is how it was achieved simple, one- and two-operation arithmetics.
+3.2
+Training Jurassic-X to extract the arguments for basic arith-
+metic
+Our goal here is not to show how we can extract the most complex mathematical
+expressions from text, but how we can extract simple expressions with high reliabil-
+ity, the sort of reliability one would need in a production-grade system. We found
+that while extensive pretraining does allow Jurassic-1 to extract the arithmetic op-
+eration in many cases in a few-shot setting, the performance is far from perfect. See
+Appendix A for a detailed comparison. Using a data augmentation methodology,
+based on generating examples from a structured example space, we show that the
+static pretrained LM can be made to achieve near perfect performance.
+We empirically investigate two related research questions:
+1. What is required in terms of data augmentation to achieve near-perfect per-
+formance in the case of basic mathematical operations?
+2. How well can Jurassic-X generalize between math problems that vary in type
+or complexity?
+To answer these questions we evaluate the model’s performance on cases where
+the test data is drawn from the same distribution as the training data, as well as on
+out-of-distribution test data (allowing us, for example, to train a model on addition
+problems and test it on multiplication problems).
+3.2.1
+Data Augmentation
+We use a small set of templates to generate a set of training and test examples. Each
+example is characterized by the following dimensions:
+1. The numbers used in the arithmetic expression, henceforth the operands. The
+operands may be digits (e.g., 48) or numbers in word form (e.g., forty eight).
+2. The number of digits in the operands. We explore numbers of 1–9 digits.
+7
+
+3. The type of operation. We explore addition, subtraction, multiplication and
+division.
+4. The number of operations in the arithmetic expression. We explore the cases
+of one and two operations.
+5. The placement or absence of brackets (in expressions with two operations). In
+some expressions the placement of brackets may change the result. We explore
+all logical possibilities for the case of two operations.
+Table 10 in the appendix details the templates we use in this set of experiments
+for the case of a single operation. In the case of two operations, there are 29 distinct
+combinations that have a natural formulation in natural language (see Table 12).
+The data can be found here.
+3.2.2
+Experimental setup
+We conducted our experiments with the 7B parameters J1-large model [3] using
+prompt-tuning [21] with 10 prompt tokens. Across all experiments, we set our learn-
+ing rate to be lr = 0.3 and used linear decay. The batch size was set to 32 and we
+deﬁned a short warm-up depending on the number of steps in each experiment.
+Experiments 1 and 2 below were trained for 3000 steps, and the reported results
+here were the test accuracy evaluated on the ﬁnal model. For the remaining exper-
+iments we used linear weight decay (0.001), which we found to be crucial for the
+model’s performance, and selected the best checkpoint using a validation set. Each
+experiment was run 3-5 times, and results show mean ± standard deviation across
+these runs.
+In all experiments we veriﬁed that there was no overlap between the problems
+included in the training set and those included in the test set. This also includes
+avoiding cases with the same underlying arithmetic expression, but using diﬀerent
+wordings for training and testing. For a detailed description of the sizes of the data
+splits see Section C.
+3.2.3
+Results
+In the following results we report the accuracy we achieve in diﬀerent experiments,
+by which we mean the percent of problems in the relevant test set on which the
+system gave the correct answer. (We note again that, since the actual calculation is
+done by the calculator module, all errors are due to passing the wrong operations or
+operands to the calculator.)
+Experiment 1:
+Generalization across diﬀerent number of digits in the
+operands.
+Inspired by the experiments reported by [2], we test Jurassic-X’s ability
+to generalize to numbers it has not seen in the training data, including numbers
+8
+
+with a diﬀerent (and much larger) number of digits. At training time we expose
+the model only to single-digit numbers, while at test time we evaluate on numbers
+with 1 to 9 digits. In this section we experiment with simple problems, involving
+only numbers written as digits (and not numbers as words), one format (format 0
+from Table 10), and a single operation. We explore two settings: one where that
+operation is addition, and one where it is multiplication.
+Table 1 presents our results, sliced by the number of digits, and compared to the
+results by GPT-3’s approach [2] (as representative of all language models that don’t
+have access to external calculator), reported on addition. We note that we trained
+on single-digit operations for all settings while GPT-3 was conditioned on examples
+with the same number of digits when answering a certain problem. Our results show
+that despite the fact that training was only done on numbers with a single digit,
+the model is able to generalize to all numbers of digits explored. This is in stark
+contrast to the approach of language models which attempt to synthesize arithmetic
+capabilities from the training data, and as a result display a dramatic decrease in
+performance as the number of digits increases.
+Num. digits
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Addition
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+Multiplication
+1.0
+1.0
+1.0
+1.0
+1.0
+0.98
+1.0
+1.0
+1.0
+GPT-3
+N/A
+1.0
+0.804
+0.255
+0.093
+N/A
+N/A
+N/A
+N/A
+Table 1:
+Robustness to the number of digits in the operands. Accuracy vs. the
+number of digits in the test data for a model that was trained only on 1-digit operands
+(5 + 3, etc.). Results for GPT-3 were taken from [2].
+Experiment 2: Generalization from digits to numbers as words and vice
+versa.
+In this set of experiments, we test the model’s ability to generalize from
+arithmetic questions with digits to ones where the numbers are expressed with words,
+and vice versa. We note that this task is not trivial considering the fact that the
+tokenization of a number represented with digits is diﬀerent than that when the same
+number is represented as words. For example, we train the model with examples
+such as “How much is 58 plus 12” and evaluate it on examples such as “How much
+is twenty seven plus thirteen”, and vice versa. While we vary the lexical choice for
+specifying numbers using words or digits, we hold other dimensions of the arithmetic
+world ﬁxed, including using only format 0 and holding the type of operation ﬁxed
+at training and test time.
+(In the following paragraphs we examine these other
+dimensions.)
+Table 2 shows the accuracy for all combinations of training and testing on digits
+and on words. We notice that in-distribution performance (training and testing on
+the same type of input) is close to 100 % accuracy. We further observe that training
+9
+
+on words generalizes well to digits. Interestingly, the inverse is not true and the per-
+formance is much lower, indicating the underlying diﬀerence in the representations
+of the numbers.
+Test
+Train
+Digits
+Words
+Digits
+1.0
+0.156
+Words
+0.987
+0.988
+Table 2:
+Robustness to wordings. Accuracy for all combination of training and testing
+on numbers written as digits and as words. Results are averaged across all the numbers of
+digits.
+Experiment 3: Generalization across question formats.
+A main challenge
+in constructing natural language interfaces to discrete reasoners like a calculator is in
+handling language variability. One of the most appealing characteristics of language
+models is their ability to abstract away from such variability. Here we test the ability
+of the model to generalize over formats of arithmetic problems. Experiments are for
+single-operation problems.
+We train on a single format (format 0 in Table 10), test on all formats, and
+break the results by format. We report results with all four operation types. Table
+3 shows that the generalization across formats is perfect in most cases. Format 4,
+which is the only one not phrased as a question (see Table 10) appears to be the most
+challenging to generalize to. We note that there are numerous ways to phrase such
+questions, hence the ability to generalize across formats, even for the case where the
+model was trained only on one format, is critical for the model’s success.
+add
+sub
+mul
+div
+format 0
+1.0 ± 0
+1.0 ± 0
+1.0 ± 0
+0.997 ± 0.006
+format 1
+1.0 ± 0
+1.0 ± 0
+1.0 ± 0
+1.0 ± 0
+format 2
+1.0 ± 0
+1.0 ± 0
+1.0 ± 0
+1.0 ± 0
+format 3
+1.0 ± 0
+0.993 ± 0.012
+0.997 ± 0.006
+1.0 ± 0
+format 4
+0.993 ± 0.012
+0.863 ± 0.237
+0.977 ± 0.04
+0.727 ± 0.465
+Table 3: Robustness to phrasing. Accuracy when training with one format (format 0)
+and evaluating on each of the 5 formats from Table 10.
+Experiment 4: Generalization between operations.
+Next we explore whether
+a model that was trained on one type of arithmetic problems can generalize to
+other types.
+We conduct two types of experiments: one where we examine the
+10
+
+generalization ability of Jurassic-X on single operation problems, and one with two-
+operation problems.
+For the ﬁrst set of experiments, we train with one operation at a time, using
+all formats with numbers as digits. Operands have between 1 and 9 digits. We
+test on all types of single-operation problems. The results are shown in in Table 4.
+Consistent with the previous experiments, training and evaluating on arithmetic
+problems with the same operations is consistently successful (accuracy > 0.99 along
+the diagonal). Interestingly, we ﬁnd strong generalization in many cross-operation
+cases (oﬀthe main diagonal in the table). For example, training on addition works
+almost perfectly when evaluated on subtraction and multiplication. The division
+operation is an exception, as models trained on it struggle with multiplication and
+subtraction (but perform reasonably on addition). Conversely, models trained on
+other operations do not generalize very well to division.
+Test
+Training
+add
+sub
+mul
+div
+add
+0.997 ± 0.006
+0.96 ± 0.026
+0.97 ± 0.006
+0.477 ± 0.127
+sub
+0.987 ± 0.023
+0.997 ± 0.006
+0.763 ± 0.182
+0.183 ± 0.196
+mul
+0.483 ± 0.466
+0.817 ± 0.186
+0.993 ± 0.006
+0.26 ± 0.2
+div
+0.787 ± 0.244
+0.31 ± 0.334
+0.23 ± 0.214
+0.993 ± 0.012
+Table 4: Generalization across operations for single-operation problems. Accuracy
+when training with one operation and evaluating on other operations.
+For the second set of experiments, we randomly partition the 29 possible two-
+operation arithmetic problems (Tables 11, 12) into subsets of 14 and 15 to be used for
+training and testing, respectively. We repeated this process for 10 random splits of
+the operations, assuring that only one of the training two-operation problems would
+include brackets. Other settings are as with the ﬁrst set of experiments.
+Table 5 shows the average accuracy for each of the 29 types of two-operation
+problems. The results show that in 22 of the 29 combinations the accuracy exceeds
+90%, indicating reasonable generalization capabilities for such a setting.
+Experiment 5: Generalization across a diﬀerent number of operations.
+This ﬁnal set of experiments explores the ability of the model to generalize from
+single-operation problems to two-operation problems.
+As above, we use all formats (0-4), with operands of 1 to 9 digits (numbers
+written with digits), and train on examples from all four operation types (single-
+operation problems only). We evaluate on examples with two operations, focusing
+on the situations that do not require bracketing – 16 unique combinations in total.
+The results are shown in Table 6 and are organized by the ﬁrst operation (rows) and
+second operation (columns) in the test problems.
+11
+
+Formula
+Mean
+STD
+f=((A+B)*C)
+0.288
+0.267
+f=(A+B*C)
+0.406
+0.349
+f=((A-B)*C)
+0.562
+0.194
+f=(A/(B/C))
+0.677
+0.228
+f=(A-B*C)
+0.697
+0.266
+f=(A*(B-C))
+0.797
+0.325
+f=((A+B)/C)
+0.867
+0.265
+f=(A-(B-C))
+0.930
+0.057
+f=((A-B)/C)
+0.940
+0.120
+f=(A-B/C)
+0.955
+0.042
+f=(A/(B+C))
+0.960
+0.042
+f=(A/(B-C))
+0.962
+0.094
+f=(A+B/C)
+0.964
+0.049
+f=(A*(B/C))
+0.970
+0.052
+f=(A*B+C)
+0.973
+0.025
+f=(A*(B+C))
+0.974
+0.025
+f=(A/B+C)
+0.981
+0.024
+f=(A/B/C)
+0.985
+0.017
+f=(A/B-C)
+0.987
+0.022
+f=(A/B*C)
+0.99
+0.015
+f=(A-(B+C))
+0.99
+0.017
+f=(A*B-C)
+0.992
+0.015
+f=(A/(B*C))
+0.995
+0.012
+f=(A-B+C)
+1
+0
+f=(A+B+C)
+1
+0
+f=(A-B-C)
+1
+0
+f=(A*B/C)
+1
+0
+f=(A+B-C)
+1
+0
+f=(A*B*C)
+1
+0
+Table 5:
+Generalization for two-operation problems. Mean and standard deviation
+across 10 partitions of the formulae to train and test.
+In almost all cases, we observe excellent performance on solving two-operation
+problems, despite seeing only single-operation problems at training time. This re-
+sult is also important for the systematic development of the capability since the
+number of possible formulae grows rapidly with the number of operations, rendering
+an exhaustive training of all combinations extremely challenging for multi-operation
+formulae. There are three exceptions of failure to generalize to two-operation prob-
+lems: add–mul, sub–mul, and sub–div. In these three cases, the templates are of
+12
+
+the form of two preﬁx phrasings (e.g., “what is the sum of 2 and the product of 4
+and 8”), while other templates are relatively simpler (Table 12). However, we obtain
+pretty good performance on add–div, despite it having a similar template.
+Second operation
+First operation
+add
+sub
+mul
+div
+add
+1.0 ± 0
+1.0 ± 0
+0.01 ± 0.017
+0.784 ± 0.112
+sub
+0.998 ± 0.004
+0.998 ± 0.004
+0.202 ± 0.247
+0.224 ± 0.213
+mul
+0.996 ± 0.005
+0.974 ± 0.047
+0.998 ± 0.004
+1.0 ± 0
+div
+0.93 ± 0.063
+0.834 ± 0.288
+0.99 ± 0.012
+0.946 ± 0.11
+Table 6: Generalization from one operation to two operations. Accuracy when
+training on single-operation problems and testing on two-operation problems, presented for
+all operation pairs.
+4
+Discussion
+This paper introduces the concept of Modular Reasoning, Knowledge and Language
+(MRKL) systems, which embraces large language models (LMs) and augments them
+with an easily extensible set of external knowledge and reasoning modules. This
+ﬂexible, neuro-symbolic design retains all the advantages of modern LMs, but avoids
+their limitations: a lack of current and/or proprietary information, and an inability
+to reason symbolically when needed. We discussed some of the technical challenges
+in implementing a MRKL system, with a special focus on how to cross the neuro-
+symbolic divide, which we did by looking at how Jurassic-X — AI21 Labs’ imple-
+mentation of a MRKL system — was trained to handle basic arithmetic reliably.
+13
+
+A
+Few-shot vs. prompt tuning
+Performing these experiments in a few-shot setting might be a more natural choice
+that requires less eﬀort in training these models. However, as the analysis below
+reveals, the performance of this approach is limited, demonstrating the need to
+follow a systematic approach.
+Set up:
+In the few-shot experiments, 10 examples were drawn from the training
+sets and used as a prompt for the model. The performance was evaluated on the
+same test set for both the few-shot and the prompt-tuning approaches.
+Changing the number of digits:
+Both methods easily generalize to varying the
+number of digits (see Table 7).
+Num. digits
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Prompt tuning
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+Few-shot
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+1.0
+Table 7:
+Number of digits: few-shot vs. prompt tuning. Results shown for addition.
+Writing the operands in words instead of digits:
+A clear diﬀerence appears
+as the few-shot approach is unable to handle this task and the performance greatly
+decreases with the number of digits (see Table 8).
+Num. digits
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Prompt tuning
+1.0
+1.0
+1.0
+0.95
+0.99
+1.0
+0.98
+0.99
+0.98
+Few-shot
+1.0
+1.0
+0.93
+0.62
+0.6
+0.38
+0.17
+0.03
+0.0
+Table 8:
+Number of digits: few-shot vs. prompt tuning, when numbers are
+written as words. Results are shown for addition.
+Diﬀerent question formats:
+We explored the ability to generalize to diﬀerent
+question formats when training on one format (format 0). We note the generalization
+is much lower compared to following our prompt-tuning method (Table 9).
+Num. digits
+Format 0
+Format 1
+Format 2
+Format 3
+Format 4
+Prompt tuning
+1.0
+1.0
+1.0
+1.0
+0.993
+Few-shot
+1.0
+1.0
+0.98
+0.78
+0.22
+Table 9:
+Generalization across formats: few-shot vs. prompt tuning. Results are
+shown for addition.
+14
+
+B
+Question formats
+Table 10 shows the ﬁve formats used for single-operation problems for all operations.
+Format
+addition
+subtraction
+0
+How much is {{x}} plus {{y}}?
+How much is {{x}} minus {{y}}?
+1
+What is {{x}} plus {{y}}?
+What is {{x}} minus {{y}}?
+2
+What is the result of {{x}} plus {{y}}?
+What is the result of {{x}} minus {{y}}?
+3
+What is the sum of {{x}} and {{y}}?
+What is the diﬀerence between {{x}} and {{y}}?
+4
+The sum of {{x}} and {{y}} is
+The diﬀerence between {{x}} and {{y}} is
+multiplication
+division
+0
+How much is {{x}} times {{y}}?
+How much is {{x}} over {{y}}?
+1
+What is {{x}} times {{y}}?
+What is {{x}} over {{y}}?
+2
+What is the result of {{x}} times {{y}}?
+What is the result of {{x}} over {{y}}?
+3
+What is the product of {{x}} and {{y}}?
+What is the ratio between {{x}} and {{y}}?
+4
+The product of {{x}} and {{y}} is
+The ratio of {{x}} and {{y}} is
+Table 10: Question formats for single-operation problems. Five diﬀerent formats
+for each type of operation in the case of single-operation expressions.
+The equations for two-operation problems, for all combinations of placing the
+brackets, are shown in Table 11. Table 12 shows the phrasings for these 29 formulae.
+C
+Amount of data in each experiment
+Experiment 1 - number of digits:
+The training set included 40 single digits operand combinations. The test set for
+single digits included the remaining 41 combinations (discarding 0) and 50 randomly
+chosen combinations for all the cases with more then 1 digit.
+Experiment 2 - digits and words:
+200 samples were randomly drawn for each number of digits (except for 1 and 2
+digits) and data was split equally between train and test data. This was repeated
+for both digits and words.
+Experiment 3 - question formats:
+The train set included 400 samples with format 0 and the dev and test set each in-
+cluded 200 samples from each format, randomly drawn with number of digits ranging
+between 1 and 9.
+Experiment 4 - generalization across operations:
+The train set included 635 samples across all formats and digits for each operation,
+while the dev and test set each included 315 samples for each operation.
+For the two-operation experiment we drew 120 samples for each of the 29 formats,
+which were divided equally between the train, dev and test sets.
+Experiment 5 - generalization across the number of operations:
+15
+
++
+−
+∗
+/
++
+A + B + C
+A + B −C
+(A + B) ∗C
+A + (B ∗C)
+(A + B)/C
+A + (B/C)
+−
+(A −B) + C
+A −(B + C)
+(A −B) −C
+A −(B −C)
+(A −B) ∗C
+A −(B ∗C)
+(A −B)/C
+A −(B/C)
+∗
+A ∗(B + C)
+(A ∗B) + C
+A ∗(B −C)
+(A ∗B) −C
+A ∗B ∗C
+(A ∗B)/C
+A ∗(B/C)
+/
+A/(B + C)
+(A/B) + C
+A/(B −C)
+(A/B) −C
+(A/B) ∗C
+A/(B ∗C)
+(A/B)/C
+A/(B/C)
+Table 11: Two-operation formulae. All combinations of two-operation formulae, includ-
+ing operator precedence where relevant. See Table 12 for the phrasings corresponding to
+these formulae.
+700 samples with a single operation were used for training the model, drawn ran-
+domly from all operations, formats, and number of digits. The dev and test set
+each included 210 samples drawn randomly for each of the 16 combinations of two
+operation formulas, analyzed up to 7 digits.
+16
+
+Formula
+Format
+f=((A+B)*C)
+Sum A and B and multiply by C
+f=(A+B*C)
+What is the sum of A and the product of B and C?
+f=((A-B)*C)
+What is the product of A minus B and C?
+f=(A/(B/C))
+How much is A divided by the ratio between B and C?
+f=(A-B*C)
+What is the diﬀerence between A and the product of B and C?
+f=(A*(B-C))
+How much is A times the diﬀerence between B and C?
+f=((A+B)/C)
+What is the ratio between A plus B and C?
+f=(A-(B-C))
+How much is A minus the diﬀrence between B and C?
+f=((A-B)/C)
+What is the ratio between A minus B and C?
+f=(A-B/C)
+What is the diﬀerence between A and the ratio between B and C?
+f=(A/(B+C))
+How much is A divided bu the sum of B and C?
+f=(A/(B-C))
+How much is A divided by the diﬀerence between B and C?
+f=(A+B/C)
+what is the sum of A and the ratio between B and C?
+f=(A*(B/C))
+How much is A times the ratio between B and C?
+f=(A*B+C)
+How much is the sum of A times B and C?
+f=(A*(B+C))
+How much is A times the sum of B and C?
+f=(A/B+C)
+How much is the sum of A divided by B and C?
+f=(A/B/C)
+How much is A divided by B divided by C?
+f=(A/B-C)
+How much is the diﬀerence between A divided by B and C?
+f=(A/B*C)
+How much is A divided by B times C?
+f=(A-(B+C))
+How much is A minus the sum of B and C?
+f=(A*B-C)
+How much is the diﬀerence between A times B and C?
+f=(A/(B*C))
+How much is A divided by the product of B and C?
+f=(A-B+C)
+How much is A minus B plus C?
+f=(A+B+C)
+How much is A plus B plus C?
+f=(A-B-C)
+How much is A minus B minus C?
+f=(A*B/C)
+How much is A times B divided by C?
+f=(A+B-C)
+How much is A plus B minus C?
+f=(A*B*C)
+How much is A times B times C?
+Table 12:
+Formats of two-operation questions.
+17
+
+References
+1.
+Devlin, J., Chang, M.-W., Lee, K. & Toutanova, K. BERT: Pre-training of Deep
+Bidirectional Transformers for Language Understanding in Proceedings of the
+2019 Conference of the North American Chapter of the Association for Compu-
+tational Linguistics: Human Language Technologies, Volume 1 (Long and Short
+Papers) (Association for Computational Linguistics, Minneapolis, Minnesota,
+June 2019), 4171–4186. https://aclanthology.org/N19-1423.
+2.
+Brown, T. B. et al. Language Models are Few-Shot Learners 2020. https :
+//arxiv.org/abs/2005.14165.
+3.
+Lieber, O., Sharir, O., Lenz, B. & Shoham, Y. Jurassic-1: Technical Details and
+Evaluation 2021. https://uploads-ssl.webflow.com/60fd4503684b466578c0d307/
+61138924626a6981ee09caf6_jurassic_tech_paper.pdf.
+4.
+Chowdhery, A. et al. PaLM: Scaling Language Modeling with Pathways 2022.
+https://arxiv.org/abs/2204.02311.
+5.
+Raﬀel, C. et al. Exploring the Limits of Transfer Learning with a Uniﬁed Text-
+to-Text Transformer. Journal of Machine Learning Research 21, 1–67. http:
+//jmlr.org/papers/v21/20-074.html (2020).
+6.
+Sanh, V. et al. Multitask Prompted Training Enables Zero-Shot Task Generaliza-
+tion in International Conference on Learning Representations (2022). https:
+//openreview.net/forum?id=9Vrb9D0WI4.
+7.
+Aribandi, V. et al. ExT5: Towards Extreme Multi-Task Scaling for Transfer
+Learning in International Conference on Learning Representations (2022). https:
+//openreview.net/forum?id=Vzh1BFUCiIX.
+8.
+Liu, Y. et al. RoBERTa: A Robustly Optimized BERT Pretraining Approach
+2019. https://arxiv.org/abs/1907.11692.
+9.
+Smith, S. et al. Using DeepSpeed and Megatron to Train Megatron-Turing NLG
+530B, A Large-Scale Generative Language Model 2022. https://arxiv.org/
+abs/2201.11990.
+10.
+Bommasani, R. et al. On the Opportunities and Risks of Foundation Models
+2021. https://arxiv.org/abs/2108.07258.
+11.
+Petroni, F. et al. Language Models as Knowledge Bases? 2019. https://arxiv.
+org/abs/1909.01066.
+12.
+Jiang, Z., Xu, F. F., Araki, J. & Neubig, G. How Can We Know What Language
+Models Know? 2019. https://arxiv.org/abs/1911.12543.
+13.
+Tamkin, A., Brundage, M., Clark, J. & Ganguli, D. Understanding the Ca-
+pabilities, Limitations, and Societal Impact of Large Language Models 2021.
+https://arxiv.org/abs/2102.02503.
+18
+
+14.
+Loureiro, D., Barbieri, F., Neves, L., Anke, L. E. & Camacho-Collados, J.
+TimeLMs: Diachronic Language Models from Twitter 2022. https://arxiv.
+org/abs/2202.03829.
+15.
+Wei, J. et al. Finetuned Language Models Are Zero-Shot Learners 2021. https:
+//arxiv.org/abs/2109.01652.
+16.
+Min, S., Lewis, M., Zettlemoyer, L. & Hajishirzi, H. MetaICL: Learning to
+Learn In Context 2021. https://arxiv.org/abs/2110.15943.
+17.
+Sharir, O., Peleg, B. & Shoham, Y. The Cost of Training NLP Models: A
+Concise Overview 2020. https://arxiv.org/abs/2004.08900.
+18.
+Wu, C.-J. et al. Sustainable AI: Environmental Implications, Challenges and
+Opportunities 2021. https://arxiv.org/abs/2111.00364.
+19.
+Strubell, E., Ganesh, A. & McCallum, A. Energy and Policy Considerations for
+Deep Learning in NLP in Proceedings of the 57th Annual Meeting of the Asso-
+ciation for Computational Linguistics (Association for Computational Linguis-
+tics, Florence, Italy, July 2019), 3645–3650. https://aclanthology.org/P19-
+1355.
+20.
+Wolfson, T. et al. Break It Down: A Question Understanding Benchmark 2020.
+https://arxiv.org/abs/2001.11770.
+21.
+Lester, B., Al-Rfou, R. & Constant, N. The Power of Scale for Parameter-
+Eﬃcient Prompt Tuning 2021. https://arxiv.org/abs/2104.08691.
+19

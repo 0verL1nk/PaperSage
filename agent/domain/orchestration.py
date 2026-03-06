@@ -161,6 +161,8 @@ class TeamExecution:
     summary: str = ""
     fallback_reason: str | None = None
     trace_events: TracePayload = field(default_factory=list)
+    todo_records: list[dict[str, Any]] = field(default_factory=list)
+    todo_stats: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -170,6 +172,8 @@ class TeamExecution:
             "rounds": self.rounds,
             "summary": self.summary,
             "fallback_reason": self.fallback_reason,
+            "todo_records": self.todo_records,
+            "todo_stats": self.todo_stats,
         }
 
 
@@ -181,3 +185,4 @@ class OrchestratedTurn:
     trace_payload: TracePayload
     plan_text: str = ""
     leader_tool_names: list[str] = field(default_factory=list)
+    ask_human_requests: list[dict[str, str]] = field(default_factory=list)

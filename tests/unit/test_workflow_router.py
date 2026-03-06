@@ -58,7 +58,7 @@ def test_router_prefers_llm_plan_act_decision():
         plan_enabled=True, team_enabled=False,
         reason="需要先规划", confidence=0.88, source="llm",
     )
-    with patch("agent.a2a.router.decide_execution_policy", return_value=decision):
+    with patch("agent.a2a.router.intercept", return_value=decision):
         mode, reason = auto_select_workflow_mode("请帮我处理这个问题", coordinator=MagicMock())
     assert mode == WORKFLOW_PLAN_ACT
     assert "规划" in reason
@@ -69,7 +69,7 @@ def test_router_prefers_llm_team_decision():
         plan_enabled=True, team_enabled=True,
         reason="多目标交叉验证", confidence=0.91, source="llm",
     )
-    with patch("agent.a2a.router.decide_execution_policy", return_value=decision):
+    with patch("agent.a2a.router.intercept", return_value=decision):
         mode, _reason = auto_select_workflow_mode("请帮我处理这个问题", coordinator=MagicMock())
     assert mode == WORKFLOW_PLAN_ACT_REPLAN
 

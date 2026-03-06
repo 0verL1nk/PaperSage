@@ -1,3 +1,4 @@
+import json
 import logging
 from collections.abc import Iterator
 from typing import Any
@@ -70,6 +71,72 @@ def extract_tool_names_from_result(result: Any) -> set[str]:
                 tool_names.add(name)
 
     return tool_names
+
+
+def extract_ask_human_requests_from_result(result: Any) -> list[dict[str, str]]:
+    raw_messages = result.get("messages", []) if isinstance(result, dict) else []
+    if not isinstance(raw_messages, list):
+        return []
+
+    requests: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _append_request(question: str, context: str, urgency: str) -> None:
+        q = str(question or "").strip()
+        if not q:
+            return
+        c = str(context or "").strip()
+        u = str(urgency or "normal").strip().lower()
+        if u not in {"low", "normal", "high"}:
+            u = "normal"
+        key = (q, c, u)
+        if key in seen:
+            return
+        seen.add(key)
+        requests.append({"question": q, "context": c, "urgency": u})
+
+    for message in raw_messages:
+        tool_calls = _message_attr(message, "tool_calls", None)
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                if not isinstance(call, dict):
+                    continue
+                name = str(call.get("name") or "").strip()
+                if name != "ask_human":
+                    continue
+                args = call.get("args")
+                if isinstance(args, dict):
+                    _append_request(
+                        str(args.get("question") or ""),
+                        str(args.get("context") or ""),
+                        str(args.get("urgency") or "normal"),
+                    )
+
+        msg_type = str(_message_attr(message, "type", "") or "").lower()
+        role = str(_message_attr(message, "role", "") or "").lower()
+        if msg_type != "tool" and role != "tool":
+            continue
+        name = str(_message_attr(message, "name", "") or "").strip()
+        if name != "ask_human":
+            continue
+        content = _message_text(message).strip()
+        if not content:
+            continue
+        try:
+            payload = json.loads(content)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("type") or "").strip() not in {"ask_human", ""}:
+            continue
+        _append_request(
+            str(payload.get("question") or ""),
+            str(payload.get("context") or ""),
+            str(payload.get("urgency") or "normal"),
+        )
+
+    return requests
 
 
 def extract_stream_text(chunk: Any) -> str:

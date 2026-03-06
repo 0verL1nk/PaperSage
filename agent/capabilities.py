@@ -16,7 +16,8 @@ from .scholarly_search import (
     format_search_papers_results,
     search_semantic_scholar,
 )
-from .skills.loader import discover_available_skills, get_skill
+from .skills.loader import build_skill_runtime_payload, discover_available_skills
+from .tools import LOCAL_OPS_TOOL_METADATA, ToolMetadata, build_local_ops_tools
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,10 @@ class SearchPapersInput(BaseModel):
 
 class SkillInput(BaseModel):
     skill_name: str = Field(
-        description="Skill template name. Available skills: summary, critical_reading, method_compare, translation, mindmap."
+        description=(
+            "Skill template name. Available skills include: summary, critical_reading, "
+            "method_compare, translation, mindmap, agentic_search."
+        )
     )
     task: str = Field(
         description="Current user task where the selected skill guidance should be applied."
@@ -72,6 +76,7 @@ class SkillInput(BaseModel):
 DEFAULT_MAX_QUERY_CHARS = 1200
 DEFAULT_WEB_MAX_RESULTS = 5
 DEFAULT_WEB_TIMEOUT_SECONDS = 8.0
+DEFAULT_BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 DEFAULT_SEARXNG_INSTANCES = (
     "https://searx.be",
     "https://search.inetol.net",
@@ -86,6 +91,33 @@ _DANGEROUS_QUERY_PATTERNS = [
     r"\bsudo\b",
     r"\bssh\b",
 ]
+_TOOL_METADATA = (
+    ToolMetadata(
+        name="search_document",
+        description="Search uploaded paper content for relevant evidence snippets using RAG.",
+    ),
+    ToolMetadata(
+        name="read_document",
+        description=(
+            "Read a specific portion of the uploaded paper with pagination. "
+            "Use offset to skip to a position, limit to control chunk size. "
+            "Set include_rag=True to get relevant context around the position."
+        ),
+    ),
+    *LOCAL_OPS_TOOL_METADATA,
+    ToolMetadata(
+        name="search_web",
+        description="Search public web content for supplemental context.",
+    ),
+    ToolMetadata(
+        name="search_papers",
+        description="Search academic papers from scholarly providers when document evidence is insufficient.",
+    ),
+    ToolMetadata(
+        name="use_skill",
+        description="Apply a named skill template to the current task and return operational guidance.",
+    ),
+)
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -93,6 +125,43 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_value(name: str, default: str = "") -> str:
+    value = os.getenv(name)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            return stripped
+    return default
+
+
+def _read_from_dotenv(name: str, dotenv_path: str = ".env") -> str:
+    try:
+        with open(dotenv_path, "r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, raw_value = line.split("=", 1)
+                if key.strip() != name:
+                    continue
+                value = raw_value.strip()
+                if not value:
+                    return ""
+                if value[:1] == value[-1:] and value[:1] in {"'", '"'}:
+                    value = value[1:-1]
+                return value.strip()
+    except Exception:
+        return ""
+    return ""
+
+
+def _load_secret(name: str) -> str:
+    value = _env_value(name, default="")
+    if value:
+        return value
+    return _read_from_dotenv(name)
 
 
 def _sanitize_query(query: str) -> str:
@@ -120,6 +189,16 @@ def _tool_enabled(tool_name: str, allowed_tools: set[str] | None = None) -> bool
         return False
     env_key = f"AGENT_DISABLE_{normalized.upper()}"
     return not _env_flag(env_key, default=False)
+
+
+def discover_available_tools(*, read_document_enabled: bool = True) -> list[ToolMetadata]:
+    """发现可用工具（元信息阶段，不创建运行时实例）"""
+    discovered: list[ToolMetadata] = []
+    for item in _TOOL_METADATA:
+        if item.name == "read_document" and not read_document_enabled:
+            continue
+        discovered.append(item)
+    return discovered
 
 
 def _get_skill_options() -> str:
@@ -278,6 +357,48 @@ def _build_wikipedia_web_search_client():
     return _WikipediaWebSearch()
 
 
+def _build_brave_web_search_client():
+    api_key = _load_secret("BRAVE_SEARCH_API_KEY")
+    if not api_key:
+        return None
+    search_url = _env_value("BRAVE_SEARCH_URL", default=DEFAULT_BRAVE_SEARCH_URL)
+
+    class _BraveWebSearch:
+        def __init__(self, key: str, url: str):
+            self.api_key = key
+            self.search_url = url
+
+        def run(self, query: str) -> str:
+            response = httpx.get(
+                self.search_url,
+                params={
+                    "q": query,
+                    "count": DEFAULT_WEB_MAX_RESULTS,
+                },
+                headers={
+                    "X-Subscription-Token": self.api_key,
+                    "Accept": "application/json",
+                    "User-Agent": "llm-app/1.0 (+search_web)",
+                },
+                timeout=DEFAULT_WEB_TIMEOUT_SECONDS,
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(f"brave status={response.status_code}")
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise RuntimeError("brave invalid payload")
+            web_block = payload.get("web")
+            results = web_block.get("results") if isinstance(web_block, dict) else None
+            return _format_web_results(
+                results,
+                title_key="title",
+                url_key="url",
+                snippet_key="description",
+            )
+
+    return _BraveWebSearch(api_key, search_url)
+
+
 def build_agent_tools(
     search_document_fn: Callable[[str], str],
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
@@ -290,42 +411,142 @@ def build_agent_tools(
         search_document_fn: RAG 检索函数
         read_document_fn: 分块读取函数，接收 (offset, limit)，返回 (content, total_length)
     """
-    @tool(
-        "search_document",
-        description="Search uploaded paper content for relevant evidence snippets using RAG.",
-        args_schema=SearchDocumentInput,
-    )
-    def search_document(query: str) -> str:
-        safe_query = _sanitize_query(query)
-        logger.info(
-            "tool.search_document called: query_len=%s query_preview=%s",
-            len(safe_query),
-            _preview(safe_query),
-        )
-        if not safe_query:
-            logger.warning("tool.search_document blocked: empty query after sanitization")
-            return "Document search query is empty after sanitization."
-        if _is_dangerous_query(safe_query):
-            logger.warning("tool.search_document blocked by policy")
-            return "Blocked by tool policy: query appears unsafe for document search."
-        if search_document_evidence_fn is not None:
-            try:
-                evidence_payload = search_document_evidence_fn(safe_query)
-                evidence_count = (
-                    len(evidence_payload.get("evidences", []))
-                    if isinstance(evidence_payload, dict)
-                    else 0
-                )
-                logger.info("tool.search_document success: mode=evidence_json evidences=%s", evidence_count)
-                return json.dumps(evidence_payload, ensure_ascii=False)
-            except Exception:
-                logger.exception("tool.search_document evidence function failed, fallback=text")
-                # 回退到文本输出，避免工具失败影响主流程
-                return search_document_fn(safe_query)
-        logger.info("tool.search_document success: mode=text")
-        return search_document_fn(safe_query)
+    if allowed_tools is None:
+        normalized_allowlist = None
+    else:
+        normalized_allowlist = {name.strip().lower() for name in allowed_tools if name.strip()}
 
-    if read_document_fn is not None:
+    discovered_tools = discover_available_tools(read_document_enabled=read_document_fn is not None)
+    enabled_tool_names = {
+        item.name for item in discovered_tools if _tool_enabled(item.name, normalized_allowlist)
+    }
+
+    # 渐进式加载：web provider 在首次调用 web search 时再初始化。
+    web_search_clients: list[tuple[str, Any]] | None = None
+
+    def _ensure_web_search_clients() -> list[tuple[str, Any]]:
+        nonlocal web_search_clients
+        if web_search_clients is not None:
+            return web_search_clients
+
+        clients: list[tuple[str, Any]] = []
+
+        brave_client = _build_brave_web_search_client()
+        if brave_client is not None:
+            clients.append(("brave_search_api", brave_client))
+            logger.info("tool.search_web provider initialized: brave_search_api")
+
+        searxng_client = _build_searxng_web_search_client()
+        if searxng_client is not None:
+            clients.append(("searxng_public_pool", searxng_client))
+            logger.info("tool.search_web provider initialized: searxng_public_pool")
+
+        wikipedia_client = _build_wikipedia_web_search_client()
+        if wikipedia_client is not None:
+            clients.append(("wikipedia_api", wikipedia_client))
+            logger.info("tool.search_web provider initialized: wikipedia_api")
+
+        if not clients:
+            logger.warning("tool.search_web no primary provider initialized")
+
+        if not clients:
+            allow_ddg_fallback = _env_flag("AGENT_WEB_ENABLE_DDG_FALLBACK", default=False)
+            if allow_ddg_fallback:
+                fallback_client = _build_native_web_search_client()
+                if fallback_client is not None:
+                    clients.append(("native_duckduckgo_search", fallback_client))
+                    logger.info("tool.search_web provider fallback initialized: native_duckduckgo_search")
+                else:
+                    try:
+                        fallback_client = DuckDuckGoSearchRun(name="search_web")
+                        clients.append(("langchain_duckduckgo", fallback_client))
+                        logger.info("tool.search_web provider fallback initialized: langchain_duckduckgo")
+                    except Exception as exc:
+                        logger.warning("tool.search_web ddg fallback unavailable: %s", exc)
+            else:
+                logger.warning(
+                    "tool.search_web provider unavailable: searxng disabled/unreachable and ddg fallback disabled"
+                )
+
+        web_search_clients = clients
+        return web_search_clients
+
+    def _run_web_search_internal(query: str) -> tuple[str | None, str | None, str | None]:
+        clients = _ensure_web_search_clients()
+        if not clients:
+            return (
+                None,
+                None,
+                (
+                    "Web search is unavailable in current environment. "
+                    "Set BRAVE_SEARCH_API_KEY in .env, or configure AGENT_SEARXNG_BASE_URLS, "
+                    "or enable AGENT_WEB_ENABLE_DDG_FALLBACK=1."
+                ),
+            )
+        errors: list[str] = []
+        for provider_name, provider in clients:
+            try:
+                response = provider.run(query)
+                response_text = response if isinstance(response, str) else str(response)
+                if not response_text or response_text.strip() == "No web search results found.":
+                    errors.append(f"{provider_name}: no results")
+                    continue
+                return provider_name, response_text, None
+            except Exception as exc:
+                errors.append(f"{provider_name}: {exc}")
+                logger.info("tool.search_web provider failed: %s (%s)", provider_name, exc)
+        return None, None, f"Web search failed: {' | '.join(errors)}"
+
+    def _run_paper_search_internal(query: str, limit: int) -> tuple[list[dict[str, Any]], str | None]:
+        try:
+            papers = search_semantic_scholar(query=query, limit=limit)
+        except ScholarlySearchError as exc:
+            logger.warning("tool.search_papers failed: %s", exc)
+            return [], f"Academic search failed: {exc}"
+        return papers, None
+
+    tools = []
+
+    if "search_document" in enabled_tool_names:
+        @tool(
+            "search_document",
+            description="Search uploaded paper content for relevant evidence snippets using RAG.",
+            args_schema=SearchDocumentInput,
+        )
+        def search_document(query: str) -> str:
+            safe_query = _sanitize_query(query)
+            logger.info(
+                "tool.search_document called: query_len=%s query_preview=%s",
+                len(safe_query),
+                _preview(safe_query),
+            )
+            if not safe_query:
+                logger.warning("tool.search_document blocked: empty query after sanitization")
+                return "Document search query is empty after sanitization."
+            if _is_dangerous_query(safe_query):
+                logger.warning("tool.search_document blocked by policy")
+                return "Blocked by tool policy: query appears unsafe for document search."
+            if search_document_evidence_fn is not None:
+                try:
+                    evidence_payload = search_document_evidence_fn(safe_query)
+                    evidence_count = (
+                        len(evidence_payload.get("evidences", []))
+                        if isinstance(evidence_payload, dict)
+                        else 0
+                    )
+                    logger.info("tool.search_document success: mode=evidence_json evidences=%s", evidence_count)
+                    return json.dumps(evidence_payload, ensure_ascii=False)
+                except Exception:
+                    logger.exception("tool.search_document evidence function failed, fallback=text")
+                    # 回退到文本输出，避免工具失败影响主流程
+                    return search_document_fn(safe_query)
+            logger.info("tool.search_document success: mode=text")
+            return search_document_fn(safe_query)
+
+        tools.append(search_document)
+    tools.extend(build_local_ops_tools(enabled_tool_names=enabled_tool_names))
+
+    if "read_document" in enabled_tool_names and read_document_fn is not None:
         @tool(
             "read_document",
             description="Read a specific portion of the uploaded paper with pagination. "
@@ -358,154 +579,136 @@ def build_agent_tools(
             result += f"=== 内容 ===\n{content}"
             logger.info("tool.read_document success: chunk_len=%s total_len=%s", len(content), total)
             return result
-    else:
-        read_document = None
 
-    web_search_clients: list[tuple[str, Any]] = []
+        tools.append(read_document)
 
-    searxng_client = _build_searxng_web_search_client()
-    if searxng_client is not None:
-        web_search_clients.append(("searxng_public_pool", searxng_client))
-        logger.info("tool.search_web provider initialized: searxng_public_pool")
-
-    wikipedia_client = _build_wikipedia_web_search_client()
-    if wikipedia_client is not None:
-        web_search_clients.append(("wikipedia_api", wikipedia_client))
-        logger.info("tool.search_web provider initialized: wikipedia_api")
-
-    if not web_search_clients:
-        logger.warning("tool.search_web no primary provider initialized")
-
-    if not web_search_clients:
-        allow_ddg_fallback = _env_flag("AGENT_WEB_ENABLE_DDG_FALLBACK", default=False)
-        if allow_ddg_fallback:
-            web_search_client = _build_native_web_search_client()
-            if web_search_client is not None:
-                web_search_clients.append(("native_duckduckgo_search", web_search_client))
-                logger.info("tool.search_web provider fallback initialized: native_duckduckgo_search")
-            else:
-                try:
-                    web_search_client = DuckDuckGoSearchRun(name="search_web")
-                    web_search_clients.append(("langchain_duckduckgo", web_search_client))
-                    logger.info("tool.search_web provider fallback initialized: langchain_duckduckgo")
-                except Exception as exc:
-                    logger.warning("tool.search_web ddg fallback unavailable: %s", exc)
-        else:
-            logger.warning(
-                "tool.search_web provider unavailable: searxng disabled/unreachable and ddg fallback disabled"
-            )
-
-    @tool(
-        "search_web",
-        description="Search public web content for supplemental context.",
-        args_schema=SearchWebInput,
-    )
-    def search_web(query: str) -> str:
-        safe_query = _sanitize_query(query)
-        logger.info(
-            "tool.search_web called: query_len=%s query_preview=%s",
-            len(safe_query),
-            _preview(safe_query),
+    if "search_web" in enabled_tool_names:
+        @tool(
+            "search_web",
+            description="Search public web content for supplemental context.",
+            args_schema=SearchWebInput,
         )
-        if not safe_query:
-            logger.warning("tool.search_web blocked: empty query after sanitization")
-            return "Web search query is empty after sanitization."
-        if _is_dangerous_query(safe_query):
-            logger.warning("tool.search_web blocked by policy")
-            return "Blocked by tool policy: query appears unsafe for web search."
-        if not web_search_clients:
-            logger.warning("tool.search_web unavailable: no provider")
-            return (
-                "Web search is unavailable in current environment. "
-                "Configure AGENT_SEARXNG_BASE_URLS or enable AGENT_WEB_ENABLE_DDG_FALLBACK=1."
+        def search_web(query: str) -> str:
+            safe_query = _sanitize_query(query)
+            logger.info(
+                "tool.search_web called: query_len=%s query_preview=%s",
+                len(safe_query),
+                _preview(safe_query),
             )
-        errors: list[str] = []
-        for provider_name, provider in web_search_clients:
-            try:
-                response = provider.run(safe_query)
-                response_text = response if isinstance(response, str) else str(response)
-                if not response_text or response_text.strip() == "No web search results found.":
-                    errors.append(f"{provider_name}: no results")
-                    continue
-                logger.info(
-                    "tool.search_web success: provider=%s response_len=%s",
-                    provider_name,
-                    len(response_text),
-                )
-                return response_text
-            except Exception as exc:
-                errors.append(f"{provider_name}: {exc}")
-                logger.info("tool.search_web provider failed: %s (%s)", provider_name, exc)
-        logger.error("tool.search_web failed: providers=%s", " | ".join(errors))
-        return f"Web search failed: {' | '.join(errors)}"
+            if not safe_query:
+                logger.warning("tool.search_web blocked: empty query after sanitization")
+                return "Web search query is empty after sanitization."
+            if _is_dangerous_query(safe_query):
+                logger.warning("tool.search_web blocked by policy")
+                return "Blocked by tool policy: query appears unsafe for web search."
+            provider_name, response_text, error_text = _run_web_search_internal(safe_query)
+            if response_text is None:
+                logger.warning("tool.search_web unavailable: %s", error_text)
+                return str(error_text or "Web search failed.")
+            logger.info(
+                "tool.search_web success: provider=%s response_len=%s",
+                provider_name,
+                len(response_text),
+            )
+            return response_text
 
-    @tool(
-        "search_papers",
-        description="Search academic papers from scholarly providers when document evidence is insufficient.",
-        args_schema=SearchPapersInput,
-    )
-    def search_papers(query: str, limit: int = 5) -> str:
-        safe_query = _sanitize_query(query)
-        logger.info(
-            "tool.search_papers called: limit=%s query_len=%s query_preview=%s",
-            limit,
-            len(safe_query),
-            _preview(safe_query),
+        tools.append(search_web)
+
+    if "search_papers" in enabled_tool_names:
+        @tool(
+            "search_papers",
+            description="Search academic papers from scholarly providers when document evidence is insufficient.",
+            args_schema=SearchPapersInput,
         )
-        if not safe_query:
-            logger.warning("tool.search_papers blocked: empty query after sanitization")
-            return "Academic search query is empty after sanitization."
-        if _is_dangerous_query(safe_query):
-            logger.warning("tool.search_papers blocked by policy")
-            return "Blocked by tool policy: query appears unsafe for academic search."
-        try:
-            papers = search_semantic_scholar(query=safe_query, limit=limit)
-        except ScholarlySearchError as exc:
-            logger.warning("tool.search_papers failed: %s", exc)
-            return f"Academic search failed: {exc} Try narrowing the topic or use search_web."
-        logger.info("tool.search_papers success: results=%s", len(papers))
-        return format_search_papers_results(papers)
+        def search_papers(query: str, limit: int = 5) -> str:
+            safe_query = _sanitize_query(query)
+            logger.info(
+                "tool.search_papers called: limit=%s query_len=%s query_preview=%s",
+                limit,
+                len(safe_query),
+                _preview(safe_query),
+            )
+            if not safe_query:
+                logger.warning("tool.search_papers blocked: empty query after sanitization")
+                return "Academic search query is empty after sanitization."
+            if _is_dangerous_query(safe_query):
+                logger.warning("tool.search_papers blocked by policy")
+                return "Blocked by tool policy: query appears unsafe for academic search."
+            papers, error_text = _run_paper_search_internal(safe_query, limit)
+            if error_text is not None:
+                return f"{error_text} Try narrowing the topic or use search_web."
+            logger.info("tool.search_papers success: results=%s", len(papers))
+            return format_search_papers_results(papers)
 
-    @tool(
-        "use_skill",
-        description="Apply a named skill template to the current task and return operational guidance.",
-        args_schema=SkillInput,
-    )
-    def use_skill(skill_name: str, task: str) -> str:
-        normalized_name = skill_name.strip().lower()
-        logger.info("tool.use_skill called: skill=%s task_len=%s", normalized_name, len(task))
-        if _is_dangerous_query(task):
-            logger.warning("tool.use_skill blocked by policy")
-            return "Blocked by tool policy: task appears unsafe."
+        tools.append(search_papers)
 
-        # 尝试从文件加载 skill
-        skill = get_skill(normalized_name)
-        if skill:
-            # 找到 skill，返回完整指令
-            logger.info("tool.use_skill success: skill=%s", normalized_name)
-            return f"Skill: {skill.name}\nDescription: {skill.description}\n\nInstructions:\n{skill.instructions}\n\nTask: {task}"
+    if "use_skill" in enabled_tool_names:
+        @tool(
+            "use_skill",
+            description="Apply a named skill template to the current task and return operational guidance.",
+            args_schema=SkillInput,
+        )
+        def use_skill(skill_name: str, task: str) -> str:
+            normalized_name = skill_name.strip().lower()
+            logger.info("tool.use_skill called: skill=%s task_len=%s", normalized_name, len(task))
+            if _is_dangerous_query(task):
+                logger.warning("tool.use_skill blocked by policy")
+                return "Blocked by tool policy: task appears unsafe."
 
-        # 如果没找到，返回错误信息
-        options = _get_skill_options()
-        logger.warning("tool.use_skill unknown skill: %s", normalized_name)
-        return f"Unknown skill '{skill_name}'. Available skills: {options}."
+            runtime_payload = build_skill_runtime_payload(
+                normalized_name,
+                task=task,
+                max_references=2,
+                reference_char_limit=1800,
+            )
+            if runtime_payload is not None:
+                logger.info("tool.use_skill success: skill=%s", normalized_name)
+                parts: list[str] = [
+                    f"Skill: {runtime_payload['name']}",
+                    f"Description: {runtime_payload['description']}",
+                    "",
+                    "Instructions:",
+                    str(runtime_payload["instructions"]),
+                ]
 
-    tools = [search_document, search_web, search_papers, use_skill]
-    if read_document is not None:
-        tools.insert(1, read_document)  # 在 search_document 后插入 read_document
+                references = runtime_payload.get("references", [])
+                if isinstance(references, list) and references:
+                    parts.extend(["", "Selected references:"])
+                    for item in references:
+                        if not isinstance(item, dict):
+                            continue
+                        path_value = str(item.get("path") or "").strip()
+                        content_value = str(item.get("content") or "").strip()
+                        if not path_value or not content_value:
+                            continue
+                        parts.append(f"- {path_value}")
+                        parts.append(content_value)
 
-    if allowed_tools is None:
-        normalized_allowlist = None
-    else:
-        normalized_allowlist = {name.strip().lower() for name in allowed_tools if name.strip()}
+                scripts = runtime_payload.get("scripts", [])
+                if isinstance(scripts, list) and scripts:
+                    parts.extend(["", "Available scripts:"])
+                    parts.extend(
+                        f"- {str(item)}" for item in scripts if str(item).strip()
+                    )
 
-    filtered_tools = [
-        tool_item for tool_item in tools if _tool_enabled(tool_item.name, normalized_allowlist)
-    ]
+                agent_metadata = runtime_payload.get("agent_metadata")
+                if isinstance(agent_metadata, str) and agent_metadata.strip():
+                    parts.extend(["", f"Agent metadata: {agent_metadata}"])
+
+                parts.extend(["", f"Task: {task}"])
+                return "\n".join(parts)
+
+            # 如果没找到，返回错误信息
+            options = _get_skill_options()
+            logger.warning("tool.use_skill unknown skill: %s", normalized_name)
+            return f"Unknown skill '{skill_name}'. Available skills: {options}."
+
+        tools.append(use_skill)
+
     logger.info(
-        "Agent tools prepared: total=%s enabled=%s names=%s",
+        "Agent tools prepared: discovered=%s enabled=%s names=%s",
+        len(discovered_tools),
         len(tools),
-        len(filtered_tools),
-        ",".join(tool_item.name for tool_item in filtered_tools),
+        ",".join(tool_item.name for tool_item in tools),
     )
-    return filtered_tools
+    return tools

@@ -52,6 +52,8 @@ RESEARCHER_SYSTEM_PROMPT = (
     "Output concise, structured text and mark evidence source. "
     "Use the same language as the user's latest query. "
     "If the user request is ambiguous, ask exactly one short clarification question. "
+    "For engineering/file tasks, you may use read_file/write_file/edit_file/update_file/bash. "
+    "Use write_todo/edit_todo to track plan steps, and ask_human before risky actions. "
     "Never expose internal reasoning, planning text, or tool traces."
 )
 
@@ -74,14 +76,42 @@ REACT_SYSTEM_PROMPT = (
     '{"name":"topic","children":[{"name":"subtopic","children":[...]}]}. '
     "Use the same language as the user's latest query. "
     "If request scope is unclear, ask one concise clarification question. "
+    "For engineering/file tasks, you may use read_file/write_file/edit_file/update_file/bash. "
+    "Use write_todo/edit_todo to track plan steps, and ask_human before risky actions. "
     "Never expose internal reasoning, planning text, or tool traces."
 )
 
 WORKFLOW_REACT = "react"
 WORKFLOW_PLAN_ACT = "plan_act"
 WORKFLOW_PLAN_ACT_REPLAN = "plan_act_replan"
-REACT_ALLOWED_TOOLS = {"search_document", "search_papers", "search_web", "use_skill"}
-RESEARCHER_ALLOWED_TOOLS = {"search_document", "search_papers", "search_web", "use_skill"}
+REACT_ALLOWED_TOOLS = {
+    "search_document",
+    "search_papers",
+    "search_web",
+    "use_skill",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "update_file",
+    "bash",
+    "write_todo",
+    "edit_todo",
+    "ask_human",
+}
+RESEARCHER_ALLOWED_TOOLS = {
+    "search_document",
+    "search_papers",
+    "search_web",
+    "use_skill",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "update_file",
+    "bash",
+    "write_todo",
+    "edit_todo",
+    "ask_human",
+}
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,7 @@ from typing import Any
 
 import streamlit as st
 
+from .mindmap_renderer import render_mindmap_html_with_cli
 from .application.agent_center.turn_execution import (
     execute_turn_with_runtime,
     resolve_turn_runtime_inputs,
@@ -31,7 +32,10 @@ def execute_assistant_turn(
     trace_payload: list[dict[str, str]] = []
     evidence_items: list[dict] = []
     mindmap_data: dict | None = None
+    mindmap_html: str | None = None
+    mindmap_render_error: str | None = None
     method_compare_data: dict | None = None
+    ask_human_requests: list[dict[str, str]] = []
     run_latency_ms = 0.0
     phase_path = ""
     answer = ""
@@ -95,7 +99,13 @@ def execute_assistant_turn(
                 run_latency_ms = core_result["run_latency_ms"]
                 phase_path = core_result["phase_path"]
                 method_compare_data = core_result["method_compare_data"]
+                ask_human_requests = core_result.get("ask_human_requests", [])
                 mindmap_data = core_result["mindmap_data"]
+                if isinstance(mindmap_data, dict) and mindmap_data:
+                    mindmap_html, mindmap_render_error = render_mindmap_html_with_cli(
+                        mindmap_data,
+                        title="思维导图",
+                    )
 
                 render_turn_result(
                     answer=answer,
@@ -104,7 +114,10 @@ def execute_assistant_turn(
                     trace_payload=trace_payload,
                     evidence_items=evidence_items,
                     mindmap_data=mindmap_data,
+                    mindmap_html=mindmap_html,
+                    mindmap_render_error=mindmap_render_error,
                     method_compare_data=method_compare_data,
+                    ask_human_requests=ask_human_requests,
                     run_latency_ms=run_latency_ms,
                     phase_path=phase_path,
                 )
@@ -126,7 +139,10 @@ def execute_assistant_turn(
         "trace_payload": trace_payload,
         "evidence_items": evidence_items,
         "mindmap_data": mindmap_data,
+        "mindmap_html": mindmap_html,
+        "mindmap_render_error": mindmap_render_error,
         "method_compare_data": method_compare_data,
+        "ask_human_requests": ask_human_requests,
         "run_latency_ms": run_latency_ms,
         "team_rounds": int(team_execution.get("rounds", 0)),
         "phase_path": phase_path,

@@ -96,6 +96,7 @@ def test_turn_state_mutations():
         trace_payload=[],
         mindmap_data=None,
         method_compare_data=None,
+        ask_human_requests=[],
         evidence_items=[],
         policy_decision={},
         team_execution={},
