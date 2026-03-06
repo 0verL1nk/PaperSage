@@ -22,6 +22,8 @@ def render_mindmap_html_with_cli(
     *,
     title: str = "思维导图",
     timeout_sec: float = 8.0,
+    width_px: int = 1200,
+    height_px: int = 520,
 ) -> tuple[str | None, str | None]:
     """Render mindmap JSON into interactive HTML via external CLI binary.
 
@@ -43,6 +45,8 @@ def render_mindmap_html_with_cli(
 
     payload = json.dumps(mindmap_data, ensure_ascii=False)
     try:
+        safe_width = max(480, int(width_px))
+        safe_height = max(360, int(height_px))
         result = subprocess.run(
             [
                 str(cli_path),
@@ -52,6 +56,10 @@ def render_mindmap_html_with_cli(
                 "-",
                 "-title",
                 title,
+                "-width",
+                str(safe_width),
+                "-height",
+                str(safe_height),
             ],
             input=payload,
             text=True,

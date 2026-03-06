@@ -1,4 +1,5 @@
 import json
+import re
 from html import escape
 from typing import Any
 
@@ -18,6 +19,25 @@ LEGACY_WORKFLOW_LABELS = {
     "plan_act": "Plan-Act（A2A协调）",
     "plan_act_replan": "Plan-Act-RePlan（A2A协调）",
 }
+
+_MINDMAP_HEIGHT_RE = re.compile(
+    r"#mindmap\s*\{[^}]*height:\s*(\d+)px",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _infer_mindmap_iframe_height(mindmap_html: str, default_height: int = 660) -> int:
+    html = str(mindmap_html or "")
+    match = _MINDMAP_HEIGHT_RE.search(html)
+    if not match:
+        return default_height
+    try:
+        chart_height = int(match.group(1))
+    except Exception:
+        return default_height
+    # Chart height + panel header + body paddings/margins.
+    frame_height = chart_height + 160
+    return max(460, min(frame_height, 1200))
 
 
 def _confidence_badge(score: float) -> tuple[str, str]:
@@ -273,7 +293,8 @@ def _render_mindmap_if_any(
         return
     if isinstance(mindmap_html, str) and mindmap_html.strip():
         try:
-            components.html(mindmap_html, height=560, scrolling=True)
+            iframe_height = _infer_mindmap_iframe_height(mindmap_html)
+            components.html(mindmap_html, height=iframe_height, scrolling=False)
         except Exception:
             render_error = "思维导图 HTML 渲染失败，已自动回退到内置渲染。"
         else:
@@ -282,7 +303,7 @@ def _render_mindmap_if_any(
             return
     try:
         chart = _create_mindmap_chart(mindmap_data)
-        components.html(chart.render_embed(), height=460, scrolling=True)
+        components.html(chart.render_embed(), height=480, scrolling=False)
     except Exception:
         st.warning("思维导图 JSON 已识别，但渲染失败。")
     if isinstance(render_error, str) and render_error.strip():
