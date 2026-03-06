@@ -1,3 +1,5 @@
+__version__ = "0.1.0"
+
 from .archive import list_agent_outputs, save_agent_output
 from .a2a.standard import (
     A2AInMemoryServer,

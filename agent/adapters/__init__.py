@@ -3,10 +3,12 @@ from .archive import save_output
 from .document import extract_document_payload, load_cached_extraction, save_cached_extraction
 from .llm import create_chat_model
 from .project_store import (
+    count_session_messages_for_project,
     create_session_for_project,
     delete_session_for_project,
     ensure_default_session_for_project,
     list_project_files_for_user,
+    list_session_messages_page_for_project,
     list_session_messages_for_project,
     list_sessions_for_project,
     list_user_projects,
@@ -46,6 +48,8 @@ __all__ = [
     "create_session_for_project",
     "delete_session_for_project",
     "update_session_for_project",
+    "count_session_messages_for_project",
+    "list_session_messages_page_for_project",
     "list_session_messages_for_project",
     "save_session_messages_for_project",
 ]

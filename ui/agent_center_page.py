@@ -4,10 +4,12 @@ def run_agent_center_page() -> None:
     import os
     
     import streamlit as st
+    import streamlit.components.v1 as components
     
     DEBUG_MODE = os.getenv("DEBUG", "").lower() in {"1", "true", "yes"}
     
     from agent.adapters import (
+        count_session_messages_for_project,
         create_chat_model,
         create_leader_session,
         create_session_for_project,
@@ -16,6 +18,7 @@ def run_agent_center_page() -> None:
         ensure_default_session_for_project,
         extract_document_payload,
         list_project_files_for_user,
+        list_session_messages_page_for_project,
         list_session_messages_for_project,
         list_sessions_for_project,
         list_user_files,
@@ -71,6 +74,7 @@ def run_agent_center_page() -> None:
         drop_conversation_cache as drop_conversation_cache_state,
         ensure_compact_summary as ensure_compact_summary_state,
         ensure_conversation_messages as ensure_conversation_messages_state,
+        get_history_paging_state,
         ensure_agent_runtime as ensure_agent_runtime_state,
         ensure_project_sessions,
         enqueue_user_turn,
@@ -80,6 +84,7 @@ def run_agent_center_page() -> None:
         load_scope_docs_with_text,
         load_document_text as load_document_text_state,
         normalize_selector_value,
+        load_more_conversation_messages as load_more_conversation_messages_state,
         persist_active_conversation as persist_active_conversation_state,
         persist_turn_memory,
         prepare_scope_runtime,
@@ -203,6 +208,7 @@ def run_agent_center_page() -> None:
         persist_active_conversation_state(
             st=st,
             save_project_session_messages_fn=save_session_messages_for_project,
+            list_project_session_messages_fn=list_session_messages_for_project,
             user_uuid=user_uuid,
             project_uid=project_uid,
             session_uid=session_uid,
@@ -222,6 +228,8 @@ def run_agent_center_page() -> None:
         ensure_conversation_messages_state(
             st=st,
             list_project_session_messages_fn=list_session_messages_for_project,
+            list_project_session_messages_page_fn=list_session_messages_page_for_project,
+            count_project_session_messages_fn=count_session_messages_for_project,
             persist_active_conversation_fn=_persist_active_conversation,
             user_uuid=user_uuid,
             project_uid=project_uid,
@@ -229,6 +237,87 @@ def run_agent_center_page() -> None:
             session_uid=session_uid,
             conversation_key=conversation_key,
             scope_docs_count=scope_docs_count,
+        )
+
+
+    def _scroll_chat_to_bottom() -> None:
+        components.html(
+            """
+            <script>
+            const root = window.parent.document;
+            const selectors = ['section.main', '[data-testid="stAppViewContainer"]'];
+            let target = null;
+            for (const sel of selectors) {
+              const el = root.querySelector(sel);
+              if (el) { target = el; break; }
+            }
+            if (target) {
+              target.scrollTo({ top: target.scrollHeight, behavior: 'auto' });
+            } else {
+              window.parent.scrollTo(0, document.body.scrollHeight);
+            }
+            </script>
+            """,
+            height=0,
+        )
+
+
+    def _inject_auto_load_more_on_scroll(conversation_key: str) -> None:
+        escaped_key = conversation_key.replace("\\", "\\\\").replace("'", "\\'")
+        components.html(
+            f"""
+            <script>
+            const parentWin = window.parent;
+            const parentDoc = parentWin.document;
+            if (!parentWin.__agentHistoryAutoLoader) {{
+              parentWin.__agentHistoryAutoLoader = {{
+                key: '',
+                lastClickAt: 0,
+                intervalId: null,
+              }};
+            }}
+            const state = parentWin.__agentHistoryAutoLoader;
+            state.key = '{escaped_key}';
+            const findScrollHost = () =>
+              parentDoc.querySelector('section.main') ||
+              parentDoc.querySelector('[data-testid="stAppViewContainer"]');
+            const findLoadButton = () =>
+              Array.from(parentDoc.querySelectorAll('button')).find(
+                (btn) => (btn.innerText || '').trim() === '加载更早对话'
+              );
+            if (!state.intervalId) {{
+              state.intervalId = parentWin.setInterval(() => {{
+                const host = findScrollHost();
+                const button = findLoadButton();
+                if (!host || !button || button.disabled) {{
+                  return;
+                }}
+                const now = Date.now();
+                if (host.scrollTop <= 64 && now - state.lastClickAt > 1200) {{
+                  state.lastClickAt = now;
+                  button.click();
+                }}
+              }}, 280);
+            }}
+            </script>
+            """,
+            height=0,
+        )
+
+
+    def _disable_auto_load_more_on_scroll() -> None:
+        components.html(
+            """
+            <script>
+            const parentWin = window.parent;
+            const state = parentWin.__agentHistoryAutoLoader;
+            if (state && state.intervalId) {
+              parentWin.clearInterval(state.intervalId);
+              state.intervalId = null;
+            }
+            </script>
+            """,
+            height=0,
         )
     
     
@@ -274,15 +363,16 @@ def run_agent_center_page() -> None:
         )
 
         selector_key = f"agent_project_session_selector_{project_uid}"
-        st.session_state[selector_key] = normalize_selector_value(
+        normalized_selector_uid = normalize_selector_value(
             selector_value=st.session_state.get(selector_key),
             by_uid=by_uid,
             fallback_uid=current_uid,
         )
+        if st.session_state.get(selector_key) != normalized_selector_uid:
+            st.session_state[selector_key] = normalized_selector_uid
         selected_uid = st.selectbox(
             "当前会话",
             options=ordered_uids,
-            index=ordered_uids.index(str(st.session_state[selector_key])),
             format_func=lambda uid: format_session_option(by_uid.get(uid, {})),
             key=selector_key,
             disabled=disabled,
@@ -553,7 +643,11 @@ def run_agent_center_page() -> None:
         selected_session_name = str(selected_session.get("session_name") or "未命名会话")
         conversation_key = build_conversation_key(selected_project_uid, selected_session_uid)
         st.session_state.agent_current_session_uid = selected_session_uid
-    
+        last_conversation_key = str(st.session_state.get("agent_last_conversation_key") or "")
+        if last_conversation_key != conversation_key:
+            st.session_state["agent_last_conversation_key"] = conversation_key
+            st.session_state["agent_history_keep_position"] = False
+
         scoped_files = list_project_files_for_user(
             project_uid=selected_project_uid,
             uuid=st.session_state["uuid"],
@@ -653,8 +747,39 @@ def run_agent_center_page() -> None:
     
         chat_messages = st.session_state.get("agent_messages", [])
         render_project_context_hint(selected_project_name, scope_docs)
+        paging_state = get_history_paging_state(
+            st=st,
+            conversation_key=conversation_key,
+        )
+        if bool(paging_state.get("has_more_before")):
+            loaded_count = int(paging_state.get("loaded_count", len(chat_messages)) or len(chat_messages))
+            total_count = int(paging_state.get("total_count", loaded_count) or loaded_count)
+            st.caption(f"会话记录：已加载 {loaded_count} / {total_count}")
+            if st.button(
+                "加载更早对话",
+                key=f"agent_history_load_more_{conversation_key}",
+                use_container_width=True,
+                disabled=turn_in_progress,
+            ):
+                loaded = load_more_conversation_messages_state(
+                    st=st,
+                    list_project_session_messages_page_fn=list_session_messages_page_for_project,
+                    user_uuid=user_uuid,
+                    project_uid=selected_project_uid,
+                    session_uid=selected_session_uid,
+                    conversation_key=conversation_key,
+                )
+                st.session_state["agent_history_keep_position"] = loaded > 0
+                st.rerun()
+                return
+            _inject_auto_load_more_on_scroll(conversation_key)
+        else:
+            _disable_auto_load_more_on_scroll()
         _render_chat_history(chat_messages)
-    
+        if not bool(st.session_state.get("agent_history_keep_position", False)):
+            _scroll_chat_to_bottom()
+        st.session_state["agent_history_keep_position"] = False
+
         prompt_input = st.chat_input("输入你的论文问题", disabled=turn_in_progress)
         prompt_gate = gate_prompt_and_enqueue(
             session_state=st.session_state,

@@ -32,3 +32,14 @@ navigation = st.navigation(
 )
 
 navigation.run()
+
+
+def _cli_entry() -> None:
+    """CLI entry point: `paper-sage` launches the Streamlit app."""
+    import sys
+    import subprocess
+
+    subprocess.run(
+        [sys.executable, "-m", "streamlit", "run", __file__],
+        check=False,
+    )

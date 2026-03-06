@@ -646,6 +646,74 @@ def list_project_session_messages(
     return messages
 
 
+def count_project_session_messages(
+    session_uid: str,
+    project_uid: str,
+    uuid: str,
+    db_name: str = "./database.sqlite",
+) -> int:
+    ensure_projects_tables(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT COUNT(1)
+        FROM project_session_messages
+        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
+    """,
+        (session_uid, project_uid, uuid),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return 0
+    try:
+        return max(0, int(row[0]))
+    except Exception:
+        return 0
+
+
+def list_project_session_messages_page(
+    session_uid: str,
+    project_uid: str,
+    uuid: str,
+    *,
+    offset: int = 0,
+    limit: int = 50,
+    db_name: str = "./database.sqlite",
+) -> list[dict[str, Any]]:
+    ensure_projects_tables(db_name)
+    safe_offset = max(0, int(offset))
+    safe_limit = max(1, min(int(limit), 500))
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT role, content, message_json
+        FROM project_session_messages
+        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
+        ORDER BY id ASC
+        LIMIT ? OFFSET ?
+    """,
+        (session_uid, project_uid, uuid, safe_limit, safe_offset),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    messages: list[dict[str, Any]] = []
+    for role, content, raw_json in rows:
+        fallback = {"role": role or "assistant", "content": content or ""}
+        try:
+            parsed = json.loads(raw_json)
+            if isinstance(parsed, dict):
+                messages.append(parsed)
+                continue
+        except Exception:
+            pass
+        messages.append(fallback)
+    return messages
+
+
 def save_project_session_messages(
     session_uid: str,
     project_uid: str,

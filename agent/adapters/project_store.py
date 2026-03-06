@@ -1,9 +1,11 @@
 from utils.utils import (
+    count_project_session_messages,
     create_project_session,
     delete_project_session,
     ensure_default_project_session,
     list_project_files,
     list_project_session_messages,
+    list_project_session_messages_page,
     list_project_sessions,
     list_projects,
     save_project_session_messages,
@@ -65,6 +67,31 @@ def list_session_messages_for_project(*, session_uid: str, project_uid: str, uui
         session_uid=session_uid,
         project_uid=project_uid,
         uuid=uuid,
+    )
+
+
+def count_session_messages_for_project(*, session_uid: str, project_uid: str, uuid: str) -> int:
+    return count_project_session_messages(
+        session_uid=session_uid,
+        project_uid=project_uid,
+        uuid=uuid,
+    )
+
+
+def list_session_messages_page_for_project(
+    *,
+    session_uid: str,
+    project_uid: str,
+    uuid: str,
+    offset: int,
+    limit: int,
+):
+    return list_project_session_messages_page(
+        session_uid=session_uid,
+        project_uid=project_uid,
+        uuid=uuid,
+        offset=offset,
+        limit=limit,
     )
 
 

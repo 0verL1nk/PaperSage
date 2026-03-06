@@ -49,6 +49,13 @@ def _settings(*, enable_thinking: bool, reasoning_effort: str) -> AgentSettings:
         agent_policy_score_team=4,
         agent_planner_min_steps=2,
         agent_planner_max_steps=4,
+        agent_policy_router_model_name="",
+        agent_policy_router_base_url="",
+        agent_policy_router_temperature=0.0,
+        agent_policy_async_enabled=True,
+        agent_policy_async_refresh_seconds=4.0,
+        agent_policy_async_min_confidence=0.6,
+        agent_policy_async_max_staleness_seconds=20.0,
     )
 
 
