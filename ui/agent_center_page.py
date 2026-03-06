@@ -24,6 +24,9 @@ def run_agent_center_page() -> None:
         read_user_api_key,
         read_user_base_url,
         read_user_model_name,
+        read_user_policy_router_api_key,
+        read_user_policy_router_base_url,
+        read_user_policy_router_model_name,
         save_output,
         save_cached_extraction,
         save_session_messages_for_project,
@@ -103,6 +106,10 @@ def run_agent_center_page() -> None:
         render_workspace_status_bar,
         select_project_sidebar,
         select_scope_documents_drawer,
+    )
+    from ui.agent_center_sidebar import (
+        render_pinned_human_requests_panel,
+        render_pinned_todo_panel,
     )
     from ui.theme import inject_global_theme
     from agent.ui_helpers import (
@@ -428,6 +435,9 @@ def run_agent_center_page() -> None:
             get_user_api_key_fn=read_user_api_key,
             get_user_model_name_fn=read_user_model_name,
             get_user_base_url_fn=read_user_base_url,
+            get_user_policy_router_model_name_fn=read_user_policy_router_model_name,
+            get_user_policy_router_base_url_fn=read_user_policy_router_base_url,
+            get_user_policy_router_api_key_fn=read_user_policy_router_api_key,
             create_chat_model_fn=create_chat_model,
             create_project_evidence_retriever_fn=create_project_evidence_retriever,
             create_leader_session_fn=create_leader_session,
@@ -632,6 +642,12 @@ def run_agent_center_page() -> None:
             _render_output_archive(selected_project_uid, disable_interaction=turn_in_progress)
             _render_workflow_metrics(conversation_key)
             _render_context_usage(conversation_key)
+            render_pinned_todo_panel(project_uid=selected_project_uid, expanded=True)
+            render_pinned_human_requests_panel(
+                project_uid=selected_project_uid,
+                chat_messages=st.session_state.get("agent_messages", []),
+                expanded=False,
+            )
             if turn_in_progress:
                 st.info("正在生成回答，已临时锁定归档与文档切换，避免中断当前对话。")
     

@@ -116,6 +116,9 @@ def init_database(db_name: str):
     ensure_files_table_columns(db_name)
     ensure_users_model_name_column(db_name)
     ensure_users_base_url_column(db_name)
+    ensure_users_policy_router_model_name_column(db_name)
+    ensure_users_policy_router_base_url_column(db_name)
+    ensure_users_policy_router_api_key_column(db_name)
     ensure_projects_tables(db_name)
 
     # 初始化任务状态表
@@ -1497,6 +1500,48 @@ def ensure_users_base_url_column(db_name="./database.sqlite"):
     conn.close()
 
 
+def ensure_users_policy_router_model_name_column(db_name="./database.sqlite"):
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(users)")
+    columns = cursor.fetchall()
+    has_column = any(row[1] == "policy_router_model_name" for row in columns)
+    if not has_column:
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN policy_router_model_name TEXT DEFAULT NULL"
+        )
+        conn.commit()
+    conn.close()
+
+
+def ensure_users_policy_router_base_url_column(db_name="./database.sqlite"):
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(users)")
+    columns = cursor.fetchall()
+    has_column = any(row[1] == "policy_router_base_url" for row in columns)
+    if not has_column:
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN policy_router_base_url TEXT DEFAULT NULL"
+        )
+        conn.commit()
+    conn.close()
+
+
+def ensure_users_policy_router_api_key_column(db_name="./database.sqlite"):
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(users)")
+    columns = cursor.fetchall()
+    has_column = any(row[1] == "policy_router_api_key" for row in columns)
+    if not has_column:
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN policy_router_api_key TEXT DEFAULT NULL"
+        )
+        conn.commit()
+    conn.close()
+
+
 def get_content_by_uid(
     uid: str, content_type: str, table_name="contents", db_name="./database.sqlite"
 ):
@@ -2340,6 +2385,102 @@ def get_base_url(uuid: str, db_name="./database.sqlite") -> str | None:
     return result[0] if result and result[0] else None
 
 
+def save_policy_router_model_name(
+    uuid: str,
+    model_name: str | None,
+    db_name="./database.sqlite",
+):
+    ensure_users_policy_router_model_name_column(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    normalized = str(model_name or "").strip() or None
+    cursor.execute(
+        """
+        UPDATE users SET policy_router_model_name = ? WHERE uuid = ?
+    """,
+        (normalized, uuid),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_policy_router_model_name(uuid: str, db_name="./database.sqlite") -> str | None:
+    ensure_users_policy_router_model_name_column(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT policy_router_model_name FROM users WHERE uuid = ?",
+        (uuid,),
+    )
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result and result[0] else None
+
+
+def save_policy_router_base_url(
+    uuid: str,
+    base_url: str | None,
+    db_name="./database.sqlite",
+):
+    ensure_users_policy_router_base_url_column(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    normalized = str(base_url or "").strip() or None
+    cursor.execute(
+        """
+        UPDATE users SET policy_router_base_url = ? WHERE uuid = ?
+    """,
+        (normalized, uuid),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_policy_router_base_url(uuid: str, db_name="./database.sqlite") -> str | None:
+    ensure_users_policy_router_base_url_column(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT policy_router_base_url FROM users WHERE uuid = ?",
+        (uuid,),
+    )
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result and result[0] else None
+
+
+def save_policy_router_api_key(
+    uuid: str,
+    api_key: str | None,
+    db_name="./database.sqlite",
+):
+    ensure_users_policy_router_api_key_column(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    normalized = str(api_key or "").strip() or None
+    cursor.execute(
+        """
+        UPDATE users SET policy_router_api_key = ? WHERE uuid = ?
+    """,
+        (normalized, uuid),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_policy_router_api_key(uuid: str, db_name="./database.sqlite") -> str | None:
+    ensure_users_policy_router_api_key_column(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT policy_router_api_key FROM users WHERE uuid = ?",
+        (uuid,),
+    )
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result and result[0] else None
+
+
 def get_user_model_name(uuid: str | None = None) -> str | None:
     """
     获取指定用户的模型名称（从数据库获取，确保隔离）
@@ -2368,6 +2509,39 @@ def get_user_base_url(uuid: str | None = None) -> str | None:
         uuid = candidate_uuid
 
     return get_base_url(uuid)
+
+
+def get_user_policy_router_model_name(uuid: str | None = None) -> str | None:
+    if not uuid:
+        if "uuid" not in st.session_state or not st.session_state["uuid"]:
+            return None
+        candidate_uuid = st.session_state["uuid"]
+        if not isinstance(candidate_uuid, str):
+            return None
+        uuid = candidate_uuid
+    return get_policy_router_model_name(uuid)
+
+
+def get_user_policy_router_base_url(uuid: str | None = None) -> str | None:
+    if not uuid:
+        if "uuid" not in st.session_state or not st.session_state["uuid"]:
+            return None
+        candidate_uuid = st.session_state["uuid"]
+        if not isinstance(candidate_uuid, str):
+            return None
+        uuid = candidate_uuid
+    return get_policy_router_base_url(uuid)
+
+
+def get_user_policy_router_api_key(uuid: str | None = None) -> str | None:
+    if not uuid:
+        if "uuid" not in st.session_state or not st.session_state["uuid"]:
+            return None
+        candidate_uuid = st.session_state["uuid"]
+        if not isinstance(candidate_uuid, str):
+            return None
+        uuid = candidate_uuid
+    return get_policy_router_api_key(uuid)
 
 
 def show_sidebar_api_key_setting():

@@ -1,5 +1,8 @@
+import os
 from collections.abc import Callable
 from typing import Any
+
+from ...settings import load_agent_settings
 
 
 def ensure_agent_runtime(
@@ -21,6 +24,9 @@ def ensure_agent_runtime(
     create_chat_model_fn,
     create_project_evidence_retriever_fn,
     create_leader_session_fn,
+    get_user_policy_router_model_name_fn=None,
+    get_user_policy_router_base_url_fn=None,
+    get_user_policy_router_api_key_fn=None,
 ) -> None:
     logger.info(
         "Ensuring project sessions: project=%s docs=%s",
@@ -31,6 +37,7 @@ def ensure_agent_runtime(
     leader_sessions = session_state.get("paper_agent_sessions", {})
     evidence_retrievers = session_state.get("paper_evidence_retrievers", {})
     llm_map = session_state.get("paper_project_llms", {})
+    policy_llm_map = session_state.get("paper_project_policy_llms", {})
     search_fn_map = session_state.get("paper_project_search_document_fns", {})
     signatures = session_state.get("paper_project_scope_signatures", {})
 
@@ -52,6 +59,9 @@ def ensure_agent_runtime(
         session_state["paper_agent_runtime_config"] = current_leader_session["runtime_config"]
         session_state["paper_evidence_retriever"] = current_evidence_retriever
         session_state["paper_leader_llm"] = llm_map.get(project_uid)
+        session_state["paper_policy_router_llm"] = (
+            policy_llm_map.get(project_uid) or llm_map.get(project_uid)
+        )
         session_state["paper_search_document_fn"] = search_fn_map.get(project_uid)
         session_state["agent_current_project"] = project_name
         tool_specs_map = session_state.get("paper_project_tool_specs", {})
@@ -77,6 +87,46 @@ def ensure_agent_runtime(
     llm_map[project_uid] = llm
     session_state["paper_project_llms"] = llm_map
     session_state["paper_leader_llm"] = llm
+
+    settings = load_agent_settings()
+    policy_llm = llm
+    router_model_name = ""
+    if callable(get_user_policy_router_model_name_fn):
+        router_model_name = str(get_user_policy_router_model_name_fn() or "").strip()
+    if not router_model_name:
+        router_model_name = str(settings.agent_policy_router_model_name or "").strip()
+
+    router_base_url = ""
+    if callable(get_user_policy_router_base_url_fn):
+        router_base_url = str(get_user_policy_router_base_url_fn() or "").strip()
+    if not router_base_url:
+        router_base_url = str(settings.agent_policy_router_base_url or "").strip()
+
+    router_api_key = ""
+    if callable(get_user_policy_router_api_key_fn):
+        router_api_key = str(get_user_policy_router_api_key_fn() or "").strip()
+    if not router_api_key:
+        router_api_key = str(os.getenv("AGENT_POLICY_ROUTER_API_KEY", "") or "").strip()
+    if not router_api_key:
+        router_api_key = api_key
+    if router_model_name and router_api_key:
+        try:
+            policy_llm = create_chat_model_fn(
+                api_key=router_api_key,
+                model_name=router_model_name,
+                base_url=router_base_url or user_base_url,
+                temperature=settings.agent_policy_router_temperature,
+            )
+            logger.info("Built policy router model: model=%s", router_model_name)
+        except Exception as exc:
+            logger.warning(
+                "Failed to build policy router model, fallback to leader model: %s",
+                exc,
+            )
+            policy_llm = llm
+    policy_llm_map[project_uid] = policy_llm
+    session_state["paper_project_policy_llms"] = policy_llm_map
+    session_state["paper_policy_router_llm"] = policy_llm
 
     search_document_evidence_fn = current_evidence_retriever
     if search_document_evidence_fn is None:

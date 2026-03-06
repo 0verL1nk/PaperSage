@@ -19,6 +19,9 @@ from .user_settings import (
     read_user_api_key,
     read_user_base_url,
     read_user_model_name,
+    read_user_policy_router_api_key,
+    read_user_policy_router_base_url,
+    read_user_policy_router_model_name,
 )
 
 __all__ = [
@@ -32,6 +35,9 @@ __all__ = [
     "read_user_api_key",
     "read_user_model_name",
     "read_user_base_url",
+    "read_user_policy_router_model_name",
+    "read_user_policy_router_base_url",
+    "read_user_policy_router_api_key",
     "list_user_files",
     "list_user_projects",
     "list_project_files_for_user",

@@ -25,6 +25,7 @@ class OrchestratedTurnExecutor(Protocol):
         leader_agent: AgentInvoker,
         leader_runtime_config: dict[str, Any] | None,
         llm: Any | None = None,
+        policy_llm: Any | None = None,
         search_document_fn: Callable[[str], str] | None = None,
         search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
         force_plan: bool | None = None,

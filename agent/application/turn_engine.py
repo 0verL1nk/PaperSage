@@ -70,6 +70,7 @@ def execute_turn_core(
     leader_agent: AgentInvoker,
     leader_runtime_config: dict[str, Any] | None,
     leader_llm: Any | None = None,
+    policy_llm: Any | None = None,
     search_document_evidence_fn: EvidenceRetriever | None = None,
     force_plan: bool | None = None,
     force_team: bool | None = None,
@@ -111,6 +112,7 @@ def execute_turn_core(
             leader_runtime_config if isinstance(leader_runtime_config, dict) else {}
         ),
         llm=leader_llm,
+        policy_llm=policy_llm,
         search_document_fn=search_document_fn,
         search_document_evidence_fn=(
             search_document_evidence_fn if callable(search_document_evidence_fn) else None
@@ -158,4 +160,5 @@ def execute_turn_core(
         "team_rounds": int(team_execution.get("rounds", 0)),
         "phase_path": phase_path,
         "used_document_rag": used_document_rag,
+        "ask_human_requests": list(getattr(orchestrated, "ask_human_requests", []) or []),
     }

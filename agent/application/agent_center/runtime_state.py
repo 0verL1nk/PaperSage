@@ -31,6 +31,7 @@ def clear_project_runtime(
     leader_sessions = session_state.get("paper_agent_sessions", {})
     retrievers = session_state.get("paper_evidence_retrievers", {})
     llm_map = session_state.get("paper_project_llms", {})
+    policy_llm_map = session_state.get("paper_project_policy_llms", {})
     search_fn_map = session_state.get("paper_project_search_document_fns", {})
     if isinstance(leader_sessions, dict):
         leader_prefix = f"{mode_leader}:{project_uid}:"
@@ -39,10 +40,12 @@ def clear_project_runtime(
             leader_sessions.pop(key, None)
     retrievers.pop(project_uid, None)
     llm_map.pop(project_uid, None)
+    policy_llm_map.pop(project_uid, None)
     search_fn_map.pop(project_uid, None)
     session_state["paper_agent_sessions"] = leader_sessions
     session_state["paper_evidence_retrievers"] = retrievers
     session_state["paper_project_llms"] = llm_map
+    session_state["paper_project_policy_llms"] = policy_llm_map
     session_state["paper_project_search_document_fns"] = search_fn_map
 
 

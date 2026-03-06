@@ -47,6 +47,13 @@ DEFAULT_AGENT_POLICY_SCORE_PLAN = 2
 DEFAULT_AGENT_POLICY_SCORE_TEAM = 4
 DEFAULT_AGENT_PLANNER_MIN_STEPS = 2
 DEFAULT_AGENT_PLANNER_MAX_STEPS = 4
+DEFAULT_AGENT_POLICY_ROUTER_MODEL_NAME = ""
+DEFAULT_AGENT_POLICY_ROUTER_BASE_URL = ""
+DEFAULT_AGENT_POLICY_ROUTER_TEMPERATURE = 0.0
+DEFAULT_AGENT_POLICY_ASYNC_ENABLED = True
+DEFAULT_AGENT_POLICY_ASYNC_REFRESH_SECONDS = 4.0
+DEFAULT_AGENT_POLICY_ASYNC_MIN_CONFIDENCE = 0.6
+DEFAULT_AGENT_POLICY_ASYNC_MAX_STALENESS_SECONDS = 20.0
 
 
 @dataclass(frozen=True)
@@ -96,6 +103,13 @@ class AgentSettings:
     agent_policy_score_team: int
     agent_planner_min_steps: int
     agent_planner_max_steps: int
+    agent_policy_router_model_name: str
+    agent_policy_router_base_url: str
+    agent_policy_router_temperature: float
+    agent_policy_async_enabled: bool
+    agent_policy_async_refresh_seconds: float
+    agent_policy_async_min_confidence: float
+    agent_policy_async_max_staleness_seconds: float
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -241,5 +255,45 @@ def load_agent_settings() -> AgentSettings:
         agent_planner_max_steps=_env_int(
             "AGENT_PLANNER_MAX_STEPS",
             DEFAULT_AGENT_PLANNER_MAX_STEPS,
+        ),
+        agent_policy_router_model_name=os.getenv(
+            "AGENT_POLICY_ROUTER_MODEL_NAME",
+            DEFAULT_AGENT_POLICY_ROUTER_MODEL_NAME,
+        ).strip(),
+        agent_policy_router_base_url=os.getenv(
+            "AGENT_POLICY_ROUTER_BASE_URL",
+            DEFAULT_AGENT_POLICY_ROUTER_BASE_URL,
+        ).strip(),
+        agent_policy_router_temperature=_env_float(
+            "AGENT_POLICY_ROUTER_TEMPERATURE",
+            DEFAULT_AGENT_POLICY_ROUTER_TEMPERATURE,
+        ),
+        agent_policy_async_enabled=_env_bool(
+            "AGENT_POLICY_ASYNC_ENABLED",
+            DEFAULT_AGENT_POLICY_ASYNC_ENABLED,
+        ),
+        agent_policy_async_refresh_seconds=max(
+            0.5,
+            _env_float(
+                "AGENT_POLICY_ASYNC_REFRESH_SECONDS",
+                DEFAULT_AGENT_POLICY_ASYNC_REFRESH_SECONDS,
+            ),
+        ),
+        agent_policy_async_min_confidence=min(
+            1.0,
+            max(
+                0.0,
+                _env_float(
+                    "AGENT_POLICY_ASYNC_MIN_CONFIDENCE",
+                    DEFAULT_AGENT_POLICY_ASYNC_MIN_CONFIDENCE,
+                ),
+            ),
+        ),
+        agent_policy_async_max_staleness_seconds=max(
+            1.0,
+            _env_float(
+                "AGENT_POLICY_ASYNC_MAX_STALENESS_SECONDS",
+                DEFAULT_AGENT_POLICY_ASYNC_MAX_STALENESS_SECONDS,
+            ),
         ),
     )
