@@ -45,7 +45,11 @@ def test_render_mindmap_html_with_cli_success(monkeypatch, tmp_path):
         lambda: fake_binary,
     )
 
-    def _fake_run(*_args, **_kwargs):
+    captured = {}
+
+    def _fake_run(*args, **kwargs):
+        captured["cmd"] = list(args[0]) if args else []
+        captured["kwargs"] = kwargs
         return SimpleNamespace(
             returncode=0,
             stdout="<!doctype html><html><body>ok</body></html>",
@@ -58,3 +62,7 @@ def test_render_mindmap_html_with_cli_success(monkeypatch, tmp_path):
 
     assert err is None
     assert "<html>" in str(html)
+    assert "-width" in captured["cmd"]
+    assert "1200" in captured["cmd"]
+    assert "-height" in captured["cmd"]
+    assert "520" in captured["cmd"]
