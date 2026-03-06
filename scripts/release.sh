@@ -81,21 +81,19 @@ UPDATED_VERSION=$(grep -E '^version\s*=' "$PYPROJECT" | head -1 | sed 's/.*= *"\
 TODAY=$(date +%Y-%m-%d)
 info "在 $CHANGELOG 中插入 v${NEW_VERSION} 占位段 ..."
 
-# 如果 [Unreleased] 下方还没有对应版本段，则插入
+# 如果 [Unreleased] 下方还没有对应版本段，则插入占位
 if ! grep -q "^\#\# \[${NEW_VERSION}\]" "$CHANGELOG"; then
   sed -i "s/^\#\# \[Unreleased\]/## [Unreleased]\n\n## [${NEW_VERSION}] - ${TODAY}/" "$CHANGELOG"
 fi
 
 # 更新底部比较链接
 REPO_URL=$(git remote get-url origin | sed 's/git@github.com:/https:\/\/github.com\//' | sed 's/\.git$//')
-# 替换 [Unreleased] 链接
 if grep -q "^\[Unreleased\]:" "$CHANGELOG"; then
   sed -i "s|^\[Unreleased\]:.*|\[Unreleased\]: ${REPO_URL}/compare/v${NEW_VERSION}...HEAD|" "$CHANGELOG"
 else
   echo "" >> "$CHANGELOG"
   echo "[Unreleased]: ${REPO_URL}/compare/v${NEW_VERSION}...HEAD" >> "$CHANGELOG"
 fi
-# 追加本版本链接（如果不存在）
 if ! grep -q "^\[${NEW_VERSION}\]:" "$CHANGELOG"; then
   echo "[${NEW_VERSION}]: ${REPO_URL}/compare/v${CURRENT_VERSION}...v${NEW_VERSION}" >> "$CHANGELOG"
 fi

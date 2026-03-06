@@ -81,29 +81,9 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Extract changelog for this version
-        id: changelog
-        run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          # Extract the section for this version from CHANGELOG.md
-          awk -v ver="$TAG_VERSION" '
-            /^## \[/ {
-              if (found) exit
-              if ($0 ~ "\\[" ver "\\]") found=1
-              next
-            }
-            found { print }
-          ' CHANGELOG.md > /tmp/release_notes.md
-          # Fallback if no changelog section found
-          if [ ! -s /tmp/release_notes.md ]; then
-            echo "Release v$TAG_VERSION" > /tmp/release_notes.md
-          fi
-          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "v${{ steps.changelog.outputs.version }}"
-          body_path: /tmp/release_notes.md
+          name: "${{ github.ref_name }}"
           files: dist/*
-          generate_release_notes: false
+          generate_release_notes: true
