@@ -42,10 +42,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/0verL1nk/LLM_App_Final"
-Repository = "https://github.com/0verL1nk/LLM_App_Final"
-Issues = "https://github.com/0verL1nk/LLM_App_Final/issues"
-Changelog = "https://github.com/0verL1nk/LLM_App_Final/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/0verL1nk/PaperSage"
+Repository = "https://github.com/0verL1nk/PaperSage"
+Issues = "https://github.com/0verL1nk/PaperSage/issues"
+Changelog = "https://github.com/0verL1nk/PaperSage/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 bm25 = [

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-07
+
+### Added
+
+- Async policy interception loop with lightweight router model, periodic context refresh, and in-loop mode switching.
+- User-level policy router configuration in Settings Center (model / base URL / API key).
+- User-level runtime tuning in Settings Center for async policy and memory controls:
+  `AGENT_POLICY_ASYNC_*`, `RAG_INDEX_BATCH_SIZE`, `AGENT_DOCUMENT_TEXT_CACHE_MAX_CHARS`,
+  `LOCAL_RAG_PROJECT_MAX_CHARS`, `LOCAL_RAG_PROJECT_MAX_CHUNKS`.
+- `.env.example` with router, async-policy, RAG, memory, and tooling configuration examples.
+- New unit tests covering logging configuration, user-setting migrations, tool-load tracing,
+  runtime cache pruning, and provider thinking flags.
+
+### Changed
+
+- Project-level RAG vector index build path now uses batched insertion to reduce peak memory usage.
+- Agent Center now applies per-user runtime tuning overrides at startup.
+- High-frequency async interceptor decision logs are now `DEBUG` (keeps `INFO` focused on main-path decisions).
+- Repository metadata and release links switched to `PaperSage`.
+
+### Fixed
+
+- Concurrent project retriever build race by introducing per-project build lock.
+- OOM-prone document text cache growth by pruning with total-char budget.
+- Thinking-related provider tests after settings schema expansion.
+
 ## [0.1.0] - 2026-03-06
 
 ### Added
@@ -30,5 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 53 unit tests + 6 integration tests + eval baselines
 - CLI entry point: `paper-sage`
 
-[Unreleased]: https://github.com/0verL1nk/LLM_App_Final/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/0verL1nk/LLM_App_Final/releases/tag/v0.1.0
+[Unreleased]: https://github.com/0verL1nk/PaperSage/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/0verL1nk/PaperSage/compare/v0.1.0...v1.0.0
+[0.1.0]: https://github.com/0verL1nk/PaperSage/releases/tag/v0.1.0
