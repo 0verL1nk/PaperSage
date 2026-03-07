@@ -42,7 +42,7 @@ def test_load_scope_docs_with_text_and_cache_caption():
 
 
 def test_build_hinted_prompt_and_runtime_helpers():
-    memories = [{"text": "m1"}]
+    memories = [{"memory_type": "semantic", "content": "m1"}]
     hinted = build_hinted_prompt(
         prompt="hello",
         compact_summary="summary",
@@ -55,7 +55,12 @@ def test_build_hinted_prompt_and_runtime_helpers():
         inject_long_term_memory_fn=lambda text, mem: f"{text}::{len(mem)}",
         memory_limit=4,
     )
-    assert hinted == "hello::lang::summary::1"
+    assert hinted.startswith("CTXv1\n")
+    assert "\nI:sys=paper_qa,col=a2a,tools=-,skills=-\n" in hinted
+    assert "\nS:summary\n" in hinted
+    assert "\nM:semantic:m1\n" in hinted
+    assert "\nL:lang\n" in hinted
+    assert hinted.endswith("\nQ:hello")
     assert resolve_runtime_session_id({"configurable": {"thread_id": "tid"}}) == "tid"
     assert resolve_runtime_session_id({}) == "-"
     assert resolve_selected_doc_uid_for_logging([{"uid": "d1"}]) == "d1"

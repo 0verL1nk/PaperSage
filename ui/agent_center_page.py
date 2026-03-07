@@ -83,7 +83,6 @@ def run_agent_center_page() -> None:
         has_cached_agent_session as has_cached_agent_session_state,
         load_scope_docs_with_text,
         load_document_text as load_document_text_state,
-        normalize_selector_value,
         load_more_conversation_messages as load_more_conversation_messages_state,
         persist_active_conversation as persist_active_conversation_state,
         persist_turn_memory,
@@ -364,13 +363,8 @@ def run_agent_center_page() -> None:
         )
 
         selector_key = f"agent_project_session_selector_{project_uid}"
-        normalized_selector_uid = normalize_selector_value(
-            selector_value=st.session_state.get(selector_key),
-            by_uid=by_uid,
-            fallback_uid=current_uid,
-        )
-        if st.session_state.get(selector_key) != normalized_selector_uid:
-            st.session_state[selector_key] = normalized_selector_uid
+        if str(st.session_state.get(selector_key) or "") != current_uid:
+            st.session_state[selector_key] = current_uid
         selected_uid = st.selectbox(
             "当前会话",
             options=ordered_uids,

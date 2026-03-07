@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 
 DEFAULT_HISTORY_PAGE_SIZE = 40
@@ -23,6 +24,33 @@ def _ensure_message_paging_map(session_state: dict) -> dict:
         paging_map = {}
     session_state["paper_project_message_paging"] = paging_map
     return paging_map
+
+
+def _refresh_bootstrap_scope_message(
+    *,
+    messages: list[dict] | Any,
+    project_name: str,
+    scope_docs_count: int,
+) -> tuple[list[dict] | Any, bool]:
+    if not isinstance(messages, list) or len(messages) != 1:
+        return messages, False
+    first = messages[0]
+    if not isinstance(first, dict):
+        return messages, False
+    if str(first.get("role") or "").strip().lower() != "assistant":
+        return messages, False
+    content = str(first.get("content") or "")
+    if "已加载项目《" not in content or "当前检索范围" not in content:
+        return messages, False
+    expected = (
+        f"已加载项目《{project_name}》，当前检索范围 {scope_docs_count} 篇文档。"
+        " 工作流将按问题自动路由。"
+    )
+    if content == expected:
+        return messages, False
+    updated = dict(first)
+    updated["content"] = expected
+    return [updated], True
 
 
 def get_history_paging_state(
@@ -120,9 +148,25 @@ def ensure_conversation_messages(
 
     cached = messages_map.get(conversation_key)
     if isinstance(cached, list):
-        st.session_state.agent_messages = cached
+        refreshed_cached, changed = _refresh_bootstrap_scope_message(
+            messages=cached,
+            project_name=project_name,
+            scope_docs_count=scope_docs_count,
+        )
+        if changed and isinstance(refreshed_cached, list):
+            messages_map[conversation_key] = refreshed_cached
+            st.session_state.paper_project_messages = messages_map
+            st.session_state.agent_messages = refreshed_cached
+            persist_active_conversation_fn(
+                user_uuid=user_uuid,
+                project_uid=project_uid,
+                session_uid=session_uid,
+                conversation_key=conversation_key,
+            )
+        else:
+            st.session_state.agent_messages = cached
         if conversation_key not in paging_map:
-            cached_count = len(cached)
+            cached_count = len(st.session_state.agent_messages)
             paging_map[conversation_key] = {
                 "total_count": cached_count,
                 "loaded_start": 0,
@@ -176,9 +220,22 @@ def ensure_conversation_messages(
         st.session_state.paper_project_message_paging = paging_map
 
     if persisted:
-        messages_map[conversation_key] = persisted
+        refreshed_persisted, changed = _refresh_bootstrap_scope_message(
+            messages=persisted,
+            project_name=project_name,
+            scope_docs_count=scope_docs_count,
+        )
+        final_messages = refreshed_persisted if changed and isinstance(refreshed_persisted, list) else persisted
+        messages_map[conversation_key] = final_messages
         st.session_state.paper_project_messages = messages_map
-        st.session_state.agent_messages = persisted
+        st.session_state.agent_messages = final_messages
+        if changed:
+            persist_active_conversation_fn(
+                user_uuid=user_uuid,
+                project_uid=project_uid,
+                session_uid=session_uid,
+                conversation_key=conversation_key,
+            )
         return
 
     bootstrap = [

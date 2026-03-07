@@ -41,9 +41,38 @@ def test_build_routing_context(monkeypatch):
         ],
         "summary",
     )
-    assert "[会话压缩摘要]" in context
-    assert "[上一轮执行策略]" in context
+    assert context.startswith("RTv1\n")
+    assert "\nS:summary\n" in context
+    assert "\nP:plan=True,team=False,reason=r\n" in context
+    assert "\nT:enabled=False,rounds=0,roles=\n" in context
+    assert "H1:user:Q1" in context
     assert "very long html payload" not in context
+
+
+def test_build_routing_context_keeps_stable_prefix_under_limit(monkeypatch):
+    monkeypatch.setattr(
+        "agent.application.agent_center.prompting.load_agent_settings",
+        lambda: SimpleNamespace(
+            agent_routing_context_recent_limit=6,
+            agent_routing_context_max_chars=140,
+            agent_routing_context_item_max_chars=60,
+            agent_routing_context_reason_max_chars=40,
+            agent_routing_context_roles_preview_count=2,
+        ),
+    )
+    context = build_routing_context(
+        [
+            {"role": "assistant", "content": "A", "policy_decision": {"plan_enabled": True, "team_enabled": True, "reason": "long reason"}},
+            {"role": "user", "content": "Q1 " * 30},
+            {"role": "assistant", "content": "A1 " * 30},
+            {"role": "user", "content": "Q2 " * 30},
+        ],
+        "summary " * 30,
+    )
+    assert context.startswith("RTv1\nS:")
+    assert "\nP:" in context
+    assert "\nT:" in context
+    assert len(context) <= 140
 
 
 def test_persist_turn_memory(monkeypatch):

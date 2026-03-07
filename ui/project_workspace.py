@@ -5,6 +5,45 @@ import streamlit as st
 from agent.adapters import list_project_files_for_user
 
 
+def reconcile_scope_selection(
+    *,
+    all_uids: list[str],
+    persisted_selected: list[str] | None,
+    known_uids: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    normalized_all = [str(uid) for uid in all_uids if str(uid)]
+    all_set = set(normalized_all)
+
+    normalized_selected: list[str] = []
+    if isinstance(persisted_selected, list):
+        for uid in persisted_selected:
+            value = str(uid)
+            if value and value not in normalized_selected:
+                normalized_selected.append(value)
+
+    normalized_known: list[str] = []
+    if isinstance(known_uids, list):
+        for uid in known_uids:
+            value = str(uid)
+            if value and value not in normalized_known:
+                normalized_known.append(value)
+    else:
+        normalized_known = list(normalized_all)
+
+    known_set = set(normalized_known)
+    selected_set = set(normalized_selected)
+    had_full_selection = bool(known_set) and selected_set.issuperset(known_set)
+
+    new_uids = [uid for uid in normalized_all if uid not in known_set]
+    if had_full_selection and new_uids:
+        normalized_selected.extend(new_uids)
+
+    reconciled_selected = [uid for uid in normalized_selected if uid in all_set]
+    if not reconciled_selected:
+        reconciled_selected = list(normalized_all)
+    return reconciled_selected, list(normalized_all)
+
+
 def inject_workspace_styles() -> None:
     st.markdown(
         """
@@ -222,9 +261,17 @@ def select_scope_documents_drawer(
         return []
     scope_key = f"agent_project_scope_{project_uid}"
     scope_widget_key = f"{scope_key}_widget"
+    scope_known_uids_key = f"{scope_key}_known_uids"
     all_uids = [str(item["uid"]) for item in scoped_files]
     if scope_key not in st.session_state:
         st.session_state[scope_key] = all_uids
+    selected_uids, known_uids = reconcile_scope_selection(
+        all_uids=all_uids,
+        persisted_selected=st.session_state.get(scope_key),
+        known_uids=st.session_state.get(scope_known_uids_key),
+    )
+    st.session_state[scope_key] = selected_uids
+    st.session_state[scope_known_uids_key] = known_uids
 
     with st.expander("检索范围抽屉", expanded=False):
         query = st.text_input(

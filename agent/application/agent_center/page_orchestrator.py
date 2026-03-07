@@ -178,6 +178,12 @@ def build_turn_execution_context(
         compact_summary=compact_summary,
         user_uuid=user_uuid,
         project_uid=project_uid,
+        tool_specs=(
+            session_state.get("paper_current_tool_specs", [])
+            if isinstance(session_state.get("paper_current_tool_specs", []), list)
+            else []
+        ),
+        skill_names=[],
     )
     runtime_config = session_state.get("paper_agent_runtime_config", {})
     session_id = resolve_runtime_session_id_fn(runtime_config)

@@ -82,6 +82,59 @@ def test_ensure_conversation_messages_bootstrap_when_empty():
     assert st.session_state["agent_messages"][0]["role"] == "assistant"
 
 
+def test_ensure_conversation_messages_refreshes_cached_bootstrap_scope_count():
+    st = _FakeSt()
+    st.session_state["paper_project_messages"] = {
+        "p1:s1": [
+            {
+                "role": "assistant",
+                "content": "已加载项目《项目A》，当前检索范围 5 篇文档。 工作流将按问题自动路由。",
+            }
+        ]
+    }
+    saved = {"called": 0}
+
+    ensure_conversation_messages(
+        st=st,
+        list_project_session_messages_fn=lambda **_kwargs: [],
+        persist_active_conversation_fn=lambda **_kwargs: saved.__setitem__("called", saved["called"] + 1),
+        user_uuid="u1",
+        project_uid="p1",
+        project_name="项目A",
+        session_uid="s1",
+        conversation_key="p1:s1",
+        scope_docs_count=6,
+    )
+
+    assert "6 篇文档" in st.session_state["agent_messages"][0]["content"]
+    assert saved["called"] == 1
+
+
+def test_ensure_conversation_messages_refreshes_persisted_bootstrap_scope_count():
+    st = _FakeSt()
+    saved = {"called": 0}
+
+    ensure_conversation_messages(
+        st=st,
+        list_project_session_messages_fn=lambda **_kwargs: [
+            {
+                "role": "assistant",
+                "content": "已加载项目《项目A》，当前检索范围 5 篇文档。 工作流将按问题自动路由。",
+            }
+        ],
+        persist_active_conversation_fn=lambda **_kwargs: saved.__setitem__("called", saved["called"] + 1),
+        user_uuid="u1",
+        project_uid="p1",
+        project_name="项目A",
+        session_uid="s1",
+        conversation_key="p1:s1",
+        scope_docs_count=6,
+    )
+
+    assert "6 篇文档" in st.session_state["agent_messages"][0]["content"]
+    assert saved["called"] == 1
+
+
 def test_compact_summary_context_and_auto_compact():
     st = _FakeSt()
     st.session_state["agent_messages"] = [{"role": "user", "content": "q"}]
