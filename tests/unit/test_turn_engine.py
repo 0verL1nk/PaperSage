@@ -137,3 +137,39 @@ def test_execute_turn_core_emits_tool_load_event_from_tool_specs():
         and "search_document" in str(item.get("content", ""))
         for item in captured_events
     )
+
+
+def test_execute_turn_core_tool_load_event_uses_compact_preview():
+    captured_events: list[dict] = []
+
+    def _fake_executor(**_kwargs):
+        return OrchestratedTurn(
+            answer="ok",
+            policy_decision=PolicyDecision(
+                plan_enabled=False,
+                team_enabled=False,
+                reason="heuristic",
+                confidence=None,
+                source="heuristic",
+            ),
+            team_execution=TeamExecution(enabled=False, rounds=0),
+            trace_payload=[],
+            leader_tool_names=[],
+        )
+
+    specs = [{"name": f"tool_{idx}"} for idx in range(9)]
+    execute_turn_core(
+        prompt="q",
+        hinted_prompt="q",
+        leader_agent=object(),
+        leader_runtime_config={},
+        leader_tool_specs=specs,
+        orchestrated_turn_executor=_fake_executor,
+        on_event=lambda item: captured_events.append(item),
+    )
+
+    tool_load_events = [item for item in captured_events if item.get("performative") == "tool_load"]
+    assert tool_load_events
+    content = str(tool_load_events[0].get("content", ""))
+    assert "registered=9" in content
+    assert "... (+3)" in content

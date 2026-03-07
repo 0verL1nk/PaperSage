@@ -1,5 +1,6 @@
 import logging
 import json
+import os
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -95,16 +96,11 @@ def create_paper_agent_session(
     )
 
     tool_specs: list[dict[str, str]] = []
+    schema_level = _tool_schema_level()
     for tool_item in tools:
         name = str(getattr(tool_item, "name", "") or "").strip()
         description = str(getattr(tool_item, "description", "") or "").strip()
-        args_schema = getattr(tool_item, "args_schema", None)
-        args_schema_text = ""
-        if args_schema is not None and hasattr(args_schema, "model_json_schema"):
-            try:
-                args_schema_text = json.dumps(args_schema.model_json_schema(), ensure_ascii=False)
-            except Exception:
-                args_schema_text = ""
+        args_schema_text = _serialize_tool_args_schema(tool_item, schema_level=schema_level)
         if not name and not description and not args_schema_text:
             continue
         tool_specs.append(
@@ -112,6 +108,7 @@ def create_paper_agent_session(
                 "name": name,
                 "description": description,
                 "args_schema": args_schema_text,
+                "schema_level": schema_level,
             }
         )
 
@@ -124,3 +121,48 @@ def create_paper_agent_session(
     )
     logger.info("Created paper agent session: thread_id=%s tools=%s", thread_id, len(tools))
     return PaperAgentSession(agent=agent, thread_id=thread_id, tool_specs=tool_specs)
+
+
+def _tool_schema_level() -> str:
+    configured = str(os.getenv("AGENT_TOOL_SCHEMA_LEVEL", "manifest") or "").strip().lower()
+    if configured in {"manifest", "compact", "full"}:
+        return configured
+    return "manifest"
+
+
+def _serialize_tool_args_schema(tool_item: Any, *, schema_level: str) -> str:
+    if schema_level == "manifest":
+        return ""
+    args_schema = getattr(tool_item, "args_schema", None)
+    if args_schema is None or not hasattr(args_schema, "model_json_schema"):
+        return ""
+    try:
+        schema_obj = args_schema.model_json_schema()
+    except Exception:
+        return ""
+    if not isinstance(schema_obj, dict):
+        return ""
+    if schema_level == "full":
+        return json.dumps(schema_obj, ensure_ascii=False)
+    properties = schema_obj.get("properties")
+    field_names: list[str] = []
+    if isinstance(properties, dict):
+        field_names = sorted(
+            str(key).strip()
+            for key in properties.keys()
+            if str(key).strip()
+        )
+    required = schema_obj.get("required")
+    required_names: list[str] = []
+    if isinstance(required, list):
+        required_names = sorted(
+            str(item).strip()
+            for item in required
+            if str(item).strip()
+        )
+    compact_schema = {
+        "type": str(schema_obj.get("type") or "object"),
+        "fields": field_names,
+        "required": required_names,
+    }
+    return json.dumps(compact_schema, ensure_ascii=False)

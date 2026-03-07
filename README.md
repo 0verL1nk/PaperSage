@@ -238,6 +238,26 @@ APP_LOG_LEVEL=INFO
 
 ---
 
+## 🧩 工具加载与 Schema 暴露
+
+为降低工具数量增长带来的上下文开销，运行时采用“工具已注册 + Schema 按级别暴露”的策略。
+
+| 项目 | 说明 |
+|------|------|
+| `tool_load` 事件 | 仅输出摘要（`registered/schema_ready/schema_lazy + tools preview`），避免一次性展开全部工具详情 |
+| `AGENT_TOOL_SCHEMA_LEVEL=manifest`（默认） | 仅暴露工具元信息（`name/description`），不注入参数 JSON Schema |
+| `AGENT_TOOL_SCHEMA_LEVEL=compact` | 暴露轻量参数摘要（字段名 + required） |
+| `AGENT_TOOL_SCHEMA_LEVEL=full` | 暴露完整 JSON Schema（调试/开发场景建议按需开启） |
+
+示例：
+
+```bash
+# 默认推荐：最小上下文占用
+AGENT_TOOL_SCHEMA_LEVEL=manifest
+```
+
+---
+
 ## 🧪 测试
 
 ```bash
