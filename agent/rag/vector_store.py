@@ -14,7 +14,9 @@ try:
     from langchain_chroma import Chroma as _LangchainChroma
 except Exception:
     try:
+        # fmt: off
         from langchain_community.vectorstores import Chroma as _LangchainChroma  # type: ignore[assignment]
+        # fmt: on
     except Exception:
         _LangchainChroma = None  # type: ignore[assignment,misc]
 

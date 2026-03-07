@@ -53,6 +53,7 @@ DEFAULT_AGENT_POLICY_ASYNC_ENABLED = True
 DEFAULT_AGENT_POLICY_ASYNC_REFRESH_SECONDS = 4.0
 DEFAULT_AGENT_POLICY_ASYNC_MIN_CONFIDENCE = 0.6
 DEFAULT_AGENT_POLICY_ASYNC_MAX_STALENESS_SECONDS = 20.0
+DEFAULT_AGENT_LLM_REQUEST_TIMEOUT = 120.0
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,8 @@ class AgentSettings:
     agent_policy_async_enabled: bool
     agent_policy_async_refresh_seconds: float
     agent_policy_async_min_confidence: float
-    agent_policy_async_max_staleness_seconds: float
+    agent_policy_async_max_staleness_float: float
+    agent_llm_request_timeout: float
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -293,6 +295,13 @@ def load_agent_settings() -> AgentSettings:
             _env_float(
                 "AGENT_POLICY_ASYNC_MAX_STALENESS_SECONDS",
                 DEFAULT_AGENT_POLICY_ASYNC_MAX_STALENESS_SECONDS,
+            ),
+        ),
+        agent_llm_request_timeout=max(
+            10.0,
+            _env_float(
+                "AGENT_LLM_REQUEST_TIMEOUT",
+                DEFAULT_AGENT_LLM_REQUEST_TIMEOUT,
             ),
         ),
     )

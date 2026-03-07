@@ -390,7 +390,7 @@ def auto_compact_messages(
         "source_messages": len(compact_source),
     }
 
-    compacted_messages: list[dict[str, Any]] = []
+    compacted_messages = []
     if bootstrap_message is not None:
         compacted_messages.append(bootstrap_message)
     if merged_summary:
@@ -493,9 +493,9 @@ def extract_active_skills_from_trace(trace_payload: list[dict[str, Any]]) -> set
                 except Exception:
                     payload = None
             if isinstance(payload, dict):
-                skill_name = payload.get("skill_name")
-                if isinstance(skill_name, str) and skill_name.strip():
-                    skills.add(skill_name.strip().lower())
+                ext_skill_name = payload.get("skill_name")
+                if isinstance(ext_skill_name, str) and ext_skill_name.strip():
+                    skills.add(ext_skill_name.strip().lower())
             continue
 
         if performative == "tool_call" and content:
@@ -507,9 +507,9 @@ def extract_active_skills_from_trace(trace_payload: list[dict[str, Any]]) -> set
                 except Exception:
                     payload = None
             if isinstance(payload, dict):
-                skill_name = payload.get("skill_name")
-                if isinstance(skill_name, str) and skill_name.strip():
-                    skills.add(skill_name.strip().lower())
+                ext_skill_name = payload.get("skill_name")
+                if isinstance(ext_skill_name, str) and ext_skill_name.strip():
+                    skills.add(ext_skill_name.strip().lower())
             continue
 
         if performative == "tool_result" and content:

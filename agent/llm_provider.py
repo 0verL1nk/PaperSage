@@ -21,6 +21,7 @@ def build_openai_compatible_chat_model(
     base_url: str | None = None,
     enable_thinking: bool | None = None,
     reasoning_effort: str | None = None,
+    timeout: float | None = None,
 ) -> ChatOpenAI:
     settings = load_agent_settings()
     resolved_temperature = (
@@ -37,6 +38,7 @@ def build_openai_compatible_chat_model(
         if reasoning_effort is None
         else reasoning_effort.strip()
     )
+    resolved_timeout = timeout if timeout is not None else settings.agent_llm_request_timeout
 
     resolved_reasoning: str | None = None
     resolved_extra_body: dict[str, object] | None = None
@@ -54,6 +56,7 @@ def build_openai_compatible_chat_model(
         api_key=SecretStr(api_key),
         base_url=resolved_base_url,
         temperature=resolved_temperature,
+        timeout=resolved_timeout,
         reasoning_effort=resolved_reasoning,
         extra_body=resolved_extra_body,
     )

@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from langchain.agents import create_agent
@@ -214,7 +214,7 @@ def generate_dynamic_roles(
             if not isinstance(payload, dict):
                 return _fallback_roles()[:bounded_members]
             roles_raw = payload.get("roles")
-            roles: list[TeamRole] = []
+            roles_fallback: list[TeamRole] = []
             if isinstance(roles_raw, list):
                 for item in roles_raw[:bounded_members]:
                     if not isinstance(item, dict):
@@ -223,8 +223,8 @@ def generate_dynamic_roles(
                     goal = str(item.get("goal") or "").strip()
                     if not name:
                         continue
-                    roles.append(TeamRole(name=name, goal=goal or "完成分配任务"))
-            return roles if roles else _fallback_roles()[:bounded_members]
+                    roles_fallback.append(TeamRole(name=name, goal=goal or "完成分配任务"))
+            return roles_fallback if roles_fallback else _fallback_roles()[:bounded_members]
         except Exception:
             return _fallback_roles()[:bounded_members]
 
@@ -238,7 +238,7 @@ def _with_structured_output(llm: Any, schema: type[BaseModel]) -> Any:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _append_todo_history(
@@ -506,8 +506,14 @@ def run_team_tasks(
     }
     role_map = {item.name: item for item in roles}
     role_index = {item.name: idx for idx, item in enumerate(roles)}
+    max_iterations = len(todo_records) + 1  # 最多执行 N+1 次迭代，防止依赖链计算异常导致死循环
+    iteration_count = 0
 
     while True:
+        iteration_count += 1
+        if iteration_count > max_iterations:
+            fallback_reason = "max_iterations_exceeded"
+            break
         if policy_checkpoint_fn is not None:
             try:
                 should_continue, checkpoint_reason = policy_checkpoint_fn(todo_records)
@@ -578,15 +584,26 @@ def run_team_tasks(
         if on_event is not None:
             on_event(dispatch_event)
 
-        output = _invoke_role_agent(
-            llm=llm,
-            role=role,
-            prompt=prompt,
-            plan_text=plan_text,
-            notes="\n".join(notes[-6:]),
-            search_document_fn=search_document_fn,
-            search_document_evidence_fn=search_document_evidence_fn,
-        )
+        try:
+            output = _invoke_role_agent(
+                llm=llm,
+                role=role,
+                prompt=prompt,
+                plan_text=plan_text,
+                notes="\n".join(notes[-6:]),
+                search_document_fn=search_document_fn,
+                search_document_evidence_fn=search_document_evidence_fn,
+            )
+        except Exception as exc:
+            current_task["status"] = "blocked"
+            current_task["updated_at"] = _now_iso()
+            _append_todo_history(
+                current_task,
+                action="blocked",
+                status="blocked",
+                note=f"role agent invocation failed: {exc}",
+            )
+            continue
         current_task["status"] = "done"
         current_task["output"] = output
         current_task["updated_at"] = _now_iso()

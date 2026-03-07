@@ -67,7 +67,7 @@ def execute_assistant_turn(
         logger.info("Agent run started: prompt_len=%s", len(prompt))
         try:
             with st.chat_message("assistant"):
-                runtime_inputs = resolve_turn_runtime_inputs(dict(st.session_state))
+                runtime_inputs = resolve_turn_runtime_inputs(dict(st.session_state))  # type: ignore[arg-type]
 
                 event_count = [0]
 

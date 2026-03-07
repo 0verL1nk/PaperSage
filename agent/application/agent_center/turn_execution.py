@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from ..contracts import TurnCoreResult
 from ..turn_engine import execute_turn_core
 
 
@@ -52,7 +53,7 @@ def execute_turn_with_runtime(
     routing_context: str = "",
     emit_tool_load_event: bool = True,
     on_event=None,
-) -> dict[str, Any]:
+) -> TurnCoreResult:
     return execute_turn_core(
         prompt=prompt,
         hinted_prompt=hinted_prompt,

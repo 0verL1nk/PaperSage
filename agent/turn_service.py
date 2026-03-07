@@ -7,6 +7,7 @@ The canonical implementation now lives in `agent.application.turn_engine`.
 from collections.abc import Callable
 from typing import Any
 
+from .application.contracts import TurnCoreResult
 from .application.turn_engine import (
     build_search_document_fn as _build_search_document_fn_impl,
 )
@@ -38,7 +39,7 @@ def _normalize_evidence_items(raw_payload: Any) -> list[dict[str, Any]]:
 def _build_search_document_fn(
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None,
 ) -> Callable[[str], str]:
-    return _build_search_document_fn_impl(search_document_evidence_fn)
+    return _build_search_document_fn_impl(search_document_evidence_fn)  # type: ignore[arg-type]
 
 
 def _try_parse_mindmap(answer: str) -> dict[str, Any] | None:
@@ -57,14 +58,14 @@ def execute_turn_core(
     force_team: bool | None = None,
     routing_context: str = "",
     on_event: Callable[[dict[str, str]], None] | None = None,
-) -> dict[str, Any]:
+) -> TurnCoreResult:
     return _execute_turn_core_impl(
         prompt=prompt,
         hinted_prompt=hinted_prompt,
         leader_agent=leader_agent,
         leader_runtime_config=leader_runtime_config,
         leader_llm=leader_llm,
-        search_document_evidence_fn=search_document_evidence_fn,
+        search_document_evidence_fn=search_document_evidence_fn,  # type: ignore[arg-type]
         force_plan=force_plan,
         force_team=force_team,
         routing_context=routing_context,

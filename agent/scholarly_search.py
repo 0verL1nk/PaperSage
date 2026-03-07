@@ -31,7 +31,8 @@ def _paper_from_semantic_scholar(item: dict[str, Any]) -> dict[str, Any]:
         for author in authors
         if isinstance(author, dict) and author.get("name")
     ]
-    external_ids: dict[str, Any] = item.get("externalIds") if isinstance(item.get("externalIds"), dict) else {}
+    ext_ids_raw = item.get("externalIds")
+    external_ids: dict[str, Any] = ext_ids_raw if isinstance(ext_ids_raw, dict) else {}
     doi = external_ids.get("DOI") if isinstance(external_ids.get("DOI"), str) else None
 
     open_access_pdf = item.get("openAccessPdf")
