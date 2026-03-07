@@ -1,4 +1,5 @@
 from langgraph.checkpoint.memory import InMemorySaver
+from pydantic import BaseModel, Field
 
 from agent import paper_agent as paper_agent_module
 
@@ -40,3 +41,66 @@ def test_paper_agent_session_runtime_config_contains_thread_id():
         tool_specs=[],
     )
     assert session.runtime_config == {"configurable": {"thread_id": "thread-1"}}
+
+
+def test_create_paper_agent_session_tool_specs_default_manifest(monkeypatch):
+    class _FakeInput(BaseModel):
+        query: str = Field(description="q")
+
+    class _FakeTool:
+        name = "search_document"
+        description = "desc"
+        args_schema = _FakeInput
+
+    monkeypatch.delenv("AGENT_TOOL_SCHEMA_LEVEL", raising=False)
+    monkeypatch.setattr(
+        paper_agent_module,
+        "build_agent_tools",
+        lambda search_document_fn, search_document_evidence_fn=None, read_document_fn=None: [_FakeTool()],
+    )
+    monkeypatch.setattr(
+        paper_agent_module,
+        "create_agent",
+        lambda **_kwargs: {"name": "fake-agent"},
+    )
+
+    session = paper_agent_module.create_paper_agent_session(
+        llm="fake-llm",
+        search_document_fn=lambda q: q,
+    )
+
+    assert session.tool_specs
+    assert session.tool_specs[0]["name"] == "search_document"
+    assert session.tool_specs[0]["args_schema"] == ""
+    assert session.tool_specs[0]["schema_level"] == "manifest"
+
+
+def test_create_paper_agent_session_tool_specs_full_schema(monkeypatch):
+    class _FakeInput(BaseModel):
+        query: str = Field(description="q")
+
+    class _FakeTool:
+        name = "search_document"
+        description = "desc"
+        args_schema = _FakeInput
+
+    monkeypatch.setenv("AGENT_TOOL_SCHEMA_LEVEL", "full")
+    monkeypatch.setattr(
+        paper_agent_module,
+        "build_agent_tools",
+        lambda search_document_fn, search_document_evidence_fn=None, read_document_fn=None: [_FakeTool()],
+    )
+    monkeypatch.setattr(
+        paper_agent_module,
+        "create_agent",
+        lambda **_kwargs: {"name": "fake-agent"},
+    )
+
+    session = paper_agent_module.create_paper_agent_session(
+        llm="fake-llm",
+        search_document_fn=lambda q: q,
+    )
+
+    assert session.tool_specs
+    assert "\"properties\"" in session.tool_specs[0]["args_schema"]
+    assert session.tool_specs[0]["schema_level"] == "full"
