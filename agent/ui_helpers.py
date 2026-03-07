@@ -113,7 +113,13 @@ def _render_trace_by_mode(
     if not isinstance(trace_payload, list) or not trace_payload:
         return
     if _is_react_mode(policy_decision):
-        allowed = {"tool_load", "tool_call", "tool_result", "skill_activate"}
+        allowed = {
+            "tool_load",
+            "tool_call",
+            "tool_result",
+            "tool_activate",
+            "skill_activate",
+        }
         filtered = [
             item
             for item in trace_payload

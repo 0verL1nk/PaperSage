@@ -6,6 +6,7 @@ PHASE_BY_PERFORMATIVE = {
     "tool_load": "工具加载",
     "tool_call": "调用工具",
     "tool_result": "工具返回",
+    "tool_activate": "激活工具",
     "skill_activate": "激活技能",
     "draft": "生成草稿",
     "review": "复核",

@@ -21,6 +21,7 @@ from ..stream import (
     extract_ask_human_requests_from_result,
     extract_result_text,
     extract_skill_activation_events_from_result,
+    extract_tool_activation_events_from_result,
     extract_tool_trace_events_from_result,
     extract_tool_names_from_result,
 )
@@ -548,11 +549,13 @@ def execute_orchestrated_turn(
         ask_human_requests: list[dict[str, str]] = []
         tool_trace_events: list[dict[str, str]] = []
         skill_activation_events: list[dict[str, str]] = []
+        tool_activation_events: list[dict[str, str]] = []
         if isinstance(result, dict):
             leader_tool_names = sorted(extract_tool_names_from_result(result))
             ask_human_requests = extract_ask_human_requests_from_result(result)
             tool_trace_events = extract_tool_trace_events_from_result(result)
             skill_activation_events = extract_skill_activation_events_from_result(result)
+            tool_activation_events = extract_tool_activation_events_from_result(result)
             answer = extract_result_text(result)
         else:
             answer = _llm_content_to_text(getattr(result, "content", result))
@@ -592,6 +595,22 @@ def execute_orchestrated_turn(
                 on_event=on_event,
             )
             current_parent_span = str(skill_event.get("span_id") or current_parent_span)
+
+        for item in tool_activation_events:
+            sender = str(item.get("sender") or "leader")
+            receiver = str(item.get("receiver") or "tool")
+            content = str(item.get("content") or "")
+            activation_event = _emit_event(
+                trace_payload=trace_payload,
+                trace_context=trace_context,
+                sender=sender,
+                receiver=receiver,
+                performative="tool_activate",
+                content=content or "activate tool",
+                parent_span_id=current_parent_span,
+                on_event=on_event,
+            )
+            current_parent_span = str(activation_event.get("span_id") or current_parent_span)
 
         _emit_event(
             trace_payload=trace_payload,

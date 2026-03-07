@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from agent.stream import (
     extract_ask_human_requests_from_result,
     extract_skill_activation_events_from_result,
+    extract_tool_activation_events_from_result,
     extract_tool_names_from_result,
     extract_tool_trace_events_from_result,
     extract_trace_events_from_update,
@@ -210,3 +211,29 @@ def test_extract_skill_activation_events_from_result_collects_use_skill_calls():
     assert events
     assert any(item["performative"] == "skill_activate" for item in events)
     assert any(item["receiver"] == "skill:mindmap" for item in events)
+
+
+def test_extract_tool_activation_events_from_result_collects_activate_tool_calls():
+    result = {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "name": "activate_tool",
+                        "args": {"tool_name": "search_web", "reason": "need latest"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "name": "activate_tool",
+                "content": '{"type":"tool_activate","tool_name":"search_web"}',
+            },
+        ]
+    }
+
+    events = extract_tool_activation_events_from_result(result)
+    assert events
+    assert any(item["performative"] == "tool_activate" for item in events)
+    assert any(item["receiver"] == "tool:search_web" for item in events)

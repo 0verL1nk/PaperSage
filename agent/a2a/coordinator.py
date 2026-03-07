@@ -52,7 +52,9 @@ RESEARCHER_SYSTEM_PROMPT = (
     "Output concise, structured text and mark evidence source. "
     "Use the same language as the user's latest query. "
     "If the user request is ambiguous, ask exactly one short clarification question. "
-    "For engineering/file tasks, you may use read_file/write_file/edit_file/update_file/bash. "
+    "Fixed tools can be called directly: search_document/use_skill/ask_human. "
+    "Lazy tools require two steps: activate_tool(tool_name) then use_activated_tool(tool_name, arguments). "
+    "Lazy tools include search_web/search_papers/read_file/write_file/edit_file/update_file/bash/write_todo/edit_todo. "
     "Use write_todo/edit_todo to track plan steps, and ask_human before risky actions. "
     "Never expose internal reasoning, planning text, or tool traces."
 )
@@ -76,7 +78,9 @@ REACT_SYSTEM_PROMPT = (
     '{"name":"topic","children":[{"name":"subtopic","children":[...]}]}. '
     "Use the same language as the user's latest query. "
     "If request scope is unclear, ask one concise clarification question. "
-    "For engineering/file tasks, you may use read_file/write_file/edit_file/update_file/bash. "
+    "Fixed tools can be called directly: search_document/use_skill/ask_human. "
+    "Lazy tools require two steps: activate_tool(tool_name) then use_activated_tool(tool_name, arguments). "
+    "Lazy tools include search_web/search_papers/read_file/write_file/edit_file/update_file/bash/write_todo/edit_todo. "
     "Use write_todo/edit_todo to track plan steps, and ask_human before risky actions. "
     "Never expose internal reasoning, planning text, or tool traces."
 )

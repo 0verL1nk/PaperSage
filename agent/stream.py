@@ -96,6 +96,19 @@ def _extract_skill_name_from_args(args: Any) -> str:
     return ""
 
 
+def _extract_tool_name_from_args(args: Any) -> str:
+    if isinstance(args, str):
+        try:
+            parsed = json.loads(args)
+            args = parsed
+        except Exception:
+            return ""
+    if not isinstance(args, dict):
+        return ""
+    value = str(args.get("tool_name") or args.get("name") or "").strip()
+    return value
+
+
 def extract_tool_trace_events_from_result(result: Any) -> list[dict[str, str]]:
     messages = _iter_result_messages(result)
     events: list[dict[str, str]] = []
@@ -187,6 +200,66 @@ def extract_skill_activation_events_from_result(result: Any) -> list[dict[str, s
         if first_line.lower().startswith("skill:"):
             skill_name = first_line.split(":", 1)[1].strip()
             _append(skill_name, first_line)
+
+    return events
+
+
+def extract_tool_activation_events_from_result(result: Any) -> list[dict[str, str]]:
+    messages = _iter_result_messages(result)
+    events: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _append(tool_name: str, content: str) -> None:
+        normalized_name = str(tool_name or "").strip()
+        if not normalized_name:
+            return
+        normalized_content = str(content or "").strip()
+        dedupe_key = (normalized_name, normalized_content)
+        if dedupe_key in seen:
+            return
+        seen.add(dedupe_key)
+        events.append(
+            {
+                "sender": "leader",
+                "receiver": f"tool:{normalized_name}",
+                "performative": "tool_activate",
+                "content": normalized_content or f"activate {normalized_name}",
+            }
+        )
+
+    for message in messages:
+        tool_calls = _message_attr(message, "tool_calls", None)
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                if isinstance(call, dict):
+                    call_name = str(call.get("name") or "").strip()
+                    args = call.get("args", {})
+                else:
+                    call_name = str(getattr(call, "name", "") or "").strip()
+                    args = getattr(call, "args", {})
+                if call_name != "activate_tool":
+                    continue
+                tool_name = _extract_tool_name_from_args(args)
+                _append(tool_name, str(args) if args else "")
+
+        msg_type = str(_message_attr(message, "type", "") or "").lower()
+        role = str(_message_attr(message, "role", "") or "").lower()
+        if msg_type != "tool" and role != "tool":
+            continue
+        tool_name = str(_message_attr(message, "name", "") or "").strip()
+        if tool_name != "activate_tool":
+            continue
+        content = _message_text(message).strip()
+        if not content:
+            continue
+        try:
+            payload = json.loads(content)
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            target_name = str(payload.get("tool_name") or "").strip()
+            _append(target_name, content)
+            continue
 
     return events
 

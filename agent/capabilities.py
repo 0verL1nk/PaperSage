@@ -73,6 +73,22 @@ class SkillInput(BaseModel):
     )
 
 
+class ActivateToolInput(BaseModel):
+    tool_name: str = Field(description="Tool name to activate for progressive disclosure.")
+    reason: str = Field(
+        default="",
+        description="Optional short reason for activation.",
+    )
+
+
+class UseActivatedToolInput(BaseModel):
+    tool_name: str = Field(description="Previously activated tool name.")
+    arguments: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured arguments forwarded to the activated tool.",
+    )
+
+
 DEFAULT_MAX_QUERY_CHARS = 1200
 DEFAULT_WEB_MAX_RESULTS = 5
 DEFAULT_WEB_TIMEOUT_SECONDS = 8.0
@@ -91,6 +107,22 @@ _DANGEROUS_QUERY_PATTERNS = [
     r"\bsudo\b",
     r"\bssh\b",
 ]
+_PROGRESSIVE_TOOL_METADATA = (
+    ToolMetadata(
+        name="activate_tool",
+        description="Activate one lazy tool and reveal its argument schema manifest.",
+    ),
+    ToolMetadata(
+        name="use_activated_tool",
+        description="Invoke a previously activated lazy tool with structured arguments.",
+    ),
+)
+_DEFAULT_FIXED_TOOL_NAMES = {
+    "search_document",
+    "read_document",
+    "use_skill",
+    "ask_human",
+}
 _TOOL_METADATA = (
     ToolMetadata(
         name="search_document",
@@ -189,6 +221,47 @@ def _tool_enabled(tool_name: str, allowed_tools: set[str] | None = None) -> bool
         return False
     env_key = f"AGENT_DISABLE_{normalized.upper()}"
     return not _env_flag(env_key, default=False)
+
+
+def _parse_tool_name_set(raw_value: str) -> set[str]:
+    items = [part.strip().lower() for part in str(raw_value or "").split(",")]
+    return {item for item in items if item}
+
+
+def _resolve_fixed_tool_names(*, enabled_tool_names: set[str]) -> set[str]:
+    configured = _env_value("AGENT_FIXED_TOOLS", default="")
+    if configured:
+        candidates = _parse_tool_name_set(configured)
+    else:
+        candidates = set(_DEFAULT_FIXED_TOOL_NAMES)
+    return {name for name in candidates if name in enabled_tool_names}
+
+
+def _schema_manifest_for_tool(tool_obj: Any) -> dict[str, Any]:
+    args_schema = getattr(tool_obj, "args_schema", None)
+    if args_schema is None or not hasattr(args_schema, "model_json_schema"):
+        return {"type": "object", "fields": [], "required": []}
+    try:
+        schema_obj = args_schema.model_json_schema()
+    except Exception:
+        return {"type": "object", "fields": [], "required": []}
+    if not isinstance(schema_obj, dict):
+        return {"type": "object", "fields": [], "required": []}
+    properties = schema_obj.get("properties")
+    fields: list[str] = []
+    if isinstance(properties, dict):
+        fields = sorted(str(key).strip() for key in properties.keys() if str(key).strip())
+    required = schema_obj.get("required")
+    required_fields: list[str] = []
+    if isinstance(required, list):
+        required_fields = sorted(
+            str(item).strip() for item in required if str(item).strip()
+        )
+    return {
+        "type": str(schema_obj.get("type") or "object"),
+        "fields": fields,
+        "required": required_fields,
+    }
 
 
 def discover_available_tools(*, read_document_enabled: bool = True) -> list[ToolMetadata]:
@@ -505,7 +578,15 @@ def build_agent_tools(
             return [], f"Academic search failed: {exc}"
         return papers, None
 
-    tools = []
+    runtime_tools: list[Any] = []
+    runtime_tool_map: dict[str, Any] = {}
+
+    def _register_tool(tool_obj: Any) -> None:
+        tool_name = str(getattr(tool_obj, "name", "") or "").strip()
+        if not tool_name:
+            return
+        runtime_tools.append(tool_obj)
+        runtime_tool_map[tool_name] = tool_obj
 
     if "search_document" in enabled_tool_names:
         @tool(
@@ -543,8 +624,10 @@ def build_agent_tools(
             logger.info("tool.search_document success: mode=text")
             return search_document_fn(safe_query)
 
-        tools.append(search_document)
-    tools.extend(build_local_ops_tools(enabled_tool_names=enabled_tool_names))
+        _register_tool(search_document)
+
+    for local_tool in build_local_ops_tools(enabled_tool_names=enabled_tool_names):
+        _register_tool(local_tool)
 
     if "read_document" in enabled_tool_names and read_document_fn is not None:
         @tool(
@@ -580,7 +663,7 @@ def build_agent_tools(
             logger.info("tool.read_document success: chunk_len=%s total_len=%s", len(content), total)
             return result
 
-        tools.append(read_document)
+        _register_tool(read_document)
 
     if "search_web" in enabled_tool_names:
         @tool(
@@ -612,7 +695,7 @@ def build_agent_tools(
             )
             return response_text
 
-        tools.append(search_web)
+        _register_tool(search_web)
 
     if "search_papers" in enabled_tool_names:
         @tool(
@@ -640,7 +723,7 @@ def build_agent_tools(
             logger.info("tool.search_papers success: results=%s", len(papers))
             return format_search_papers_results(papers)
 
-        tools.append(search_papers)
+        _register_tool(search_papers)
 
     if "use_skill" in enabled_tool_names:
         @tool(
@@ -703,12 +786,101 @@ def build_agent_tools(
             logger.warning("tool.use_skill unknown skill: %s", normalized_name)
             return f"Unknown skill '{skill_name}'. Available skills: {options}."
 
-        tools.append(use_skill)
+        _register_tool(use_skill)
+
+    progressive_enabled = _env_flag("AGENT_PROGRESSIVE_TOOL_DISCLOSURE", default=True)
+    if not progressive_enabled:
+        logger.info(
+            "Agent tools prepared (legacy): discovered=%s enabled=%s names=%s",
+            len(discovered_tools),
+            len(runtime_tools),
+            ",".join(tool_item.name for tool_item in runtime_tools),
+        )
+        return runtime_tools
+
+    fixed_tool_names = _resolve_fixed_tool_names(enabled_tool_names=set(runtime_tool_map.keys()))
+    lazy_tool_names = sorted(
+        name for name in runtime_tool_map.keys() if name not in fixed_tool_names
+    )
+
+    if not lazy_tool_names:
+        exposed = [tool_obj for tool_obj in runtime_tools if tool_obj.name in fixed_tool_names]
+        logger.info(
+            "Agent tools prepared (progressive,no-lazy): discovered=%s fixed=%s names=%s",
+            len(discovered_tools),
+            len(exposed),
+            ",".join(tool_item.name for tool_item in exposed),
+        )
+        return exposed
+
+    activated_tool_names: set[str] = set()
+    metadata_by_name = {item.name: item.description for item in discovered_tools}
+
+    @tool(
+        "activate_tool",
+        description="Activate one lazy tool and return its compact manifest.",
+        args_schema=ActivateToolInput,
+    )
+    def activate_tool(tool_name: str, reason: str = "") -> str:
+        normalized_name = str(tool_name or "").strip()
+        if not normalized_name:
+            return "tool_name is required."
+        if normalized_name not in runtime_tool_map:
+            options = ", ".join(lazy_tool_names)
+            return f"Unknown tool '{normalized_name}'. Lazy tools: {options or '(none)'}."
+        if normalized_name in fixed_tool_names:
+            return (
+                f"Tool '{normalized_name}' is fixed-loaded; use it directly without activation."
+            )
+        activated_tool_names.add(normalized_name)
+        runtime_tool = runtime_tool_map[normalized_name]
+        payload = {
+            "type": "tool_activate",
+            "tool_name": normalized_name,
+            "reason": str(reason or "").strip(),
+            "description": metadata_by_name.get(normalized_name, ""),
+            "manifest": _schema_manifest_for_tool(runtime_tool),
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+    @tool(
+        "use_activated_tool",
+        description="Invoke a previously activated lazy tool with structured arguments.",
+        args_schema=UseActivatedToolInput,
+    )
+    def use_activated_tool(tool_name: str, arguments: dict[str, Any] | None = None) -> str:
+        normalized_name = str(tool_name or "").strip()
+        if not normalized_name:
+            return "tool_name is required."
+        if normalized_name in fixed_tool_names:
+            return f"Tool '{normalized_name}' is fixed-loaded; call it directly."
+        if normalized_name not in runtime_tool_map:
+            options = ", ".join(lazy_tool_names)
+            return f"Unknown tool '{normalized_name}'. Lazy tools: {options or '(none)'}."
+        if normalized_name not in activated_tool_names:
+            return (
+                f"Tool '{normalized_name}' is not activated. "
+                f"Call activate_tool(tool_name='{normalized_name}') first."
+            )
+        invoke_args = arguments if isinstance(arguments, dict) else {}
+        runtime_tool = runtime_tool_map[normalized_name]
+        try:
+            result = runtime_tool.invoke(invoke_args)
+        except Exception as exc:
+            return f"Tool '{normalized_name}' execution failed: {exc}"
+        return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+
+    exposed_tools = [
+        tool_obj for tool_obj in runtime_tools if tool_obj.name in fixed_tool_names
+    ]
+    exposed_tools.extend([activate_tool, use_activated_tool])
 
     logger.info(
-        "Agent tools prepared: discovered=%s enabled=%s names=%s",
+        "Agent tools prepared (progressive): discovered=%s fixed=%s lazy=%s exposed=%s names=%s",
         len(discovered_tools),
-        len(tools),
-        ",".join(tool_item.name for tool_item in tools),
+        len(fixed_tool_names),
+        len(lazy_tool_names),
+        len(exposed_tools),
+        ",".join(tool_item.name for tool_item in exposed_tools),
     )
-    return tools
+    return exposed_tools
