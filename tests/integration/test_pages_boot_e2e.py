@@ -21,9 +21,9 @@ def test_pages_boot_without_exceptions(monkeypatch, tmp_path: Path) -> None:
     _prepare_ready_user(tmp_path)
 
     page_files = [
-        "pages/1_📁_文件中心.py",
-        "pages/2_⚙️_设置中心.py",
-        "pages/3_🗂️_项目中心.py",
+        "pages/1_file_center.py",
+        "pages/2_settings.py",
+        "pages/3_project_center.py",
     ]
 
     for page_file in page_files:

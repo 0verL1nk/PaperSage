@@ -27,12 +27,15 @@ dependencies = [
     "markitdown>=0.1.0",
     "openai>=2.20.0,<3.0.0",
     "httpx>=0.28.1,<1.0.0",
+    "urllib3>=2.0.0",
     "pyecharts>=2.0.7,<2.1.0",
     "duckduckgo-search>=6.3.7,<6.4.0",
     "langchain>=1.0.0,<2.0.0",
     "langchain-community>=0.4.0,<0.5.0",
+    "langchain-chroma>=0.2.0,<1.0.0",
     "langchain-core>=1.0.0,<2.0.0",
     "langchain-openai>=1.0.0,<2.0.0",
+    "chromadb>=0.5.23,<1.0.0",
     "langgraph>=0.3.0",
     "fastembed>=0.7.1,<1.0.0",
     "flashrank>=0.2.10,<1.0.0",
@@ -59,6 +62,7 @@ dev = [
 
 [project.scripts]
 paper-sage = "main:_cli_entry"
+papersage = "main:_cli_entry"
 
 [build-system]
 requires = ["hatchling"]
@@ -68,10 +72,14 @@ build-backend = "hatchling.build"
 # 或者直接使用 uv pip install 安装依赖
 
 [tool.hatch.build.targets.wheel]
-packages = ["agent", "utils", "ui", "pages"]
+packages = ["agent", "utils", "ui"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "main.py" = "main.py"
+"pages/0_agent_center.py" = "pages/0_agent_center.py"
+"pages/1_file_center.py" = "pages/1_file_center.py"
+"pages/2_settings.py" = "pages/2_settings.py"
+"pages/3_project_center.py" = "pages/3_project_center.py"
 
 [tool.hatch.build.targets.sdist]
 include = [

@@ -38,6 +38,7 @@
 | 🔀 **多模式 Agent 工作流** | ReAct / Plan-Act / Plan-Act-RePlan 三级工作流，智能路由自动选择 |
 | 🤝 **Multi-Agent 团队协作** | Leader 中心调度，LLM 动态生成角色，依赖拓扑派发，多轮 review-replan |
 | 🔍 **本地 Hybrid RAG** | Dense + BM25 + RRF + Rerank 四阶检索，结构化证据可追溯至原文 |
+| 💾 **轻量持久化向量库** | 默认 `auto` 优先使用 Chroma 本地持久化（不可用时自动回退内存向量存储） |
 | 🧠 **长短期记忆系统** | episodic / semantic / procedural 三类记忆，差异化 TTL，时效衰减检索 |
 | 🛠️ **14+ 内置工具** | RAG 检索、文件读写、学术搜索、网络检索、Todo 管理、人工确认等 |
 | 📝 **可插拔技能体系** | 论文总结、批判性阅读、方法对比、翻译、思维导图，从 SKILL.md 动态加载 |
@@ -142,24 +143,51 @@
 
 ## 🚀 快速开始
 
-### 环境要求
+### 方式一：PyPI 安装（推荐）
 
-- Python `>= 3.10`
-- [uv](https://github.com/astral-sh/uv)（推荐包管理器）
+> 适合直接使用，无需克隆仓库。
 
-### 本地启动
+**Linux / macOS**
 
 ```bash
-# 1. 安装依赖
+# 安装（推荐 uv tool，自动注册全局命令）
+uv tool install paper-sage
+
+# 启动
+paper-sage
+```
+
+**Windows（PowerShell）**
+
+```powershell
+# 安装
+uv tool install paper-sage
+
+# 启动（Windows 下用不带连字符的命令）
+papersage
+```
+
+> ⚠️ **不要用 `uv pip install`**：该方式不会将命令写入全局 PATH，需手动激活虚拟环境后才能使用。
+
+浏览器访问 `http://localhost:8501`，在 **⚙️ 设置中心** 填写 API Key 和模型名称即可开始使用。
+
+---
+
+### 方式二：克隆源码本地启动
+
+```bash
+# 克隆仓库
+git clone https://github.com/0verL1nk/PaperSage.git
+cd PaperSage
+
+# 安装依赖
 uv sync --no-install-project
 
-# 2. 启动应用
+# 启动应用
 streamlit run main.py
 ```
 
-浏览器访问 `http://localhost:8501`，在"⚙️ 设置中心"填写 API Key 和模型配置即可使用。
-
-### Docker 部署
+### 方式三：Docker 部署
 
 ```bash
 docker-compose up --build
@@ -168,6 +196,13 @@ docker-compose up --build
 - `docker-compose` 模式默认启用 MinerU 解析（`DOC_PARSE_BACKEND=mineru`）。
 - 直接本地 `streamlit run main.py` 不会启用 MinerU，仍使用本地解析链路（MarkItDown / PyMuPDF）。
 - 若本地没有 `mineru:latest` 镜像，请先按 MinerU 官方文档构建或在 `.env` 中改 `MINERU_IMAGE`。
+
+---
+
+### 环境要求
+
+- Python `>= 3.10`
+- [uv](https://github.com/astral-sh/uv)（推荐包管理器）
 
 ---
 
@@ -212,6 +247,8 @@ OPENAI_COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LOCAL_RAG_HYBRID_ENABLED=true
 LOCAL_RAG_TOP_K=8
 LOCAL_RAG_RERANK_ENABLED=false
+AGENT_VECTORSTORE_BACKEND=auto
+AGENT_VECTORSTORE_PERSIST_DIR=./.cache/vector_db
 
 # Agent 行为
 AGENT_TEMPERATURE=0.1

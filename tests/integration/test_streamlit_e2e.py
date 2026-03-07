@@ -2,6 +2,7 @@ import sqlite3
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
+from utils.utils import add_file_to_project, ensure_default_project_for_user
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -72,6 +73,20 @@ def _prepare_configured_user_db(db_path: Path) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def _bind_file_to_default_project(db_path: Path, file_uid: str) -> None:
+    project_uid = ensure_default_project_for_user(
+        "local-user",
+        db_name=str(db_path),
+        sync_existing_files=False,
+    )
+    add_file_to_project(
+        project_uid=project_uid,
+        file_uid=file_uid,
+        uuid="local-user",
+        db_name=str(db_path),
+    )
 
 
 def test_main_app_boots_without_login(monkeypatch, tmp_path: Path) -> None:
@@ -149,7 +164,7 @@ def test_settings_page_boots_with_expected_fields(
     monkeypatch.chdir(tmp_path)
     _prepare_minimal_user_db(tmp_path / "database.sqlite")
 
-    at = AppTest.from_file(str(REPO_ROOT / "pages/2_⚙️_设置中心.py"))
+    at = AppTest.from_file(str(REPO_ROOT / "pages/2_settings.py"))
     at.run()
 
     assert len(at.exception) == 0
@@ -163,7 +178,7 @@ def test_settings_page_save_persists_values(monkeypatch, tmp_path: Path) -> None
     monkeypatch.chdir(tmp_path)
     _prepare_minimal_user_db(tmp_path / "database.sqlite")
 
-    at = AppTest.from_file(str(REPO_ROOT / "pages/2_⚙️_设置中心.py"), default_timeout=8)
+    at = AppTest.from_file(str(REPO_ROOT / "pages/2_settings.py"), default_timeout=8)
     at.run()
 
     at.text_input[0].set_value("new-key")
@@ -227,8 +242,9 @@ def test_file_center_page_renders_existing_file_list(
     )
     conn.commit()
     conn.close()
+    _bind_file_to_default_project(tmp_path / "database.sqlite", "uid-9")
 
-    at = AppTest.from_file(str(REPO_ROOT / "pages/1_📁_文件中心.py"), default_timeout=8)
+    at = AppTest.from_file(str(REPO_ROOT / "pages/1_file_center.py"), default_timeout=8)
     at.run()
 
     assert len(at.exception) == 0
@@ -279,14 +295,23 @@ def test_main_app_uses_persisted_extraction_cache(
     monkeypatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    import agent.adapters.rag as rag_adapter_module
     import agent.rag.hybrid as rag_hybrid_module
 
+    fake_retriever_builder = (
+        lambda document_text, doc_uid="", doc_name="", project_uid="", **kwargs: (
+            lambda query: {"evidences": [], "trace": {"mode": "test"}}
+        )
+    )
     monkeypatch.setattr(
         rag_hybrid_module,
         "build_local_evidence_retriever_with_settings",
-        lambda document_text, doc_uid="", doc_name="", project_uid="", **kwargs: (
-            lambda query: {"evidences": [], "trace": {"mode": "test"}}
-        ),
+        fake_retriever_builder,
+    )
+    monkeypatch.setattr(
+        rag_adapter_module,
+        "build_local_evidence_retriever_with_settings",
+        fake_retriever_builder,
     )
     _prepare_configured_user_db(tmp_path / "database.sqlite")
 
@@ -330,6 +355,7 @@ def test_main_app_uses_persisted_extraction_cache(
     )
     conn.commit()
     conn.close()
+    _bind_file_to_default_project(tmp_path / "database.sqlite", "uid-cache-1")
 
     at = AppTest.from_file(str(REPO_ROOT / "main.py"), default_timeout=8)
     at.run()
