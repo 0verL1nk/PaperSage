@@ -471,3 +471,115 @@ def test_project_retriever_reuses_persisted_doc_indexes(monkeypatch, tmp_path):
     payload_second = retriever_second("alpha")
     trace = payload_second.get("trace", {})
     assert int(trace.get("index_cache_reused_docs", 0)) >= 1
+
+
+def test_project_retriever_returns_empty_for_low_relevance(monkeypatch, tmp_path):
+    from agent.rag import hybrid as hybrid_module
+
+    class _FakeEmbeddings:
+        def __init__(self, **_kwargs):
+            pass
+
+        def embed_documents(self, texts):
+            vectors = []
+            for text in texts:
+                text_lower = str(text).lower()
+                if "alpha" in text_lower:
+                    vectors.append([1.0, 0.0])
+                else:
+                    vectors.append([0.0, 1.0])
+            return vectors
+
+        def embed_query(self, _query):
+            return [1.0, 0.0]
+
+    fake_settings = SimpleNamespace(
+        local_embedding_model="fake-embedding",
+        local_embedding_cache_dir=str(tmp_path / "embeddings"),
+        rag_chunk_size=1024,
+        rag_chunk_overlap=0,
+        rag_dense_candidate_k=5,
+        rag_top_k=2,
+        rag_rerank_enabled=False,
+        rag_project_rerank_enabled=False,
+        rag_rerank_model="fake-rerank",
+        rag_project_max_chars=10000,
+        rag_project_max_chunks=1000,
+        rag_min_relevance_score=0.95,
+    )
+
+    monkeypatch.setenv("AGENT_PROJECT_INDEX_CACHE_DIR", str(tmp_path / "project_indexes"))
+    monkeypatch.setattr(hybrid_module, "FastEmbedEmbeddings", _FakeEmbeddings)
+    monkeypatch.setattr(hybrid_module, "load_agent_settings", lambda: fake_settings)
+
+    documents = [
+        {"doc_uid": "d1", "doc_name": "doc1", "text": "beta only content"},
+    ]
+    retriever = build_project_evidence_retriever_with_settings(
+        documents=documents,
+        project_uid="p-empty",
+    )
+
+    payload = retriever("alpha query")
+    assert payload["evidences"] == []
+    trace = payload.get("trace", {})
+    assert trace.get("no_relevant_candidates") is True
+    assert trace.get("candidate_count") == 0
+    assert trace.get("candidate_count_raw", 0) >= 1
+
+
+def test_project_retriever_uses_similarity_score(monkeypatch, tmp_path):
+    from agent.rag import hybrid as hybrid_module
+
+    class _FakeEmbeddings:
+        def __init__(self, **_kwargs):
+            pass
+
+        def embed_documents(self, texts):
+            vectors = []
+            for text in texts:
+                text_lower = str(text).lower()
+                if "alpha" in text_lower:
+                    vectors.append([1.0, 0.0])
+                elif "mix" in text_lower:
+                    vectors.append([0.6, 0.8])
+                else:
+                    vectors.append([0.0, 1.0])
+            return vectors
+
+        def embed_query(self, _query):
+            return [1.0, 0.0]
+
+    fake_settings = SimpleNamespace(
+        local_embedding_model="fake-embedding",
+        local_embedding_cache_dir=str(tmp_path / "embeddings"),
+        rag_chunk_size=1024,
+        rag_chunk_overlap=0,
+        rag_dense_candidate_k=5,
+        rag_top_k=2,
+        rag_rerank_enabled=False,
+        rag_project_rerank_enabled=False,
+        rag_rerank_model="fake-rerank",
+        rag_project_max_chars=10000,
+        rag_project_max_chunks=1000,
+        rag_min_relevance_score=0.0,
+    )
+
+    monkeypatch.setenv("AGENT_PROJECT_INDEX_CACHE_DIR", str(tmp_path / "project_indexes"))
+    monkeypatch.setattr(hybrid_module, "FastEmbedEmbeddings", _FakeEmbeddings)
+    monkeypatch.setattr(hybrid_module, "load_agent_settings", lambda: fake_settings)
+
+    documents = [
+        {"doc_uid": "d1", "doc_name": "doc1", "text": "alpha exact match"},
+        {"doc_uid": "d2", "doc_name": "doc2", "text": "mix partial match"},
+    ]
+    retriever = build_project_evidence_retriever_with_settings(
+        documents=documents,
+        project_uid="p-score",
+    )
+
+    payload = retriever("alpha query")
+    scores = [item.get("score") for item in payload.get("evidences", [])]
+    assert len(scores) == 2
+    assert scores[0] == pytest.approx(1.0, abs=1e-6)
+    assert scores[1] == pytest.approx(0.6, abs=1e-6)

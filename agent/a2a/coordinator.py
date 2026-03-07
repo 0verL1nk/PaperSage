@@ -25,7 +25,7 @@ from .replan_policy import (
     normalize_max_review_rounds,
     review_needs_revision,
 )
-from ..capabilities import build_agent_tools
+from ..capabilities import build_agent_tools, build_progressive_tool_middleware
 from ..contracts import normalize_plan_text, normalize_review_text
 from ..stream import extract_result_text
 
@@ -53,7 +53,7 @@ RESEARCHER_SYSTEM_PROMPT = (
     "Use the same language as the user's latest query. "
     "If the user request is ambiguous, ask exactly one short clarification question. "
     "Fixed tools can be called directly: search_document/use_skill/ask_human. "
-    "Lazy tools require two steps: activate_tool(tool_name) then use_activated_tool(tool_name, arguments). "
+    "For lazy tools, if not exposed, call activate_tool(tool_name) first, then call that tool directly. "
     "Lazy tools include search_web/search_papers/read_file/write_file/edit_file/update_file/bash/write_todo/edit_todo. "
     "Use write_todo/edit_todo to track plan steps, and ask_human before risky actions. "
     "Never expose internal reasoning, planning text, or tool traces."
@@ -79,7 +79,7 @@ REACT_SYSTEM_PROMPT = (
     "Use the same language as the user's latest query. "
     "If request scope is unclear, ask one concise clarification question. "
     "Fixed tools can be called directly: search_document/use_skill/ask_human. "
-    "Lazy tools require two steps: activate_tool(tool_name) then use_activated_tool(tool_name, arguments). "
+    "For lazy tools, if not exposed, call activate_tool(tool_name) first, then call that tool directly. "
     "Lazy tools include search_web/search_papers/read_file/write_file/edit_file/update_file/bash/write_todo/edit_todo. "
     "Use write_todo/edit_todo to track plan steps, and ask_human before risky actions. "
     "Never expose internal reasoning, planning text, or tool traces."
@@ -601,6 +601,8 @@ def create_multi_agent_a2a_session(
         search_document_evidence_fn=search_document_evidence_fn,
         allowed_tools=RESEARCHER_ALLOWED_TOOLS,
     )
+    react_middleware = build_progressive_tool_middleware(react_tools)
+    researcher_middleware = build_progressive_tool_middleware(researcher_tools)
     session_id = f"a2a-{uuid4().hex}"
     normalized_hint = context_hint.strip()
     react_prompt = (
@@ -624,24 +626,30 @@ def create_multi_agent_a2a_session(
         else reviewer_system_prompt
     )
 
-    react = create_agent(
-        model=llm,
-        tools=react_tools,
-        system_prompt=react_prompt,
-        checkpointer=InMemorySaver(),
-    )
+    react_kwargs: dict[str, Any] = {
+        "model": llm,
+        "tools": react_tools,
+        "system_prompt": react_prompt,
+        "checkpointer": InMemorySaver(),
+    }
+    if react_middleware:
+        react_kwargs["middleware"] = react_middleware
+    react = create_agent(**react_kwargs)
     planner = create_agent(
         model=llm,
         tools=[],
         system_prompt=planner_prompt,
         checkpointer=InMemorySaver(),
     )
-    researcher = create_agent(
-        model=llm,
-        tools=researcher_tools,
-        system_prompt=researcher_prompt,
-        checkpointer=InMemorySaver(),
-    )
+    researcher_kwargs: dict[str, Any] = {
+        "model": llm,
+        "tools": researcher_tools,
+        "system_prompt": researcher_prompt,
+        "checkpointer": InMemorySaver(),
+    }
+    if researcher_middleware:
+        researcher_kwargs["middleware"] = researcher_middleware
+    researcher = create_agent(**researcher_kwargs)
     reviewer = create_agent(
         model=llm,
         tools=[],

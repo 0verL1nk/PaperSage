@@ -154,6 +154,25 @@ def _normalize_embedding_vector(value: Any) -> list[float]:
     return normalized
 
 
+def _clamp_relevance_score(value: Any) -> float:
+    try:
+        score = float(value)
+    except Exception:
+        return 0.0
+    if score < 0.0:
+        return 0.0
+    if score > 1.0:
+        return 1.0
+    return score
+
+
+def _resolve_min_relevance_score(settings: Any) -> float:
+    raw = getattr(settings, "rag_min_relevance_score", None)
+    if raw is None:
+        raw = os.getenv("LOCAL_RAG_MIN_RELEVANCE_SCORE", "0.2")
+    return _clamp_relevance_score(raw)
+
+
 def _build_project_doc_index_artifact(
     *,
     project_uid: str,
@@ -1091,6 +1110,7 @@ def build_project_evidence_retriever_with_settings(
     project_rerank_enabled = (
         bool(settings.rag_rerank_enabled) and bool(settings.rag_project_rerank_enabled)
     )
+    min_relevance_score = _resolve_min_relevance_score(settings)
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.rag_chunk_size,
         chunk_overlap=settings.rag_chunk_overlap,
@@ -1221,15 +1241,43 @@ def build_project_evidence_retriever_with_settings(
 
     def search_project_evidence(query: str) -> dict[str, Any]:
         query_vector = _normalize_embedding_vector(embeddings.embed_query(query))
-        dense_candidates = _cosine_topk(
+        dense_candidates_raw = _cosine_topk(
             query_vector=query_vector,
             candidate_vectors=chunk_embeddings,
             k=dense_k,
         )
+        dense_candidates = [
+            (index, score)
+            for index, score in dense_candidates_raw
+            if _clamp_relevance_score(score) >= min_relevance_score
+        ]
         docs = [
             SimpleNamespace(page_content=chunks[index], metadata=metadatas[index])
             for index, _score in dense_candidates
         ]
+        doc_scores = [_clamp_relevance_score(score) for _index, score in dense_candidates]
+        if not docs:
+            payload = EvidencePayload(
+                evidences=[],
+                trace={
+                    "mode": "project_dense",
+                    "project_uid": project_uid,
+                    "candidate_count": 0,
+                    "candidate_count_raw": len(dense_candidates_raw),
+                    "doc_count": doc_count,
+                    "top_k": settings.rag_top_k,
+                    "dense_k": dense_k,
+                    "rerank_enabled": project_rerank_enabled,
+                    "min_relevance_score": min_relevance_score,
+                    "no_relevant_candidates": True,
+                    "truncated_by_chars": truncated_by_chars,
+                    "truncated_by_chunks": truncated_by_chunks,
+                    "index_cache_reused_docs": reused_doc_indexes,
+                    "index_cache_built_docs": built_doc_indexes,
+                },
+            )
+            return payload.model_dump()
+
         ranked_chunks = _rerank_docs(
             query=query,
             docs=docs,
@@ -1269,7 +1317,11 @@ def build_project_evidence_retriever_with_settings(
                         else f"chunk_{rank}"
                     ),
                     text=chunk,
-                    score=float(1.0 / (rank + 1)),
+                    score=(
+                        doc_scores[matched_idx]
+                        if matched_idx is not None and matched_idx < len(doc_scores)
+                        else 0.0
+                    ),
                     offset_start=offset_start,
                     offset_end=(offset_start + len(chunk)) if isinstance(offset_start, int) else None,
                 )
@@ -1281,10 +1333,12 @@ def build_project_evidence_retriever_with_settings(
                 "mode": "project_dense",
                 "project_uid": project_uid,
                 "candidate_count": len(docs),
+                "candidate_count_raw": len(dense_candidates_raw),
                 "doc_count": doc_count,
                 "top_k": settings.rag_top_k,
                 "dense_k": dense_k,
                 "rerank_enabled": project_rerank_enabled,
+                "min_relevance_score": min_relevance_score,
                 "truncated_by_chars": truncated_by_chars,
                 "truncated_by_chunks": truncated_by_chunks,
                 "index_cache_reused_docs": reused_doc_indexes,

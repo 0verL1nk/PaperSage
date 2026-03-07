@@ -8,7 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel, Field
 
-from ..capabilities import build_agent_tools
+from ..capabilities import build_agent_tools, build_progressive_tool_middleware
 from ..domain.orchestration import (
     TeamExecution,
     TeamRole,
@@ -409,12 +409,16 @@ def _invoke_role_agent(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
     )
-    member_agent = create_agent(
-        model=llm,
-        tools=tools,
-        system_prompt=system_prompt,
-        checkpointer=InMemorySaver(),
-    )
+    middleware = build_progressive_tool_middleware(tools)
+    create_kwargs: dict[str, Any] = {
+        "model": llm,
+        "tools": tools,
+        "system_prompt": system_prompt,
+        "checkpointer": InMemorySaver(),
+    }
+    if middleware:
+        create_kwargs["middleware"] = middleware
+    member_agent = create_agent(**create_kwargs)
     task_prompt = (
         f"用户问题：{prompt}\n"
         f"当前计划：\n{plan_text or '无'}\n"

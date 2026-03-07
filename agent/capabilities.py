@@ -7,6 +7,8 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
+from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -81,14 +83,6 @@ class ActivateToolInput(BaseModel):
     )
 
 
-class UseActivatedToolInput(BaseModel):
-    tool_name: str = Field(description="Previously activated tool name.")
-    arguments: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Structured arguments forwarded to the activated tool.",
-    )
-
-
 DEFAULT_MAX_QUERY_CHARS = 1200
 DEFAULT_WEB_MAX_RESULTS = 5
 DEFAULT_WEB_TIMEOUT_SECONDS = 8.0
@@ -107,22 +101,13 @@ _DANGEROUS_QUERY_PATTERNS = [
     r"\bsudo\b",
     r"\bssh\b",
 ]
-_PROGRESSIVE_TOOL_METADATA = (
-    ToolMetadata(
-        name="activate_tool",
-        description="Activate one lazy tool and reveal its argument schema manifest.",
-    ),
-    ToolMetadata(
-        name="use_activated_tool",
-        description="Invoke a previously activated lazy tool with structured arguments.",
-    ),
-)
 _DEFAULT_FIXED_TOOL_NAMES = {
     "search_document",
     "read_document",
     "use_skill",
     "ask_human",
 }
+_TOOL_VISIBILITY_ATTR = "_progressive_tool_visibility"
 _TOOL_METADATA = (
     ToolMetadata(
         name="search_document",
@@ -262,6 +247,155 @@ def _schema_manifest_for_tool(tool_obj: Any) -> dict[str, Any]:
         "fields": fields,
         "required": required_fields,
     }
+
+
+def _message_attr(message: Any, key: str, default: Any = "") -> Any:
+    if isinstance(message, dict):
+        return message.get(key, default)
+    return getattr(message, key, default)
+
+
+def _content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+            elif hasattr(item, "text"):
+                text = getattr(item, "text", "")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    return ""
+
+
+def _extract_tool_name_from_activation_args(args: Any) -> str:
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except Exception:
+            return ""
+    if not isinstance(args, dict):
+        return ""
+    return str(args.get("tool_name") or args.get("name") or "").strip()
+
+
+def _extract_activated_tool_names(messages: list[Any]) -> set[str]:
+    activated: set[str] = set()
+    for message in messages:
+        tool_calls = _message_attr(message, "tool_calls", None)
+        if isinstance(tool_calls, list):
+            for call in tool_calls:
+                if isinstance(call, dict):
+                    call_name = str(call.get("name") or "").strip()
+                    args = call.get("args", {})
+                else:
+                    call_name = str(getattr(call, "name", "") or "").strip()
+                    args = getattr(call, "args", {})
+                if call_name != "activate_tool":
+                    continue
+                tool_name = _extract_tool_name_from_activation_args(args)
+                if tool_name:
+                    activated.add(tool_name)
+
+        msg_type = str(_message_attr(message, "type", "") or "").lower()
+        role = str(_message_attr(message, "role", "") or "").lower()
+        if msg_type != "tool" and role != "tool":
+            continue
+        tool_name = str(_message_attr(message, "name", "") or "").strip()
+        if tool_name != "activate_tool":
+            continue
+        raw_content = _content_to_text(_message_attr(message, "content", ""))
+        if not raw_content.strip():
+            continue
+        try:
+            payload = json.loads(raw_content)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("type") or "").strip() != "tool_activate":
+            continue
+        activated_name = str(payload.get("tool_name") or "").strip()
+        if activated_name:
+            activated.add(activated_name)
+    return activated
+
+
+class ProgressiveToolDisclosureMiddleware(AgentMiddleware):
+    """Rebuild visible tools per-model-call based on activation history."""
+
+    def __init__(self, *, fixed_tool_names: set[str], lazy_tool_names: set[str]) -> None:
+        self.fixed_tool_names = set(fixed_tool_names)
+        self.lazy_tool_names = set(lazy_tool_names)
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], ModelResponse[Any]],
+    ) -> ModelResponse[Any]:
+        all_tools = list(request.tools or [])
+        if not all_tools:
+            return handler(request)
+        activated_names = _extract_activated_tool_names(list(request.messages or []))
+        visible_names = (
+            set(self.fixed_tool_names)
+            | {"activate_tool"}
+            | (activated_names & self.lazy_tool_names)
+        )
+        filtered_tools: list[Any] = []
+        for item in all_tools:
+            if isinstance(item, dict):
+                name = str(item.get("name") or "").strip()
+            else:
+                name = str(getattr(item, "name", "") or "").strip()
+            if not name:
+                continue
+            if name in visible_names:
+                filtered_tools.append(item)
+        if not filtered_tools:
+            return handler(request)
+        if len(filtered_tools) == len(all_tools):
+            return handler(request)
+        request_with_filtered_tools = request.override(tools=filtered_tools)
+        return handler(request_with_filtered_tools)
+
+
+def build_progressive_tool_middleware(tools: list[Any]) -> list[AgentMiddleware]:
+    progressive_enabled = _env_flag("AGENT_PROGRESSIVE_TOOL_DISCLOSURE", default=True)
+    if not progressive_enabled:
+        return []
+    fixed_tool_names: set[str] = set()
+    lazy_tool_names: set[str] = set()
+    has_activation_tool = False
+    for item in tools:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+            visibility = str(item.get(_TOOL_VISIBILITY_ATTR) or "").strip().lower()
+        else:
+            name = str(getattr(item, "name", "") or "").strip()
+            visibility = str(getattr(item, _TOOL_VISIBILITY_ATTR, "") or "").strip().lower()
+        if not name:
+            continue
+        if name == "activate_tool":
+            has_activation_tool = True
+            continue
+        if visibility == "lazy":
+            lazy_tool_names.add(name)
+        else:
+            fixed_tool_names.add(name)
+    if not has_activation_tool or not lazy_tool_names:
+        return []
+    return [
+        ProgressiveToolDisclosureMiddleware(
+            fixed_tool_names=fixed_tool_names,
+            lazy_tool_names=lazy_tool_names,
+        )
+    ]
 
 
 def discover_available_tools(*, read_document_enabled: bool = True) -> list[ToolMetadata]:
@@ -790,6 +924,8 @@ def build_agent_tools(
 
     progressive_enabled = _env_flag("AGENT_PROGRESSIVE_TOOL_DISCLOSURE", default=True)
     if not progressive_enabled:
+        for tool_obj in runtime_tools:
+            setattr(tool_obj, _TOOL_VISIBILITY_ATTR, "fixed")
         logger.info(
             "Agent tools prepared (legacy): discovered=%s enabled=%s names=%s",
             len(discovered_tools),
@@ -805,6 +941,8 @@ def build_agent_tools(
 
     if not lazy_tool_names:
         exposed = [tool_obj for tool_obj in runtime_tools if tool_obj.name in fixed_tool_names]
+        for tool_obj in exposed:
+            setattr(tool_obj, _TOOL_VISIBILITY_ATTR, "fixed")
         logger.info(
             "Agent tools prepared (progressive,no-lazy): discovered=%s fixed=%s names=%s",
             len(discovered_tools),
@@ -813,7 +951,6 @@ def build_agent_tools(
         )
         return exposed
 
-    activated_tool_names: set[str] = set()
     metadata_by_name = {item.name: item.description for item in discovered_tools}
 
     @tool(
@@ -832,7 +969,6 @@ def build_agent_tools(
             return (
                 f"Tool '{normalized_name}' is fixed-loaded; use it directly without activation."
             )
-        activated_tool_names.add(normalized_name)
         runtime_tool = runtime_tool_map[normalized_name]
         payload = {
             "type": "tool_activate",
@@ -842,45 +978,20 @@ def build_agent_tools(
             "manifest": _schema_manifest_for_tool(runtime_tool),
         }
         return json.dumps(payload, ensure_ascii=False)
+    for tool_name, tool_obj in runtime_tool_map.items():
+        visibility = "fixed" if tool_name in fixed_tool_names else "lazy"
+        setattr(tool_obj, _TOOL_VISIBILITY_ATTR, visibility)
+    setattr(activate_tool, _TOOL_VISIBILITY_ATTR, "fixed")
 
-    @tool(
-        "use_activated_tool",
-        description="Invoke a previously activated lazy tool with structured arguments.",
-        args_schema=UseActivatedToolInput,
-    )
-    def use_activated_tool(tool_name: str, arguments: dict[str, Any] | None = None) -> str:
-        normalized_name = str(tool_name or "").strip()
-        if not normalized_name:
-            return "tool_name is required."
-        if normalized_name in fixed_tool_names:
-            return f"Tool '{normalized_name}' is fixed-loaded; call it directly."
-        if normalized_name not in runtime_tool_map:
-            options = ", ".join(lazy_tool_names)
-            return f"Unknown tool '{normalized_name}'. Lazy tools: {options or '(none)'}."
-        if normalized_name not in activated_tool_names:
-            return (
-                f"Tool '{normalized_name}' is not activated. "
-                f"Call activate_tool(tool_name='{normalized_name}') first."
-            )
-        invoke_args = arguments if isinstance(arguments, dict) else {}
-        runtime_tool = runtime_tool_map[normalized_name]
-        try:
-            result = runtime_tool.invoke(invoke_args)
-        except Exception as exc:
-            return f"Tool '{normalized_name}' execution failed: {exc}"
-        return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
-
-    exposed_tools = [
-        tool_obj for tool_obj in runtime_tools if tool_obj.name in fixed_tool_names
-    ]
-    exposed_tools.extend([activate_tool, use_activated_tool])
+    all_tools = list(runtime_tools)
+    all_tools.append(activate_tool)
 
     logger.info(
-        "Agent tools prepared (progressive): discovered=%s fixed=%s lazy=%s exposed=%s names=%s",
+        "Agent tools prepared (progressive): discovered=%s fixed=%s lazy=%s registered=%s names=%s",
         len(discovered_tools),
         len(fixed_tool_names),
         len(lazy_tool_names),
-        len(exposed_tools),
-        ",".join(tool_item.name for tool_item in exposed_tools),
+        len(all_tools),
+        ",".join(tool_item.name for tool_item in all_tools),
     )
-    return exposed_tools
+    return all_tools
