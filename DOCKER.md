@@ -13,6 +13,11 @@
    ```bash
    docker-compose up -d
    ```
+   说明：
+   - Compose 会同时启动 `app` + `mineru-api` 两个服务。
+   - `app` 默认设置 `DOC_PARSE_BACKEND=mineru`，PDF 优先走 MinerU API 解析。
+   - 直接本地 `streamlit run main.py` 不启用 MinerU，仍走本地解析链路。
+   - 默认 MinerU 镜像为 `mineru:latest`，可在 `.env` 中通过 `MINERU_IMAGE` 覆盖。
 
 3. **查看日志**
    ```bash
@@ -91,4 +96,3 @@
 - `uploads` 目录会在容器内自动创建
 - Token 管理已内置在 SQLite 数据库中，无需额外服务
 - 建议使用 `docker-compose` 方式部署
-
