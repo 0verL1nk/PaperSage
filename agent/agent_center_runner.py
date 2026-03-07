@@ -28,6 +28,7 @@ def execute_assistant_turn(
     force_plan: bool | None = None,
     force_team: bool | None = None,
     routing_context: str = "",
+    emit_tool_load_event: bool = True,
 ) -> dict[str, Any]:
     trace_payload: list[dict[str, str]] = []
     evidence_items: list[dict] = []
@@ -87,6 +88,7 @@ def execute_assistant_turn(
                         force_plan=force_plan,
                         force_team=force_team,
                         routing_context=routing_context,
+                        emit_tool_load_event=emit_tool_load_event,
                         on_event=_on_event,
                     )
                     status.update(label="执行完成", state="complete", expanded=False)

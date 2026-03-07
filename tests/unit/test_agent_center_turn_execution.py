@@ -71,3 +71,30 @@ def test_execute_turn_with_runtime_delegates(monkeypatch):
     assert captured["force_plan"] is True
     assert captured["force_team"] is False
     assert captured["routing_context"] == "ctx"
+    assert captured["emit_tool_load_event"] is True
+
+
+def test_execute_turn_with_runtime_passes_emit_tool_load_flag(monkeypatch):
+    captured = {}
+
+    def _fake_execute_turn_core(**kwargs):
+        captured.update(kwargs)
+        return {"answer": "ok"}
+
+    monkeypatch.setattr(
+        "agent.application.agent_center.turn_execution.execute_turn_core",
+        _fake_execute_turn_core,
+    )
+    runtime = TurnRuntimeInputs(
+        leader_agent="agent",
+        leader_runtime_config={},
+        leader_llm="llm",
+        search_document_evidence_fn=None,
+    )
+    execute_turn_with_runtime(
+        prompt="p",
+        hinted_prompt="hp",
+        runtime_inputs=runtime,
+        emit_tool_load_event=False,
+    )
+    assert captured["emit_tool_load_event"] is False

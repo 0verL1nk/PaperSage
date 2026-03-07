@@ -50,6 +50,7 @@ def execute_turn_with_runtime(
     force_plan: bool | None = None,
     force_team: bool | None = None,
     routing_context: str = "",
+    emit_tool_load_event: bool = True,
     on_event=None,
 ) -> dict[str, Any]:
     return execute_turn_core(
@@ -61,6 +62,7 @@ def execute_turn_with_runtime(
         policy_llm=runtime_inputs.policy_llm,
         search_document_evidence_fn=runtime_inputs.search_document_evidence_fn,
         leader_tool_specs=runtime_inputs.leader_tool_specs,
+        emit_tool_load_event=emit_tool_load_event,
         force_plan=force_plan,
         force_team=force_team,
         routing_context=routing_context,

@@ -173,3 +173,35 @@ def test_execute_turn_core_tool_load_event_uses_compact_preview():
     content = str(tool_load_events[0].get("content", ""))
     assert "registered=9" in content
     assert "... (+3)" in content
+
+
+def test_execute_turn_core_can_suppress_tool_load_event():
+    captured_events: list[dict] = []
+
+    def _fake_executor(**_kwargs):
+        return OrchestratedTurn(
+            answer="ok",
+            policy_decision=PolicyDecision(
+                plan_enabled=False,
+                team_enabled=False,
+                reason="heuristic",
+                confidence=None,
+                source="heuristic",
+            ),
+            team_execution=TeamExecution(enabled=False, rounds=0),
+            trace_payload=[],
+            leader_tool_names=[],
+        )
+
+    execute_turn_core(
+        prompt="q",
+        hinted_prompt="q",
+        leader_agent=object(),
+        leader_runtime_config={},
+        leader_tool_specs=[{"name": "search_document"}],
+        emit_tool_load_event=False,
+        orchestrated_turn_executor=_fake_executor,
+        on_event=lambda item: captured_events.append(item),
+    )
+
+    assert not any(item.get("performative") == "tool_load" for item in captured_events)

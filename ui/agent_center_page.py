@@ -832,6 +832,31 @@ def run_agent_center_page() -> None:
             resolve_selected_doc_uid_for_logging_fn=resolve_selected_doc_uid_for_logging,
             scope_docs_with_text=scope_docs_with_text,
         )
+
+        def _build_tool_load_signature(tool_specs: list[dict[str, object]] | None) -> str:
+            if not isinstance(tool_specs, list):
+                return ""
+            normalized: list[tuple[str, str, bool]] = []
+            for item in tool_specs:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()
+                if not name:
+                    continue
+                schema_level = str(item.get("schema_level") or "").strip().lower()
+                has_schema = bool(str(item.get("args_schema") or "").strip())
+                normalized.append((name, schema_level, has_schema))
+            normalized.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
+            return json.dumps(normalized, ensure_ascii=False)
+
+        current_tool_specs = st.session_state.get("paper_current_tool_specs", [])
+        tool_load_signature = _build_tool_load_signature(current_tool_specs)
+        tool_load_signature_map = st.session_state.get("agent_tool_load_signature_map", {})
+        if not isinstance(tool_load_signature_map, dict):
+            tool_load_signature_map = {}
+        emit_tool_load_event = (
+            tool_load_signature_map.get(conversation_key) != tool_load_signature
+        )
         try:
             turn_result = execute_assistant_turn(
                 prompt=prompt,
@@ -845,7 +870,11 @@ def run_agent_center_page() -> None:
                 force_plan=force_plan,
                 force_team=force_team,
                 routing_context=turn_context.routing_context,
+                emit_tool_load_event=emit_tool_load_event,
             )
+            if emit_tool_load_event:
+                tool_load_signature_map[conversation_key] = tool_load_signature
+                st.session_state["agent_tool_load_signature_map"] = tool_load_signature_map
         finally:
             clear_turn_lock(st.session_state)
         archive_payload = apply_turn_result(

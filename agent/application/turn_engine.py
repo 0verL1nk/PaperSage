@@ -73,6 +73,7 @@ def execute_turn_core(
     policy_llm: Any | None = None,
     search_document_evidence_fn: EvidenceRetriever | None = None,
     leader_tool_specs: list[dict[str, Any]] | None = None,
+    emit_tool_load_event: bool = True,
     force_plan: bool | None = None,
     force_team: bool | None = None,
     routing_context: str = "",
@@ -111,7 +112,7 @@ def execute_turn_core(
             args_schema = str(item.get("args_schema") or "").strip()
             if args_schema:
                 schema_ready_names.add(name)
-    if registered_tool_names:
+    if registered_tool_names and emit_tool_load_event:
         normalized_names = sorted({name for name in registered_tool_names})
         preview_limit = 6
         preview_names = normalized_names[:preview_limit]
