@@ -18,7 +18,7 @@ def test_create_paper_agent_session_uses_checkpointer(monkeypatch):
     monkeypatch.setattr(
         paper_agent_module,
         "build_agent_tools",
-        lambda search_document_fn, search_document_evidence_fn=None, read_document_fn=None: ["tool-a", "tool-b"],
+        lambda search_document_fn, search_document_evidence_fn=None, read_document_fn=None, workspace_root=None: ["tool-a", "tool-b"],
     )
 
     session = paper_agent_module.create_paper_agent_session(
@@ -56,7 +56,7 @@ def test_create_paper_agent_session_tool_specs_default_manifest(monkeypatch):
     monkeypatch.setattr(
         paper_agent_module,
         "build_agent_tools",
-        lambda search_document_fn, search_document_evidence_fn=None, read_document_fn=None: [_FakeTool()],
+        lambda search_document_fn, search_document_evidence_fn=None, read_document_fn=None, workspace_root=None: [_FakeTool()],
     )
     monkeypatch.setattr(
         paper_agent_module,
@@ -88,7 +88,7 @@ def test_create_paper_agent_session_tool_specs_full_schema(monkeypatch):
     monkeypatch.setattr(
         paper_agent_module,
         "build_agent_tools",
-        lambda search_document_fn, search_document_evidence_fn=None, read_document_fn=None: [_FakeTool()],
+        lambda search_document_fn, search_document_evidence_fn=None, read_document_fn=None, workspace_root=None: [_FakeTool()],
     )
     monkeypatch.setattr(
         paper_agent_module,

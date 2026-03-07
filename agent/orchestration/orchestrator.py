@@ -107,7 +107,13 @@ def _llm_content_to_text(content: Any) -> str:
 def _resolve_team_todo_store_path() -> Path:
     root_value = str(os.getenv("AGENT_FILE_TOOLS_ROOT", "") or "").strip()
     file_value = str(os.getenv("AGENT_TODO_FILE", "") or "").strip()
-    root = Path(root_value) if root_value else Path.cwd()
+    if root_value:
+        root = Path(root_value)
+    else:
+        base_dir = str(os.getenv("AGENT_WORKSPACE_BASE_DIR", "") or "").strip()
+        base = Path(base_dir) if base_dir else (Path.cwd() / ".agent" / "workspaces")
+        scope = str(os.getenv("AGENT_WORKSPACE_SCOPE", "default") or "default").strip() or "default"
+        root = base / scope
     configured = Path(file_value) if file_value else Path(".agent/todo.json")
     candidate = configured if configured.is_absolute() else (root / configured)
     try:

@@ -1,7 +1,10 @@
 import logging
+import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -30,6 +33,20 @@ from ..contracts import normalize_plan_text, normalize_review_text
 from ..stream import extract_result_text
 
 logger = logging.getLogger(__name__)
+_WORKSPACE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _normalize_workspace_segment(raw: str, *, default: str) -> str:
+    normalized = _WORKSPACE_SEGMENT_RE.sub("_", str(raw or "").strip()).strip("._-")
+    return normalized[:80] if normalized else default
+
+
+def _build_a2a_workspace_root(*, session_id: str, role: str) -> str:
+    base_dir = str(os.getenv("AGENT_WORKSPACE_BASE_DIR", "") or "").strip()
+    base = Path(base_dir) if base_dir else (Path.cwd() / ".agent" / "workspaces")
+    session_segment = _normalize_workspace_segment(session_id, default="a2a")
+    role_segment = _normalize_workspace_segment(role, default="member")
+    return str((base / "a2a" / session_segment / role_segment).resolve())
 
 
 PLANNER_SYSTEM_PROMPT = (
@@ -591,19 +608,21 @@ def create_multi_agent_a2a_session(
     context_hint: str = "",
 ) -> A2AMultiAgentSession:
     logger.info("Creating multi-agent A2A session")
+    session_id = f"a2a-{uuid4().hex}"
     react_tools = build_agent_tools(
         search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
         allowed_tools=REACT_ALLOWED_TOOLS,
+        workspace_root=_build_a2a_workspace_root(session_id=session_id, role="react"),
     )
     researcher_tools = build_agent_tools(
         search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
         allowed_tools=RESEARCHER_ALLOWED_TOOLS,
+        workspace_root=_build_a2a_workspace_root(session_id=session_id, role="researcher"),
     )
     react_middleware = build_progressive_tool_middleware(react_tools)
     researcher_middleware = build_progressive_tool_middleware(researcher_tools)
-    session_id = f"a2a-{uuid4().hex}"
     normalized_hint = context_hint.strip()
     react_prompt = (
         f"{react_system_prompt}\n\nContext:\n{normalized_hint}"

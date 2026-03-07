@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 
 from .types import ToolMetadata
 
+_WORKSPACE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
 
 class ReadFileInput(BaseModel):
     path: str = Field(description="Relative or absolute file path under workspace root.")
@@ -241,24 +243,41 @@ def _env_value(name: str, default: str = "") -> str:
     return default
 
 
-def _get_file_tools_root() -> Path:
-    configured = _env_value("AGENT_FILE_TOOLS_ROOT", default="")
-    root = Path(configured) if configured else Path.cwd()
+def _normalize_workspace_segment(raw: str, *, default: str = "default") -> str:
+    normalized = _WORKSPACE_SEGMENT_RE.sub("_", str(raw or "").strip()).strip("._-")
+    return normalized[:80] if normalized else default
+
+
+def _get_file_tools_root(workspace_root: str | Path | None = None) -> Path:
+    if workspace_root is not None and str(workspace_root).strip():
+        root = Path(str(workspace_root).strip())
+    else:
+        configured = _env_value("AGENT_FILE_TOOLS_ROOT", default="")
+        if configured:
+            root = Path(configured)
+        else:
+            base_dir = _env_value("AGENT_WORKSPACE_BASE_DIR", default="")
+            base = Path(base_dir) if base_dir else (Path.cwd() / ".agent" / "workspaces")
+            default_scope = _normalize_workspace_segment(
+                _env_value("AGENT_WORKSPACE_SCOPE", default="default"),
+                default="default",
+            )
+            root = base / default_scope
     try:
         return root.resolve()
     except Exception:
         return root.absolute()
 
 
-def _resolve_workspace_path(path_value: str) -> tuple[Path | None, str | None]:
+def _resolve_workspace_path(path_value: str, *, root: Path | None = None) -> tuple[Path | None, str | None]:
     raw = str(path_value or "").strip()
     if not raw:
         return None, "Path is empty."
 
-    root = _get_file_tools_root()
+    effective_root = root if isinstance(root, Path) else _get_file_tools_root()
     candidate = Path(raw)
     if not candidate.is_absolute():
-        candidate = root / candidate
+        candidate = effective_root / candidate
 
     try:
         resolved = candidate.resolve()
@@ -266,16 +285,16 @@ def _resolve_workspace_path(path_value: str) -> tuple[Path | None, str | None]:
         return None, f"Failed to resolve path: {exc}"
 
     try:
-        resolved.relative_to(root)
+        resolved.relative_to(effective_root)
     except Exception:
-        return None, f"Blocked by file policy: path is outside workspace root ({root})."
+        return None, f"Blocked by file policy: path is outside workspace root ({effective_root})."
     return resolved, None
 
 
-def _display_workspace_path(path_obj: Path) -> str:
-    root = _get_file_tools_root()
+def _display_workspace_path(path_obj: Path, *, root: Path | None = None) -> str:
+    effective_root = root if isinstance(root, Path) else _get_file_tools_root()
     try:
-        return path_obj.relative_to(root).as_posix()
+        return path_obj.relative_to(effective_root).as_posix()
     except Exception:
         return path_obj.as_posix()
 
@@ -371,8 +390,13 @@ def _is_dangerous_bash_command(command: str) -> bool:
     return any(re.search(pattern, lowered) for pattern in _DANGEROUS_BASH_PATTERNS)
 
 
-def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
+def build_local_ops_tools(
+    *,
+    enabled_tool_names: set[str],
+    workspace_root: str | Path | None = None,
+) -> list[Any]:
     tools: list[Any] = []
+    resolved_root = _get_file_tools_root(workspace_root)
 
     if "read_file" in enabled_tool_names:
         @tool(
@@ -383,20 +407,20 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
         def read_file(path: str, offset: int = 0, limit: int = DEFAULT_FILE_READ_LIMIT) -> str:
             safe_limit = max(1, min(int(limit), 20000))
             safe_offset = max(0, int(offset))
-            resolved_path, error_text = _resolve_workspace_path(path)
+            resolved_path, error_text = _resolve_workspace_path(path, root=resolved_root)
             if resolved_path is None:
                 return str(error_text or "Invalid path.")
             if not resolved_path.exists():
-                return f"File not found: {_display_workspace_path(resolved_path)}"
+                return f"File not found: {_display_workspace_path(resolved_path, root=resolved_root)}"
             if not resolved_path.is_file():
-                return f"Not a file: {_display_workspace_path(resolved_path)}"
+                return f"Not a file: {_display_workspace_path(resolved_path, root=resolved_root)}"
             try:
                 content = resolved_path.read_text(encoding="utf-8")
             except Exception as exc:
                 return f"Failed to read file: {exc}"
             snippet = content[safe_offset : safe_offset + safe_limit]
             return (
-                f"Path: {_display_workspace_path(resolved_path)}\n"
+                f"Path: {_display_workspace_path(resolved_path, root=resolved_root)}\n"
                 f"Total chars: {len(content)}\n"
                 f"Offset: {safe_offset}\n"
                 f"Limit: {safe_limit}\n\n"
@@ -412,7 +436,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             args_schema=WriteFileInput,
         )
         def write_file(path: str, content: str, append: bool = False) -> str:
-            resolved_path, error_text = _resolve_workspace_path(path)
+            resolved_path, error_text = _resolve_workspace_path(path, root=resolved_root)
             if resolved_path is None:
                 return str(error_text or "Invalid path.")
             try:
@@ -427,7 +451,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             action = "Appended" if append else "Wrote"
             return (
                 f"{action} {len(content)} chars to "
-                f"{_display_workspace_path(resolved_path)}"
+                f"{_display_workspace_path(resolved_path, root=resolved_root)}"
             )
 
         tools.append(write_file)
@@ -446,11 +470,11 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
         ) -> str:
             if not old_text:
                 return "old_text must not be empty."
-            resolved_path, error_text = _resolve_workspace_path(path)
+            resolved_path, error_text = _resolve_workspace_path(path, root=resolved_root)
             if resolved_path is None:
                 return str(error_text or "Invalid path.")
             if not resolved_path.exists() or not resolved_path.is_file():
-                return f"File not found: {_display_workspace_path(resolved_path)}"
+                return f"File not found: {_display_workspace_path(resolved_path, root=resolved_root)}"
             try:
                 content = resolved_path.read_text(encoding="utf-8")
             except Exception as exc:
@@ -460,7 +484,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             if matches <= 0:
                 return (
                     f"Target text not found in "
-                    f"{_display_workspace_path(resolved_path)}."
+                    f"{_display_workspace_path(resolved_path, root=resolved_root)}."
                 )
             if replace_all:
                 updated = content.replace(old_text, new_text)
@@ -474,7 +498,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
                 return f"Failed to write file: {exc}"
             return (
                 f"Replaced {replaced} occurrence(s) in "
-                f"{_display_workspace_path(resolved_path)}."
+                f"{_display_workspace_path(resolved_path, root=resolved_root)}."
             )
 
         tools.append(edit_file)
@@ -490,11 +514,11 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             safe_end = int(end_line)
             if safe_end < safe_start:
                 return "end_line must be greater than or equal to start_line."
-            resolved_path, error_text = _resolve_workspace_path(path)
+            resolved_path, error_text = _resolve_workspace_path(path, root=resolved_root)
             if resolved_path is None:
                 return str(error_text or "Invalid path.")
             if not resolved_path.exists() or not resolved_path.is_file():
-                return f"File not found: {_display_workspace_path(resolved_path)}"
+                return f"File not found: {_display_workspace_path(resolved_path, root=resolved_root)}"
 
             try:
                 content = resolved_path.read_text(encoding="utf-8")
@@ -519,7 +543,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
                 return f"Failed to write file: {exc}"
             return (
                 f"Updated lines {safe_start}-{safe_end} in "
-                f"{_display_workspace_path(resolved_path)}."
+                f"{_display_workspace_path(resolved_path, root=resolved_root)}."
             )
 
         tools.append(update_file)
@@ -548,7 +572,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             if normalized_action not in {"upsert", "update_status", "append_note", "complete"}:
                 return "Unsupported action. Use one of: upsert, update_status, append_note, complete."
 
-            resolved_path, error_text = _resolve_workspace_path(file_path)
+            resolved_path, error_text = _resolve_workspace_path(file_path, root=resolved_root)
             if resolved_path is None:
                 return str(error_text or "Invalid file_path.")
 
@@ -645,7 +669,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
 
             return (
                 f"Todo saved: id={record.get('id')} status={record.get('status')} "
-                f"priority={record.get('priority')} file={_display_workspace_path(resolved_path)}"
+                f"priority={record.get('priority')} file={_display_workspace_path(resolved_path, root=resolved_root)}"
             )
 
         tools.append(write_todo)
@@ -669,7 +693,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             note: str = "",
             file_path: str = ".agent/todo.json",
         ) -> str:
-            resolved_path, error_text = _resolve_workspace_path(file_path)
+            resolved_path, error_text = _resolve_workspace_path(file_path, root=resolved_root)
             if resolved_path is None:
                 return str(error_text or "Invalid file_path.")
             records = _load_todo_store(resolved_path)
@@ -721,7 +745,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
                 return f"Failed to persist todo store: {exc}"
             return (
                 f"Todo updated: id={record.get('id')} status={record.get('status')} "
-                f"priority={record.get('priority')} file={_display_workspace_path(resolved_path)}"
+                f"priority={record.get('priority')} file={_display_workspace_path(resolved_path, root=resolved_root)}"
             )
 
         tools.append(edit_todo)
@@ -744,11 +768,11 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             if _is_dangerous_bash_command(safe_command):
                 return "Blocked by bash policy: command appears destructive."
 
-            resolved_cwd, error_text = _resolve_workspace_path(cwd)
+            resolved_cwd, error_text = _resolve_workspace_path(cwd, root=resolved_root)
             if resolved_cwd is None:
                 return str(error_text or "Invalid cwd.")
             if not resolved_cwd.exists() or not resolved_cwd.is_dir():
-                return f"Working directory not found: {_display_workspace_path(resolved_cwd)}"
+                return f"Working directory not found: {_display_workspace_path(resolved_cwd, root=resolved_root)}"
 
             safe_timeout = max(1, min(int(timeout_seconds), 120))
             safe_max_output = max(200, min(int(max_output_chars), 50000))
@@ -775,7 +799,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
                 stderr = stderr[:safe_max_output] + "\n...(truncated)"
             payload = {
                 "exit_code": int(completed.returncode),
-                "cwd": _display_workspace_path(resolved_cwd),
+                "cwd": _display_workspace_path(resolved_cwd, root=resolved_root),
                 "command": safe_command,
                 "stdout": stdout,
                 "stderr": stderr,

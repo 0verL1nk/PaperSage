@@ -216,7 +216,7 @@ def test_create_multi_agent_a2a_session_builds_four_agents(monkeypatch):
     monkeypatch.setattr(
         module,
         "build_agent_tools",
-        lambda _search_document_fn, search_document_evidence_fn=None, allowed_tools=None: [
+        lambda _search_document_fn, search_document_evidence_fn=None, allowed_tools=None, workspace_root=None: [
             f"tool:{name}" for name in sorted(allowed_tools or [])
         ],
     )

@@ -1,6 +1,8 @@
 import json
+import os
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Callable
 
 from langchain.agents import create_agent
@@ -18,6 +20,21 @@ from ..domain.orchestration import (
     create_trace_context,
 )
 from ..stream import extract_result_text
+
+_WORKSPACE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _normalize_workspace_segment(raw: str, *, default: str) -> str:
+    normalized = _WORKSPACE_SEGMENT_RE.sub("_", str(raw or "").strip()).strip("._-")
+    return normalized[:80] if normalized else default
+
+
+def _build_team_member_workspace_root(*, run_id: str, role_name: str) -> str:
+    base_dir = str(os.getenv("AGENT_WORKSPACE_BASE_DIR", "") or "").strip()
+    base = Path(base_dir) if base_dir else (Path.cwd() / ".agent" / "workspaces")
+    run_segment = _normalize_workspace_segment(run_id, default="team_run")
+    role_segment = _normalize_workspace_segment(role_name, default="member")
+    return str((base / "team" / run_segment / role_segment).resolve())
 
 
 ROLE_ROUTER_INSTRUCTION = """
@@ -393,6 +410,7 @@ def _invoke_role_agent(
     notes: str,
     search_document_fn: Callable[[str], str],
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None,
+    workspace_root: str,
 ) -> str:
     system_prompt = (
         f"你是团队中的 {role.name}。\n"
@@ -408,6 +426,7 @@ def _invoke_role_agent(
     tools = build_agent_tools(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
+        workspace_root=workspace_root,
     )
     middleware = build_progressive_tool_middleware(tools)
     create_kwargs: dict[str, Any] = {
@@ -587,6 +606,10 @@ def run_team_tasks(
             notes="\n".join(notes[-6:]),
             search_document_fn=search_document_fn,
             search_document_evidence_fn=search_document_evidence_fn,
+            workspace_root=_build_team_member_workspace_root(
+                run_id=effective_context.run_id,
+                role_name=role.name,
+            ),
         )
         current_task["status"] = "done"
         current_task["output"] = output

@@ -611,6 +611,7 @@ def build_agent_tools(
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
     read_document_fn: Callable[[int, int], tuple[str, int]] | None = None,
     allowed_tools: set[str] | None = None,
+    workspace_root: str | None = None,
 ):
     """构建 Agent 工具集
 
@@ -760,7 +761,10 @@ def build_agent_tools(
 
         _register_tool(search_document)
 
-    for local_tool in build_local_ops_tools(enabled_tool_names=enabled_tool_names):
+    for local_tool in build_local_ops_tools(
+        enabled_tool_names=enabled_tool_names,
+        workspace_root=workspace_root,
+    ):
         _register_tool(local_tool)
 
     if "read_document" in enabled_tool_names and read_document_fn is not None:

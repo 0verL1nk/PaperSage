@@ -12,6 +12,7 @@ def create_leader_session(
     document_name: str = "",
     project_name: str = "",
     scope_summary: str = "",
+    workspace_root: str = "",
 ):
     return create_paper_agent_session(
         llm=llm,
@@ -21,4 +22,5 @@ def create_leader_session(
         document_name=document_name,
         project_name=project_name,
         scope_summary=scope_summary,
+        workspace_root=workspace_root,
     )

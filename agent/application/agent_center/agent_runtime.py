@@ -1,8 +1,25 @@
 import os
+import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from ...settings import load_agent_settings
+
+_WORKSPACE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _normalize_workspace_segment(raw: str, *, default: str) -> str:
+    normalized = _WORKSPACE_SEGMENT_RE.sub("_", str(raw or "").strip()).strip("._-")
+    return normalized[:80] if normalized else default
+
+
+def _build_leader_workspace_root(*, project_uid: str, session_uid: str) -> str:
+    base_dir = str(os.getenv("AGENT_WORKSPACE_BASE_DIR", "") or "").strip()
+    base = Path(base_dir) if base_dir else (Path.cwd() / ".agent" / "workspaces")
+    project_segment = _normalize_workspace_segment(project_uid, default="default_project")
+    session_segment = _normalize_workspace_segment(session_uid, default="default_session")
+    return str((base / project_segment / session_segment / "leader").resolve())
 
 
 def ensure_agent_runtime(
@@ -176,6 +193,10 @@ def ensure_agent_runtime(
 
     if not current_leader_session:
         logger.info("Creating new leader project session: session=%s", session_uid)
+        workspace_root = _build_leader_workspace_root(
+            project_uid=project_uid,
+            session_uid=session_uid,
+        )
         agent_session = create_leader_session_fn(
             llm=llm,
             search_document_fn=search_document_fn,
@@ -184,6 +205,7 @@ def ensure_agent_runtime(
             document_name=scope_preview or "项目范围",
             project_name=project_name,
             scope_summary=scope_preview or "空范围",
+            workspace_root=workspace_root,
         )
         leader_sessions[leader_session_key] = {
             "agent": agent_session.agent,

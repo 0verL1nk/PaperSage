@@ -1,7 +1,9 @@
 import logging
 import json
 import os
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -12,6 +14,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from .capabilities import build_agent_tools, build_progressive_tool_middleware
 
 logger = logging.getLogger(__name__)
+_WORKSPACE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
 PAPER_QA_SYSTEM_PROMPT = """你是专业论文问答 Agent。
@@ -58,6 +61,19 @@ def _build_system_prompt(
     )
 
 
+def _normalize_workspace_segment(raw: str, *, default: str) -> str:
+    normalized = _WORKSPACE_SEGMENT_RE.sub("_", str(raw or "").strip()).strip("._-")
+    return normalized[:80] if normalized else default
+
+
+def _build_session_workspace_root(*, project_name: str | None, thread_id: str) -> str:
+    base_dir = str(os.getenv("AGENT_WORKSPACE_BASE_DIR", "") or "").strip()
+    base = Path(base_dir) if base_dir else (Path.cwd() / ".agent" / "workspaces")
+    project_segment = _normalize_workspace_segment(project_name or "", default="default_project")
+    thread_segment = _normalize_workspace_segment(thread_id, default="session")
+    return str((base / project_segment / thread_segment / "leader").resolve())
+
+
 @dataclass(frozen=True)
 class PaperAgentSession:
     agent: Any
@@ -79,6 +95,7 @@ def create_paper_agent_session(
     document_name: str | None = None,
     project_name: str | None = None,
     scope_summary: str | None = None,
+    workspace_root: str | None = None,
 ) -> PaperAgentSession:
     logger.info(
         "Creating paper agent session: project_name=%s document_name=%s",
@@ -91,10 +108,17 @@ def create_paper_agent_session(
         scope_summary=scope_summary,
     )
 
+    thread_id = f"paper-qa-{uuid4().hex}"
+    resolved_workspace_root = (
+        str(workspace_root).strip()
+        if isinstance(workspace_root, str) and workspace_root.strip()
+        else _build_session_workspace_root(project_name=project_name, thread_id=thread_id)
+    )
     tools = build_agent_tools(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
         read_document_fn=read_document_fn,
+        workspace_root=resolved_workspace_root,
     )
     middleware = build_progressive_tool_middleware(tools)
 
@@ -120,7 +144,6 @@ def create_paper_agent_session(
             }
         )
 
-    thread_id = f"paper-qa-{uuid4().hex}"
     create_kwargs: dict[str, Any] = {
         "model": llm,
         "tools": tools,
@@ -130,7 +153,12 @@ def create_paper_agent_session(
     if middleware:
         create_kwargs["middleware"] = middleware
     agent = create_agent(**create_kwargs)
-    logger.info("Created paper agent session: thread_id=%s tools=%s", thread_id, len(tools))
+    logger.info(
+        "Created paper agent session: thread_id=%s tools=%s workspace_root=%s",
+        thread_id,
+        len(tools),
+        resolved_workspace_root,
+    )
     return PaperAgentSession(agent=agent, thread_id=thread_id, tool_specs=tool_specs)
 
 

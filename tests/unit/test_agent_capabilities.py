@@ -455,6 +455,36 @@ def test_write_and_edit_todo_tools(monkeypatch, tmp_path: Path):
     assert updated_records[0]["history"][-1]["note"] == "已开始执行"
 
 
+def test_write_file_defaults_to_agent_workspace_dir(monkeypatch, tmp_path: Path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("AGENT_FILE_TOOLS_ROOT", raising=False)
+    monkeypatch.delenv("AGENT_WORKSPACE_BASE_DIR", raising=False)
+    monkeypatch.delenv("AGENT_WORKSPACE_SCOPE", raising=False)
+    monkeypatch.setattr(
+        capabilities,
+        "_build_brave_web_search_client",
+        lambda: type("Web", (), {"run": lambda self, q: "ok"})(),
+    )
+    monkeypatch.setattr(capabilities, "_build_searxng_web_search_client", lambda: None)
+    monkeypatch.setattr(capabilities, "_build_wikipedia_web_search_client", lambda: None)
+    monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
+
+    tools = capabilities.build_agent_tools(lambda query: query)
+    tool_map = _tool_map(tools)
+    _activate(tool_map, "write_file")
+    result = _invoke_tool(
+        tool_map,
+        "write_file",
+        {"path": "notes/result.txt", "content": "hello"},
+    )
+
+    assert "Wrote 5 chars to notes/result.txt" in result
+    expected = tmp_path / ".agent" / "workspaces" / "default" / "notes" / "result.txt"
+    assert expected.exists()
+    assert expected.read_text(encoding="utf-8") == "hello"
+    assert not (tmp_path / "notes" / "result.txt").exists()
+
+
 def test_load_secret_reads_from_dotenv(monkeypatch, tmp_path: Path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)

@@ -268,6 +268,8 @@ AGENT_POLICY_SCORE_TEAM=4
 # 工具开关
 AGENT_DISABLE_SEARCH_WEB=false
 AGENT_TODO_FILE=.agent/todo.json
+AGENT_FILE_TOOLS_ROOT=
+AGENT_WORKSPACE_BASE_DIR=./.agent/workspaces
 AGENT_HISTORY_PAGE_SIZE=40
 AGENT_PROJECT_INDEX_CACHE_DIR=./.cache/project_indexes
 
@@ -296,6 +298,10 @@ APP_LOG_LEVEL=INFO
 # 默认推荐：最小上下文占用
 AGENT_TOOL_SCHEMA_LEVEL=manifest
 ```
+
+文件类工具（`read_file/write_file/edit_file/update_file/bash/write_todo/edit_todo`）默认在
+`./.agent/workspaces/...` 下运行，不再直接写入项目根目录。
+如需覆盖，可显式设置 `AGENT_FILE_TOOLS_ROOT`。
 
 ---
 
