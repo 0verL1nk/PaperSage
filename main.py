@@ -7,23 +7,23 @@ REPO_ROOT = Path(__file__).resolve().parent
 navigation = st.navigation(
     [
         st.Page(
-            str(REPO_ROOT / "pages/0_🤖_Agent中心.py"),
+            str(REPO_ROOT / "pages/0_agent_center.py"),
             title="Agent中心",
             icon="🤖",
             default=True,
         ),
         st.Page(
-            str(REPO_ROOT / "pages/1_📁_文件中心.py"),
+            str(REPO_ROOT / "pages/1_file_center.py"),
             title="文件中心",
             icon="📁",
         ),
         st.Page(
-            str(REPO_ROOT / "pages/2_⚙️_设置中心.py"),
+            str(REPO_ROOT / "pages/2_settings.py"),
             title="设置中心",
             icon="⚙️",
         ),
         st.Page(
-            str(REPO_ROOT / "pages/3_🗂️_项目中心.py"),
+            str(REPO_ROOT / "pages/3_project_center.py"),
             title="项目中心",
             icon="🗂️",
         ),

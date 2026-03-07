@@ -137,28 +137,61 @@ User Query
 
 ## 🚀 Quick Start
 
-### Requirements
+### Option 1: Install from PyPI (Recommended)
 
-- Python `>= 3.10`
-- [uv](https://github.com/astral-sh/uv) (recommended)
+> No need to clone the repository.
 
-### Local Run
+**Linux / macOS**
 
 ```bash
-# 1. Install dependencies
-uv sync --no-install-project
+# Install via uv tool (registers the command globally)
+uv tool install paper-sage
 
-# 2. Start the app
-streamlit run main.py
+# Launch
+paper-sage
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+# Install
+uv tool install paper-sage
+
+# Launch (use the no-hyphen alias on Windows)
+papersage
+```
+
+> ⚠️ **Avoid `uv pip install`**: it does not register the command in your global PATH. You would need to activate the virtual environment manually first.
 
 Open `http://localhost:8501` and configure your API key in **⚙️ Settings**.
 
-### Docker
+---
+
+### Option 2: Clone & Run Locally
+
+```bash
+git clone https://github.com/0verL1nk/PaperSage.git
+cd PaperSage
+
+# Install dependencies
+uv sync --no-install-project
+
+# Start the app
+streamlit run main.py
+```
+
+### Option 3: Docker
 
 ```bash
 docker-compose up --build
 ```
+
+---
+
+### Requirements
+
+- Python `>= 3.10`
+- [uv](https://github.com/astral-sh/uv) (recommended)
 
 ---
 
