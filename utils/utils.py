@@ -7,6 +7,7 @@ import random
 import sqlite3
 import string
 import uuid
+from pathlib import Path
 from typing import Any, Iterator, Tuple
 
 import streamlit as st
@@ -1880,6 +1881,59 @@ def _extract_text_with_legacy(file_path: str, file_type: str) -> tuple[str, str,
     return _extract_text_with_pymupdf(file_path), "pymupdf", "plain"
 
 
+def _extract_text_with_mineru_api(file_path: str) -> str:
+    """通过 MinerU API 解析 PDF，并返回 Markdown 文本。"""
+    import httpx
+
+    endpoint = os.getenv("MINERU_API_URL", "http://mineru-api:8000/file_parse").strip()
+    parse_backend = os.getenv("MINERU_PARSE_BACKEND", "pipeline").strip()
+    parse_method = os.getenv("MINERU_PARSE_METHOD", "auto").strip()
+    timeout = float(os.getenv("MINERU_TIMEOUT_SECONDS", "180"))
+    lang_list_raw = os.getenv("MINERU_LANG_LIST", "").strip()
+    lang_list = [item.strip() for item in lang_list_raw.split(",") if item.strip()]
+
+    data: list[tuple[str, str]] = [
+        ("parse_method", parse_method),
+        ("backend", parse_backend),
+        ("return_md", "true"),
+        ("return_middle_json", "false"),
+        ("return_model_output", "false"),
+        ("return_content_list", "false"),
+        ("return_images", "false"),
+    ]
+    for lang in lang_list:
+        data.append(("lang_list", lang))
+
+    with open(file_path, "rb") as f:
+        files = {"files": (Path(file_path).name, f, "application/pdf")}
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(endpoint, data=data, files=files)
+            response.raise_for_status()
+            payload = response.json()
+
+    if not isinstance(payload, dict):
+        raise ValueError("MinerU API 返回格式异常")
+
+    results = payload.get("results")
+    if not isinstance(results, dict) or not results:
+        raise ValueError("MinerU API 返回中缺少 results")
+
+    stem = Path(file_path).stem
+    candidates: list[Any] = []
+    if stem in results:
+        candidates.append(results[stem])
+    candidates.extend(results.values())
+
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        md_content = item.get("md_content")
+        if isinstance(md_content, str):
+            return md_content
+
+    raise ValueError("MinerU API 返回中缺少 md_content")
+
+
 def extract_files(file_path: str):
     file_type = file_path.split(".")[-1].lower()
     if file_type in ["doc", "docx", "pdf", "txt"]:
@@ -1889,27 +1943,50 @@ def extract_files(file_path: str):
             parser = ""
             format_name = ""
 
-            markitdown_enabled = backend in {"auto", "markitdown"}
-            if markitdown_enabled:
-                try:
-                    text = _extract_text_with_markitdown(file_path)
-                    parser = "markitdown"
-                    format_name = "markdown"
-                except Exception:
-                    if backend == "markitdown":
-                        raise
-
-            if not text:
-                try:
+            if backend == "mineru":
+                if file_type == "pdf":
+                    try:
+                        text = _extract_text_with_mineru_api(file_path)
+                        parser = "mineru-api"
+                        format_name = "markdown"
+                    except Exception:
+                        try:
+                            text, parser, format_name = _extract_text_with_legacy(
+                                file_path=file_path,
+                                file_type=file_type,
+                            )
+                        except TypeError:
+                            text, parser, format_name = _extract_text_with_legacy(
+                                file_path,
+                                file_type,
+                            )
+                else:
                     text, parser, format_name = _extract_text_with_legacy(
                         file_path=file_path,
                         file_type=file_type,
                     )
-                except TypeError:
-                    text, parser, format_name = _extract_text_with_legacy(
-                        file_path,
-                        file_type,
-                    )
+            else:
+                markitdown_enabled = backend in {"auto", "markitdown"}
+                if markitdown_enabled:
+                    try:
+                        text = _extract_text_with_markitdown(file_path)
+                        parser = "markitdown"
+                        format_name = "markdown"
+                    except Exception:
+                        if backend == "markitdown":
+                            raise
+
+                if not text:
+                    try:
+                        text, parser, format_name = _extract_text_with_legacy(
+                            file_path=file_path,
+                            file_type=file_type,
+                        )
+                    except TypeError:
+                        text, parser, format_name = _extract_text_with_legacy(
+                            file_path,
+                            file_type,
+                        )
 
             # 替换'{'和'}'防止解析为变量
             safe_text = text.replace("{", "{{").replace("}", "}}")

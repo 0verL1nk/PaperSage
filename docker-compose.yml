@@ -11,8 +11,36 @@ services:
     environment:
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
       - RQ_WORKER_COUNT=${RQ_WORKER_COUNT:-2}
+      - DOC_PARSE_BACKEND=${DOC_PARSE_BACKEND:-mineru}
+      - MINERU_API_URL=http://mineru-api:8000/file_parse
+      - MINERU_PARSE_BACKEND=${MINERU_PARSE_BACKEND:-pipeline}
+      - MINERU_PARSE_METHOD=${MINERU_PARSE_METHOD:-auto}
+      - MINERU_TIMEOUT_SECONDS=${MINERU_TIMEOUT_SECONDS:-180}
+      - MINERU_LANG_LIST=${MINERU_LANG_LIST:-}
     volumes:
       # 持久化数据库和上传文件
       - ./database.sqlite:/app/database.sqlite
       - ./uploads:/app/uploads
+    depends_on:
+      mineru-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mineru-api:
+    image: ${MINERU_IMAGE:-mineru:latest}
+    container_name: mineru-api
+    entrypoint: mineru-api
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    environment:
+      - MINERU_MODEL_SOURCE=${MINERU_MODEL_SOURCE:-local}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/docs >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     restart: unless-stopped
