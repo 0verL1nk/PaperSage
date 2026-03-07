@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from ..settings import load_agent_settings
 
+
 def _planner_instruction(min_steps: int, max_steps: int) -> str:
     return f"""
 你是执行计划器。请把用户问题拆为最小可执行步骤，服务于“基于证据的最终回答”。

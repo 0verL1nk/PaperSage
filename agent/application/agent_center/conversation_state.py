@@ -1,7 +1,6 @@
 import os
 from typing import Any
 
-
 DEFAULT_HISTORY_PAGE_SIZE = 40
 MIN_HISTORY_PAGE_SIZE = 1
 MAX_HISTORY_PAGE_SIZE = 200

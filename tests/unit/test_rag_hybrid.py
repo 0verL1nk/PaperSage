@@ -2,19 +2,19 @@
 
 测试 Hybrid 检索、RRF 融合、邻域扩展功能
 """
-import pytest
 from types import SimpleNamespace
 
+import pytest
+
 from agent.rag.hybrid import (
-    _reciprocal_rank_fusion,
-    _normalize_scores,
-    _rerank_docs,
-    _build_bm25_retriever,
-    _retrieval_result_to_evidence_payload,
     HybridRetriever,
-    build_hybrid_retriever,
     RetrievalResult,
     RetrievalTrace,
+    _normalize_scores,
+    _reciprocal_rank_fusion,
+    _rerank_docs,
+    _retrieval_result_to_evidence_payload,
+    build_hybrid_retriever,
     build_project_evidence_retriever_with_settings,
 )
 

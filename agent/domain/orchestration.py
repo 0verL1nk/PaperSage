@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from a2a.types import Message, TextPart
+from a2a.types import Message, Part, Role, TextPart
 
 TraceEvent = dict[str, Any]
 TracePayload = list[TraceEvent]
@@ -29,7 +29,7 @@ def _new_trace_id(prefix: str) -> str:
 
 
 def now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def create_trace_context(
@@ -102,11 +102,11 @@ def build_trace_event(
     if isinstance(metadata, dict) and metadata:
         sdk_metadata["traceMeta"] = metadata
     sdk_message = Message(
-        role="user" if str(sender) == "user" else "agent",
-        parts=[TextPart(text=str(content))],
-        messageId=span_id,
-        taskId=context.task_id,
-        contextId=context.run_id,
+        role=Role.user if str(sender) == "user" else Role.agent,
+        parts=[Part(root=TextPart(text=str(content)))],
+        message_id=span_id,
+        task_id=context.task_id,
+        context_id=context.run_id,
         metadata=sdk_metadata,
     ).model_dump(mode="json", by_alias=True, exclude_none=True)
     payload: TraceEvent = {

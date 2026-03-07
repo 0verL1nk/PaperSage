@@ -1,4 +1,9 @@
-from .chunking import ChunkMetadata, SemanticAwareSplitter, StructuredChunk, create_structured_splitter
+from .chunking import (
+    ChunkMetadata,
+    SemanticAwareSplitter,
+    StructuredChunk,
+    create_structured_splitter,
+)
 from .evidence import EvidenceItem, EvidencePayload
 from .hybrid import (
     HybridRetriever,

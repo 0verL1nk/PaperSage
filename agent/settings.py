@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 import os
-
+from dataclasses import dataclass
 
 DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_LOCAL_EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"

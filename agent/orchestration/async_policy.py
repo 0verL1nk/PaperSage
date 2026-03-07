@@ -52,6 +52,10 @@ class AsyncPolicyPredictor:
             daemon=True,
         )
         self._thread.start()
+        logger.info(
+            "Async policy predictor started: interval=%.2fs",
+            self._refresh_interval,
+        )
 
     def stop(self, *, join_timeout_sec: float = 0.25) -> None:
         self._stop_event.set()
@@ -59,6 +63,7 @@ class AsyncPolicyPredictor:
         if thread is not None and thread.is_alive():
             thread.join(timeout=max(0.0, float(join_timeout_sec)))
         self._thread = None
+        logger.info("Async policy predictor stopped")
 
     def update_context_digest(self, context_digest: str) -> None:
         with self._lock:
@@ -96,11 +101,28 @@ class AsyncPolicyPredictor:
                 now = time.monotonic()
                 with self._lock:
                     self._version += 1
+                    version = self._version
                     self._snapshot = AsyncPolicySnapshot(
                         decision=decision,
-                        version=self._version,
+                        version=version,
                         updated_at_monotonic=now,
                     )
+                reason = str(decision.reason or "").strip()
+                if len(reason) > 120:
+                    reason = f"{reason[:117]}..."
+                logger.info(
+                    "Async policy refresh: version=%s plan=%s team=%s source=%s confidence=%s reason=%s",
+                    version,
+                    decision.plan_enabled,
+                    decision.team_enabled,
+                    decision.source,
+                    (
+                        f"{float(decision.confidence):.2f}"
+                        if decision.confidence is not None
+                        else "-"
+                    ),
+                    reason or "-",
+                )
             except Exception:
                 logger.exception("Async policy predictor refresh failed")
             self._stop_event.wait(self._refresh_interval)

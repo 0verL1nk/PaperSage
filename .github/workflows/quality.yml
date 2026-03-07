@@ -1,0 +1,39 @@
+name: Quality Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  quality-core:
+    name: Lint & Typecheck (Core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev --no-install-project
+
+      - name: Run core quality gate
+        run: bash scripts/quality_gate.sh core
+
+  quality-full:
+    name: Lint & Typecheck (Full, Progressive)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev --no-install-project
+
+      - name: Run full quality gate (non-blocking for now)
+        run: bash scripts/quality_gate.sh full

@@ -2,13 +2,13 @@ from types import SimpleNamespace
 
 from agent.stream import (
     extract_ask_human_requests_from_result,
+    extract_result_text,
     extract_skill_activation_events_from_result,
+    extract_stream_text,
     extract_tool_activation_events_from_result,
     extract_tool_names_from_result,
     extract_tool_trace_events_from_result,
     extract_trace_events_from_update,
-    extract_result_text,
-    extract_stream_text,
     iter_agent_response_deltas,
 )
 

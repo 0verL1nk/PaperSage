@@ -1,12 +1,18 @@
 from agent.a2a.standard import (
     A2A_VERSION_HEADER,
-    A2AInMemoryServer,
     METHOD_CANCEL_TASK,
     METHOD_GET_TASK,
+    METHOD_MESSAGE_STREAM,
     METHOD_SEND_MESSAGE,
     METHOD_SEND_STREAMING_MESSAGE,
+    METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_DELETE,
+    METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_GET,
+    METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_LIST,
+    METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_SET,
+    METHOD_TASKS_RESUBSCRIBE,
     TASK_STATE_CANCELED,
     TASK_STATE_WORKING,
+    A2AInMemoryServer,
     build_agent_card,
     build_coordinator_executor,
 )
@@ -269,6 +275,35 @@ def test_send_streaming_message_returns_event_batches():
     assert events[-1]["event"] == "TaskCompleted"
 
 
+def test_message_stream_standard_method_name_is_supported():
+    server = A2AInMemoryServer(
+        agent_card=build_agent_card(
+            name="Paper Agent",
+            description="A2A test agent",
+            url="http://localhost/a2a",
+            supports_streaming=True,
+        ),
+        execute_message_fn=lambda text: f"answer:{text}",
+    )
+    resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "stream-standard",
+            "method": METHOD_MESSAGE_STREAM,
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"kind": "text", "text": "stream by spec"}],
+                    "kind": "message",
+                    "messageId": "m-stream-standard",
+                }
+            },
+        }
+    )
+    assert resp["result"]["task"]["status"]["state"] == "completed"
+    assert isinstance(resp["result"]["events"], list)
+
+
 def test_rejects_unsupported_a2a_version():
     server = A2AInMemoryServer(
         agent_card=build_agent_card(
@@ -341,3 +376,243 @@ def test_handle_jsonrpc_stream_emits_incremental_frames():
     assert events[1]["event"] == "TaskArtifactUpdate"
     assert events[-1]["event"] == "TaskCompleted"
     assert events[-1]["final"] is True
+
+
+def test_tasks_resubscribe_replays_terminal_task_events():
+    server = A2AInMemoryServer(
+        agent_card=build_agent_card(
+            name="Paper Agent",
+            description="A2A test agent",
+            url="http://localhost/a2a",
+            supports_streaming=True,
+        ),
+        execute_message_fn=lambda text: f"answer:{text}",
+    )
+    send_resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "resubscribe-send",
+            "method": METHOD_SEND_MESSAGE,
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"kind": "text", "text": "hello resubscribe"}],
+                    "kind": "message",
+                    "messageId": "m-resubscribe-send",
+                }
+            },
+        }
+    )
+    task_id = send_resp["result"]["id"]
+    resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "resubscribe-1",
+            "method": METHOD_TASKS_RESUBSCRIBE,
+            "params": {"id": task_id},
+        }
+    )
+    events = resp["result"]["events"]
+    assert events[-1]["event"] == "TaskCompleted"
+    assert resp["result"]["task"]["id"] == task_id
+
+
+def test_push_notification_config_set_get_list_delete_roundtrip():
+    server = A2AInMemoryServer(
+        agent_card=build_agent_card(
+            name="Paper Agent",
+            description="A2A test agent",
+            url="http://localhost/a2a",
+            supports_push_notifications=True,
+        ),
+        execute_message_fn=lambda text: text,
+    )
+    send_resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "push-send",
+            "method": METHOD_SEND_MESSAGE,
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"kind": "text", "text": "seed task"}],
+                    "kind": "message",
+                    "messageId": "m-push-send",
+                }
+            },
+        }
+    )
+    task_id = send_resp["result"]["id"]
+
+    set_resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "push-set",
+            "method": METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_SET,
+            "params": {
+                "taskId": task_id,
+                "pushNotificationConfig": {
+                    "url": "https://example.com/hook",
+                    "token": "secret",
+                },
+            },
+        }
+    )
+    config = set_resp["result"]["pushNotificationConfig"]
+    config_id = config["id"]
+
+    get_resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "push-get",
+            "method": METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_GET,
+            "params": {
+                "id": task_id,
+                "pushNotificationConfigId": config_id,
+            },
+        }
+    )
+    assert get_resp["result"]["pushNotificationConfig"]["id"] == config_id
+
+    list_resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "push-list",
+            "method": METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_LIST,
+            "params": {"id": task_id},
+        }
+    )
+    assert len(list_resp["result"]) == 1
+    assert list_resp["result"][0]["pushNotificationConfig"]["id"] == config_id
+
+    delete_resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "push-delete",
+            "method": METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_DELETE,
+            "params": {"id": task_id, "pushNotificationConfigId": config_id},
+        }
+    )
+    assert delete_resp["result"] is None
+
+    list_after_delete = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "push-list-2",
+            "method": METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_LIST,
+            "params": {"id": task_id},
+        }
+    )
+    assert list_after_delete["result"] == []
+
+
+def test_push_notification_config_methods_require_capability():
+    server = A2AInMemoryServer(
+        agent_card=build_agent_card(
+            name="Paper Agent",
+            description="A2A test agent",
+            url="http://localhost/a2a",
+            supports_push_notifications=False,
+        ),
+        execute_message_fn=lambda text: text,
+    )
+    resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "push-unsupported",
+            "method": METHOD_TASKS_PUSH_NOTIFICATION_CONFIG_LIST,
+            "params": {"id": "non-existent"},
+        }
+    )
+    assert resp["error"]["code"] == -32602
+    assert "Push Notification is not supported" in resp["error"]["message"]
+
+
+def test_send_message_accepts_snake_case_ids_in_hybrid_mode():
+    server = A2AInMemoryServer(
+        agent_card=build_agent_card(
+            name="Paper Agent",
+            description="A2A test agent",
+            url="http://localhost/a2a",
+        ),
+        execute_message_fn=lambda text: f"answer:{text}",
+    )
+    send_resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "snake-1",
+            "method": METHOD_SEND_MESSAGE,
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"kind": "text", "text": "hello"}],
+                    "kind": "message",
+                    "task_id": "task-snake-1",
+                    "context_id": "ctx-snake-1",
+                    "message_id": "msg-snake-1",
+                }
+            },
+        }
+    )
+    assert send_resp["result"]["id"] == "task-snake-1"
+    assert send_resp["result"]["contextId"] == "ctx-snake-1"
+
+
+def test_send_message_strict_mode_rejects_camel_case(monkeypatch):
+    monkeypatch.setenv("AGENT_A2A_INPUT_MODE", "strict")
+    server = A2AInMemoryServer(
+        agent_card=build_agent_card(
+            name="Paper Agent",
+            description="A2A test agent",
+            url="http://localhost/a2a",
+        ),
+        execute_message_fn=lambda text: text,
+    )
+    resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "strict-camel",
+            "method": METHOD_SEND_MESSAGE,
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [{"kind": "text", "text": "hello"}],
+                    "kind": "message",
+                    "taskId": "legacy-task",
+                }
+            },
+        }
+    )
+    assert resp["error"]["code"] == -32602
+    assert "strict mode" in resp["error"]["message"]
+
+
+def test_send_message_strict_mode_accepts_snake_case(monkeypatch):
+    monkeypatch.setenv("AGENT_A2A_INPUT_MODE", "strict")
+    server = A2AInMemoryServer(
+        agent_card=build_agent_card(
+            name="Paper Agent",
+            description="A2A test agent",
+            url="http://localhost/a2a",
+        ),
+        execute_message_fn=lambda text: text,
+    )
+    resp = server.handle_jsonrpc(
+        {
+            "jsonrpc": "2.0",
+            "id": "strict-snake",
+            "method": METHOD_SEND_MESSAGE,
+            "params": {
+                "a2a_version": "1.0",
+                "message": {
+                    "role": "user",
+                    "parts": [{"kind": "text", "text": "hello"}],
+                    "kind": "message",
+                    "task_id": "task-strict",
+                    "context_id": "ctx-strict",
+                },
+            },
+        }
+    )
+    assert resp["result"]["id"] == "task-strict"
+    assert resp["result"]["contextId"] == "ctx-strict"

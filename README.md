@@ -317,6 +317,23 @@ uv run --extra dev python -m pytest tests/integration/test_live_api_e2e.py -q
 
 ---
 
+## ✅ 质量检查（Lint / Typecheck）
+
+```bash
+# Core（阻塞门禁，建议本地与 CI 必跑）
+bash scripts/quality_gate.sh core
+
+# Full（全量扫描，当前用于持续收敛，可逐步升级为阻塞）
+bash scripts/quality_gate.sh full
+```
+
+说明：
+- `core`：覆盖主入口与关键模块（`main.py`、`agent/domain`、`agent/tools`、`agent/application/contracts.py`）。
+- `full`：覆盖全仓 `ruff` 与全量 `agent` 的 `mypy`。
+- CI 已配置分层门禁：`core` 阻塞、`full` 当前非阻塞（progressive rollout）。
+
+---
+
 ## 📦 技术栈
 
 | 技术 | 用途 |

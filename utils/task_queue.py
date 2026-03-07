@@ -1,19 +1,21 @@
 """
-任务队列模块 - 使用 RQ (Redis Queue) 实现异步任务处理
+任务队列模块 - 优先使用 RQ，Windows/不可用场景自动切换到本地线程队列
 """
 
-import os
-import json
-import sqlite3
+import importlib
 import logging
-from typing import Optional, Dict, Any
+import os
+import sqlite3
+import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
 from enum import Enum
+from multiprocessing import get_all_start_methods
+from threading import Lock
+from typing import Any, Dict, Optional
+
 from redis import Redis
-from rq import Queue
-from rq.job import Job
 
 from .schemas import EnqueueResult
-
 
 logger = logging.getLogger("llm_app.task_queue")
 if not logger.handlers:
@@ -24,6 +26,23 @@ if not logger.handlers:
     logger.addHandler(_handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
+
+rq_module: Any | None = None
+rq_job_module: Any | None = None
+try:
+    rq_module = importlib.import_module("rq")
+    rq_job_module = importlib.import_module("rq.job")
+except Exception as exc:
+    rq_module = None
+    rq_job_module = None
+    logger.warning("RQ unavailable, falling back to local queue backend: %s", exc)
+
+
+def _supports_fork_start_method() -> bool:
+    try:
+        return "fork" in get_all_start_methods()
+    except Exception:
+        return False
 
 # Redis 连接配置（可通过环境变量配置）
 # 默认使用 localhost，因为 Redis 和应用在同一容器中
@@ -37,7 +56,7 @@ REDIS_SOCKET_TIMEOUT = float(os.getenv("REDIS_SOCKET_TIMEOUT", "0.3"))
 
 # 创建 Redis 连接
 try:
-    redis_conn = Redis(
+    redis_conn: Redis | None = Redis(
         host=REDIS_HOST,
         port=REDIS_PORT,
         db=REDIS_DB,
@@ -51,8 +70,39 @@ except Exception as e:
     logger.warning("Redis connection failed, fallback to sync execution: %s", e)
     redis_conn = None
 
-# 创建任务队列
-task_queue = Queue("tasks", connection=redis_conn) if redis_conn else None
+# 创建任务队列（Windows 不支持 fork，自动回退到本地线程队列）
+QUEUE_BACKEND_MODE = os.getenv("TASK_QUEUE_BACKEND", "auto").strip().lower()
+if QUEUE_BACKEND_MODE not in {"auto", "rq", "local"}:
+    logger.warning("Unknown TASK_QUEUE_BACKEND=%s, fallback to auto", QUEUE_BACKEND_MODE)
+    QUEUE_BACKEND_MODE = "auto"
+task_queue: Any | None = None
+_rq_available = bool(rq_module is not None and redis_conn is not None and _supports_fork_start_method())
+
+if QUEUE_BACKEND_MODE == "rq" and not _rq_available:
+    logger.warning("TASK_QUEUE_BACKEND=rq but RQ backend is unavailable, fallback to local")
+
+if (QUEUE_BACKEND_MODE == "rq" and _rq_available) or (
+    QUEUE_BACKEND_MODE == "auto" and _rq_available
+):
+    try:
+        task_queue = rq_module.Queue("tasks", connection=redis_conn) if rq_module is not None else None
+    except Exception as e:
+        logger.warning("RQ queue initialization failed, use local queue backend: %s", e)
+
+QUEUE_BACKEND = "rq" if task_queue else "local"
+LOCAL_TASK_MAX_WORKERS = max(1, int(os.getenv("LOCAL_TASK_MAX_WORKERS", "2")))
+_local_executor: ThreadPoolExecutor | None = None
+_local_jobs: Dict[str, Dict[str, Any]] = {}
+_local_jobs_lock = Lock()
+
+if QUEUE_BACKEND == "local":
+    _local_executor = ThreadPoolExecutor(
+        max_workers=LOCAL_TASK_MAX_WORKERS,
+        thread_name_prefix="taskq",
+    )
+    logger.info("Task queue backend: local_thread (workers=%s)", LOCAL_TASK_MAX_WORKERS)
+else:
+    logger.info("Task queue backend: rq")
 
 
 class TaskStatus(Enum):
@@ -98,7 +148,7 @@ def create_task(task_id: str, uid: str, content_type: str, db_name="./database.s
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute(
         """
-        INSERT OR REPLACE INTO task_status 
+        INSERT OR REPLACE INTO task_status
         (task_id, uid, content_type, status, created_at, updated_at, job_id)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """,
@@ -135,7 +185,7 @@ def update_task_status(
     if error_message:
         cursor.execute(
             """
-            UPDATE task_status 
+            UPDATE task_status
             SET status = ?, updated_at = ?, error_message = ?, job_id = ?
             WHERE task_id = ?
         """,
@@ -144,7 +194,7 @@ def update_task_status(
     else:
         cursor.execute(
             """
-            UPDATE task_status 
+            UPDATE task_status
             SET status = ?, updated_at = ?, job_id = ?
             WHERE task_id = ?
         """,
@@ -228,12 +278,18 @@ def get_task_status_by_uid(
 
 
 def get_job_status(job_id: str) -> Optional[str]:
-    """从 RQ 获取任务状态"""
-    if not redis_conn or not job_id:
+    """获取任务状态（RQ 或本地线程队列）"""
+    if not job_id:
+        return None
+
+    if QUEUE_BACKEND == "local":
+        return _get_local_job_status(job_id)
+
+    if redis_conn is None or rq_job_module is None:
         return None
 
     try:
-        job = Job.fetch(job_id, connection=redis_conn)
+        job = rq_job_module.Job.fetch(job_id, connection=redis_conn)
         return job.get_status()
     except Exception:
         return None
@@ -253,11 +309,72 @@ def _has_active_rq_workers() -> bool:
 
 
 def has_active_rq_workers() -> bool:
+    if QUEUE_BACKEND == "local":
+        return True
     return _has_active_rq_workers()
+
+
+def _set_local_job_status(job_id: str, status: str) -> None:
+    with _local_jobs_lock:
+        state = _local_jobs.setdefault(job_id, {})
+        state["status"] = status
+
+
+def _get_local_job_status(job_id: str) -> Optional[str]:
+    with _local_jobs_lock:
+        state = _local_jobs.get(job_id)
+    if not state:
+        return None
+
+    status = state.get("status")
+    future = state.get("future")
+    if isinstance(future, Future):
+        if future.cancelled():
+            status = "failed"
+        elif future.done() and status not in {"finished", "failed"}:
+            status = "failed" if future.exception() else "finished"
+        if isinstance(status, str):
+            _set_local_job_status(job_id, status)
+    return status if isinstance(status, str) else None
+
+
+def _run_local_job(job_id: str, task_func, *args, **kwargs) -> None:
+    _set_local_job_status(job_id, "started")
+    try:
+        task_func(*args, **kwargs)
+    except Exception:
+        _set_local_job_status(job_id, "failed")
+        logger.exception("Local queued task failed: job_id=%s", job_id)
+        raise
+    else:
+        _set_local_job_status(job_id, "finished")
+
+
+def _enqueue_local_task(task_func, *args, **kwargs) -> Dict[str, Any]:
+    if not _local_executor:
+        logger.warning("Local queue unavailable, running task synchronously")
+        task_func(*args, **kwargs)
+        return EnqueueResult(mode="sync", job_id=None).model_dump()
+
+    job_id = f"local-{uuid.uuid4()}"
+    _set_local_job_status(job_id, "queued")
+    future = _local_executor.submit(_run_local_job, job_id, task_func, *args, **kwargs)
+    with _local_jobs_lock:
+        _local_jobs[job_id]["future"] = future
+    logger.info("Task enqueued locally: job_id=%s", job_id)
+    return EnqueueResult(mode="queued", job_id=job_id).model_dump()
 
 
 def enqueue_task(task_func, *args, **kwargs) -> Dict[str, Any]:
     """将任务加入队列"""
+    if QUEUE_BACKEND == "local":
+        try:
+            return _enqueue_local_task(task_func, *args, **kwargs)
+        except Exception:
+            logger.exception("Local queue failed, fallback to sync execution")
+            task_func(*args, **kwargs)
+            return EnqueueResult(mode="sync", job_id=None).model_dump()
+
     if not task_queue:
         # 如果没有 Redis，直接同步执行
         try:
@@ -281,7 +398,7 @@ def enqueue_task(task_func, *args, **kwargs) -> Dict[str, Any]:
         job = task_queue.enqueue(task_func, *args, **kwargs, job_timeout="10m")
         logger.info("Task enqueued: job_id=%s", job.id)
         return EnqueueResult(mode="queued", job_id=job.id).model_dump()
-    except Exception as e:
+    except Exception:
         logger.exception("Task enqueue failed, fallback to sync execution")
         # 如果入队失败，回退到同步执行
         try:

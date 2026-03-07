@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 
+from utils.page_helpers import check_api_key_configured
 from utils.utils import (
     ensure_local_user,
     get_model_name,
@@ -9,7 +10,6 @@ from utils.utils import (
     save_api_key,
     save_model_name,
 )
-from utils.page_helpers import check_api_key_configured
 
 
 def _create_legacy_db_without_files_uuid(db_path: Path) -> None:

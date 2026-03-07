@@ -2,8 +2,8 @@ import sqlite3
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
-from utils.utils import add_file_to_project, ensure_default_project_for_user
 
+from utils.utils import add_file_to_project, ensure_default_project_for_user
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -298,11 +298,10 @@ def test_main_app_uses_persisted_extraction_cache(
     import agent.adapters.rag as rag_adapter_module
     import agent.rag.hybrid as rag_hybrid_module
 
-    fake_retriever_builder = (
-        lambda document_text, doc_uid="", doc_name="", project_uid="", **kwargs: (
-            lambda query: {"evidences": [], "trace": {"mode": "test"}}
-        )
-    )
+    def fake_retriever_builder(document_text, doc_uid="", doc_name="", project_uid="", **kwargs):
+        return ((
+                lambda query: {"evidences": [], "trace": {"mode": "test"}}
+            ))
     monkeypatch.setattr(
         rag_hybrid_module,
         "build_local_evidence_retriever_with_settings",

@@ -11,20 +11,33 @@ from pathlib import Path
 from typing import Any, Iterator, Tuple
 
 import streamlit as st
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
+from agent.llm_provider import build_openai_compatible_chat_model
 from agent.logging_utils import configure_application_logging
 from agent.memory.store import (
     get_project_session_compact_memory as _memory_store_get_project_session_compact_memory,
+)
+from agent.memory.store import (
     list_project_memory_items as _memory_store_list_project_memory_items,
+)
+from agent.memory.store import (
     save_project_session_compact_memory as _memory_store_save_project_session_compact_memory,
+)
+from agent.memory.store import (
     search_project_memory_items as _memory_store_search_project_memory_items,
+)
+from agent.memory.store import (
     touch_memory_items as _memory_store_touch_memory_items,
+)
+from agent.memory.store import (
     upsert_project_memory_item as _memory_store_upsert_project_memory_item,
 )
 from agent.settings import load_agent_settings
-from agent.llm_provider import build_openai_compatible_chat_model
+
 from .schemas import FileRecord
 
 
@@ -1305,7 +1318,7 @@ def register(
         return False, "", "用户名已存在"
     uid = gen_uuid()
     cursor.execute(
-        f"""
+        """
            INSERT INTO users (uuid, username, password)
            VALUES (?, ?, ?)
            """,
@@ -2003,10 +2016,6 @@ def extract_files(file_path: str):
         return {"result": -1, "text": "Unexpect file type!"}
 
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-
-
 def optimize_text(text: str):
     system_prompt = """你是一个专业的论文优化助手。你的任务是:
         1. 优化用户输入的文本，使其表达更加流畅、逻辑更加清晰
@@ -2046,19 +2055,19 @@ def generate_mindmap_data(text: str) -> dict[str, Any]:
     1. 主题提取
        - 准确识别文档的核心主题作为根节点
        - 确保主题概括准确且简洁
-    
+
     2. 结构设计
        - 第一层：识别文档的主要章节或核心概念（3-5个）
        - 第二层：提取每个主要章节下的关键要点（2-4个）
        - 第三层：补充具体的细节和示例（如果必要）
        - 最多不超过4层结构
-    
+
     3. 内容处理
        - 使用简洁的关键词或短语
        - 每个节点内容控制在15字以内
        - 保持逻辑连贯性和层次关系
        - 确保专业术语的准确性
-    
+
     4. 特殊注意
        - 研究类文献：突出研究背景、方法、结果、结论等关键环节
        - 综述类文献：强调研究现状、问题、趋势等主要方面
@@ -2251,7 +2260,7 @@ def delete_content_by_uid(uid: str, content_type: str, db_name="./database.sqlit
         # 将指定字段设置为 NULL
         cursor.execute(
             f"""
-            UPDATE contents 
+            UPDATE contents
             SET {content_type} = NULL
             WHERE uid = ?
         """,

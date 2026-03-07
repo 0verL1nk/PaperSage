@@ -2,7 +2,7 @@ import json
 import os
 import re
 import subprocess
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -295,7 +295,7 @@ def _normalize_todo_priority(priority: str) -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _normalize_todo_id(raw_id: str) -> str:
@@ -305,7 +305,7 @@ def _normalize_todo_id(raw_id: str) -> str:
 
 def _generate_todo_id(title: str) -> str:
     stem = _normalize_todo_id(title) or "todo"
-    return f"{stem}_{int(datetime.now(UTC).timestamp())}"
+    return f"{stem}_{int(datetime.now(timezone.utc).timestamp())}"
 
 
 def _normalize_todo_dependencies(
@@ -568,6 +568,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             if index < 0 and normalized_action in {"update_status", "append_note"}:
                 return "Todo id not found. Use action=upsert to create first."
 
+            record: dict[str, Any]
             if index < 0:
                 todo_title = str(title or "").strip()
                 if not todo_title:
@@ -593,7 +594,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
                 records.append(record)
                 index = len(records) - 1
             else:
-                record = records[index]
+                record = dict(records[index])
 
             if normalized_action == "upsert":
                 if str(title or "").strip():
@@ -618,10 +619,13 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
                 if str(step_ref or "").strip():
                     record["step_ref"] = str(step_ref).strip()
 
-            history = record.get("history")
-            if not isinstance(history, list):
+            history_raw = record.get("history")
+            history: list[dict[str, Any]]
+            if isinstance(history_raw, list):
+                history = [item for item in history_raw if isinstance(item, dict)]
+            else:
                 history = []
-                record["history"] = history
+            record["history"] = history
 
             note_text = str(note or "").strip()
             if normalized_action == "append_note" and not note_text:
@@ -676,7 +680,7 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             index = _find_todo_index(records, todo_id)
             if index < 0:
                 return "Todo id not found."
-            record = records[index]
+            record: dict[str, Any] = dict(records[index])
             now = _now_iso()
 
             if str(title or "").strip():
@@ -699,10 +703,13 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
                     self_id=str(record.get("id") or ""),
                 )
 
-            history = record.get("history")
-            if not isinstance(history, list):
+            history_raw = record.get("history")
+            history: list[dict[str, Any]]
+            if isinstance(history_raw, list):
+                history = [item for item in history_raw if isinstance(item, dict)]
+            else:
                 history = []
-                record["history"] = history
+            record["history"] = history
             note_text = str(note or "").strip()
             if note_text:
                 history.append(

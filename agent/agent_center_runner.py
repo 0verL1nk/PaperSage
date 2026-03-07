@@ -3,16 +3,17 @@ from typing import Any
 
 import streamlit as st
 
-from .mindmap_renderer import render_mindmap_html_with_cli
+from ui.agent_center_turn_view import (
+    build_status_event_line,
+    render_turn_result,
+)
+
 from .application.agent_center.turn_execution import (
     execute_turn_with_runtime,
     resolve_turn_runtime_inputs,
 )
 from .logging_utils import logging_context
-from ui.agent_center_turn_view import (
-    build_status_event_line,
-    render_turn_result,
-)
+from .mindmap_renderer import render_mindmap_html_with_cli
 
 
 def execute_assistant_turn(

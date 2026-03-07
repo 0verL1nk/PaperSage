@@ -13,7 +13,6 @@ from agent.application.turn_engine import execute_turn_core
 from agent.llm_provider import build_openai_compatible_chat_model
 from agent.paper_agent import create_paper_agent_session
 
-
 REAL_PAPER_SOURCES: tuple[dict[str, str], ...] = (
     {
         "paper_id": "arxiv:1706.03762",

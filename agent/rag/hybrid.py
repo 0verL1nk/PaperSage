@@ -4,11 +4,11 @@
 支持配置化开关和失败回退
 支持邻域扩展和证据来源输出
 """
-import logging
-import os
 import hashlib
 import json
+import logging
 import math
+import os
 import pickle
 import tempfile
 from dataclasses import dataclass, field
@@ -19,9 +19,9 @@ from typing import Any, Callable
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from ..settings import load_agent_settings
 from .evidence import EvidenceItem, EvidencePayload
 from .vector_store import build_vectorstore, stable_vectorstore_key
-from ..settings import load_agent_settings
 
 logger = logging.getLogger(__name__)
 PROJECT_INDEX_SCHEMA_VERSION = 1
@@ -374,8 +374,8 @@ def _build_bm25_retriever(
         return None
 
     try:
-        from rank_bm25 import BM25Okapi
         import jieba
+        from rank_bm25 import BM25Okapi
 
         # Tokenize chunks
         tokenized_chunks = [list(jieba.cut(chunk)) for chunk in chunks]
@@ -476,7 +476,7 @@ def _rerank_docs(
         return [doc.page_content for doc in docs[:top_k]]
 
     try:
-        from flashrank import Ranker, RerankRequest
+        from flashrank import RerankRequest
 
         passages = [
             {"id": str(index), "text": doc.page_content}

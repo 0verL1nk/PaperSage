@@ -9,7 +9,8 @@ from agent.application.agent_center.agent_runtime import (
 def test_ensure_agent_runtime_reuses_cached_session():
     cached_agent = object()
     cached_runtime_config = {"configurable": {"thread_id": "t1"}}
-    cached_retriever = lambda _q: {"evidences": [{"text": "x"}]}
+    def cached_retriever(_q):
+        return {"evidences": [{"text": "x"}]}
     session_state = {
         "paper_agent_sessions": {
             "leader:p1:s1": {
@@ -56,7 +57,8 @@ def test_ensure_agent_runtime_reuses_cached_session():
 
 def test_ensure_agent_runtime_creates_fresh_session():
     session_state = {}
-    retriever = lambda _q: {"evidences": [{"text": "chunk"}]}
+    def retriever(_q):
+        return {"evidences": [{"text": "chunk"}]}
 
     created = {"leader_session_calls": 0}
 

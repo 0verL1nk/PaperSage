@@ -1,13 +1,13 @@
-import os
 import hashlib
+import os
 from typing import Any, Callable
 
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from ..settings import load_agent_settings
 from .evidence import EvidenceItem, EvidencePayload
 from .vector_store import build_vectorstore, stable_vectorstore_key
-from ..settings import load_agent_settings
 
 
 def _clamp_relevance_score(value: Any) -> float:

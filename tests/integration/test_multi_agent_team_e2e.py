@@ -1,10 +1,10 @@
 from types import SimpleNamespace
 
-from agent.a2a.coordinator import A2AMultiAgentCoordinator, WORKFLOW_PLAN_ACT_REPLAN
+from agent.a2a.coordinator import WORKFLOW_PLAN_ACT_REPLAN, A2AMultiAgentCoordinator
 from agent.a2a.standard import (
     A2A_VERSION_HEADER,
-    A2AInMemoryServer,
     METHOD_SEND_MESSAGE,
+    A2AInMemoryServer,
     build_agent_card,
     build_coordinator_executor,
 )

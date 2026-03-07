@@ -1,13 +1,13 @@
-import logging
 import json
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
 from langchain.agents import create_agent
-from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.prompts import ChatPromptTemplate
+from langgraph.checkpoint.memory import InMemorySaver
 
 from .capabilities import build_agent_tools, build_progressive_tool_middleware
 
@@ -63,6 +63,7 @@ class PaperAgentSession:
     agent: Any
     thread_id: str
     tool_specs: list[dict[str, str]]
+
 
     @property
     def runtime_config(self) -> dict[str, dict[str, str]]:

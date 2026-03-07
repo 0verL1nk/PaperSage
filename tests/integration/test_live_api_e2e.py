@@ -5,17 +5,17 @@ from uuid import uuid4
 
 import pytest
 
-from agent.archive import list_agent_outputs, save_agent_output
-from agent.llm_provider import build_openai_compatible_chat_model
 from agent.a2a.coordinator import (
     WORKFLOW_PLAN_ACT,
     WORKFLOW_PLAN_ACT_REPLAN,
     WORKFLOW_REACT,
     create_multi_agent_a2a_session,
 )
+from agent.a2a.router import auto_select_workflow_mode
+from agent.archive import list_agent_outputs, save_agent_output
+from agent.llm_provider import build_openai_compatible_chat_model
 from agent.paper_agent import create_paper_agent_session
 from agent.stream import iter_agent_response_deltas
-from agent.a2a.router import auto_select_workflow_mode
 from utils.utils import extract_json_string
 
 

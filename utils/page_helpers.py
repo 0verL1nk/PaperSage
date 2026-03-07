@@ -2,22 +2,22 @@
 页面辅助函数 - 用于统一处理任务队列、API key检查等
 """
 
-import uuid
 import logging
-import streamlit as st
+import uuid
 from typing import Any, Optional, Tuple
-from .utils import ensure_local_user, get_api_key, get_model_name
-from .task_queue import (
-    create_task,
-    get_task_status_by_uid,
-    get_job_status,
-    has_active_rq_workers,
-    enqueue_task,
-    TaskStatus,
-)
-from .tasks import task_text_extraction, task_file_summary, task_generate_mindmap
-from .schemas import EnqueueResult
 
+import streamlit as st
+
+from .schemas import EnqueueResult
+from .task_queue import (
+    TaskStatus,
+    create_task,
+    enqueue_task,
+    get_job_status,
+    get_task_status_by_uid,
+    has_active_rq_workers,
+)
+from .utils import ensure_local_user, get_api_key, get_model_name
 
 logger = logging.getLogger("llm_app.page_helpers")
 if not logger.handlers:
@@ -138,8 +138,9 @@ def check_task_and_content(
         task_status: 任务状态 ('pending', 'started', 'finished', 'failed', 'queued', None)
         task_id: 任务ID
     """
-    from .utils import get_content_by_uid
     import json
+
+    from .utils import get_content_by_uid
 
     # 先检查是否已有内容
     content = get_content_by_uid(uid, content_type)
@@ -153,7 +154,7 @@ def check_task_and_content(
             else:
                 # file_extraction 也是JSON格式
                 return json.loads(content), None, None
-        except:
+        except Exception:
             return {"raw": content}, None, None
 
     # 检查是否有进行中的任务
@@ -171,7 +172,7 @@ def check_task_and_content(
                         return {"summary": content}, None, None
                     else:
                         return json.loads(content), None, None
-                except:
+                except Exception:
                     return {"raw": content}, None, None
 
         # 检查RQ任务状态

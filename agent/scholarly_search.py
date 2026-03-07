@@ -3,7 +3,6 @@ from typing import Any
 
 import httpx
 
-
 logger = logging.getLogger(__name__)
 
 SEMANTIC_SCHOLAR_API = "https://api.semanticscholar.org/graph/v1/paper/search"

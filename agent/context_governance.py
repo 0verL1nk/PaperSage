@@ -3,8 +3,8 @@ import math
 import os
 import re
 from ast import literal_eval
-from functools import lru_cache
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from .a2a.coordinator import (
@@ -13,9 +13,8 @@ from .a2a.coordinator import (
     RESEARCHER_SYSTEM_PROMPT,
     REVIEWER_SYSTEM_PROMPT,
 )
-from .paper_agent import PAPER_QA_SYSTEM_PROMPT
 from .a2a.router import ROUTER_INSTRUCTION
-
+from .paper_agent import PAPER_QA_SYSTEM_PROMPT
 
 COMPACT_SUMMARY_HEADER = "【自动压缩摘要】"
 BOOTSTRAP_PREFIX = "已加载文档《"

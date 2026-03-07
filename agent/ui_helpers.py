@@ -8,11 +8,12 @@ import streamlit.components.v1 as components
 from pyecharts import options as opts
 from pyecharts.charts import Tree
 
+from utils.compare_parser import method_compare_to_csv, parse_method_compare_payload
+from utils.utils import extract_json_string
+
 from .archive import list_agent_outputs
 from .domain.trace import phase_label_from_performative, phase_summary
 from .metrics import create_session_metrics, summarize_session_metrics
-from utils.compare_parser import method_compare_to_csv, parse_method_compare_payload
-from utils.utils import extract_json_string
 
 LEGACY_WORKFLOW_LABELS = {
     "react": "ReAct（Tool+Memory）",

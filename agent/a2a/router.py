@@ -1,9 +1,9 @@
 import logging
 from typing import Any
 
-from .coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
 from ..domain.request_context import RequestContext
-from ..orchestration.policy_engine import decide_execution_policy, intercept
+from ..orchestration.policy_engine import intercept
+from .coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
 
 logger = logging.getLogger(__name__)
 

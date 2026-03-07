@@ -19,7 +19,6 @@ from ..domain.orchestration import (
 )
 from ..stream import extract_result_text
 
-
 ROLE_ROUTER_INSTRUCTION = """
 你是团队角色规划器。请为当前任务设计若干互补角色，避免职责重复。
 

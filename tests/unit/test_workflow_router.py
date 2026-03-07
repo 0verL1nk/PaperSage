@@ -1,12 +1,9 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
 from agent.a2a.router import _policy_to_workflow_mode, auto_select_workflow_mode
-from agent.orchestration.policy_engine import decide_execution_policy
 from agent.domain.orchestration import PolicyDecision
-
+from agent.orchestration.policy_engine import decide_execution_policy
 
 # ---------------------------------------------------------------------------
 # _policy_to_workflow_mode 映射

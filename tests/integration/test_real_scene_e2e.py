@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from agent.adapters.document import extract_document_payload
+from agent.adapters.rag import create_project_evidence_retriever
 from agent.application.turn_engine import execute_turn_core
 from agent.domain.orchestration import (
     OrchestratedTurn,
@@ -11,9 +13,6 @@ from agent.domain.orchestration import (
     build_trace_event,
     create_trace_context,
 )
-from agent.adapters.document import extract_document_payload
-from agent.adapters.rag import create_project_evidence_retriever
-
 
 PAPER_FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "papers" / "rag_agentic_reasoning"
 

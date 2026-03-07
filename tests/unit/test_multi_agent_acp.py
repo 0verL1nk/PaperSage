@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from langgraph.checkpoint.memory import InMemorySaver
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 
 from agent import multi_agent_a2a as module
 

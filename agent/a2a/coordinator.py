@@ -5,12 +5,19 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from a2a.types import Message, TextPart
+from a2a.types import Message, Part, Role, TextPart
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
+from ..capabilities import build_agent_tools, build_progressive_tool_middleware
+from ..contracts import normalize_plan_text, normalize_review_text
+from ..stream import extract_result_text
+from .replan_policy import (
+    has_replan_budget,
+    normalize_max_review_rounds,
+    review_needs_revision,
+)
 from .state_machine import (
-    ALLOWED_STATE_TRANSITIONS,
     STATE_COMPLETED,
     STATE_FINALIZING,
     STATE_PLANNING,
@@ -20,14 +27,6 @@ from .state_machine import (
     STATE_SUBMITTED,
     transition_state,
 )
-from .replan_policy import (
-    has_replan_budget,
-    normalize_max_review_rounds,
-    review_needs_revision,
-)
-from ..capabilities import build_agent_tools, build_progressive_tool_middleware
-from ..contracts import normalize_plan_text, normalize_review_text
-from ..stream import extract_result_text
 
 logger = logging.getLogger(__name__)
 
@@ -259,11 +258,11 @@ class A2AMultiAgentCoordinator:
             if isinstance(metadata, dict) and metadata:
                 sdk_metadata["traceMeta"] = metadata
             sdk_message = Message(
-                role="user" if sender == "user" else "agent",
-                parts=[TextPart(text=str(content))],
-                messageId=f"{trace_task_id}:{trace_sequence}",
-                taskId=trace_task_id,
-                contextId=self.session_id,
+                role=Role.user if sender == "user" else Role.agent,
+                parts=[Part(root=TextPart(text=str(content)))],
+                message_id=f"{trace_task_id}:{trace_sequence}",
+                task_id=trace_task_id,
+                context_id=self.session_id,
                 metadata=sdk_metadata,
             ).model_dump(mode="json", by_alias=True, exclude_none=True)
             return A2AMessage(
@@ -332,7 +331,7 @@ class A2AMultiAgentCoordinator:
             )
             return answer, trace
 
-        trace: list[A2AMessage] = []
+        trace = []
         self._record_trace(
             trace,
             _msg(

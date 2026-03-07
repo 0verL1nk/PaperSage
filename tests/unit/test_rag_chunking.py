@@ -2,12 +2,11 @@
 
 测试结构化切分器功能
 """
-import pytest
 
 from agent.rag.chunking import (
     ChunkMetadata,
-    StructuredChunk,
     SemanticAwareSplitter,
+    StructuredChunk,
     create_structured_splitter,
 )
 

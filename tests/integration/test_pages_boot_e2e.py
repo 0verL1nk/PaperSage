@@ -4,7 +4,6 @@ from streamlit.testing.v1 import AppTest
 
 from utils.utils import ensure_local_user, init_database, save_api_key, save_model_name
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 

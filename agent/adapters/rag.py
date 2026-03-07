@@ -1,5 +1,5 @@
-from collections.abc import Callable
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from ..rag.hybrid import (

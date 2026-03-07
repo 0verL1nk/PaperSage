@@ -1,9 +1,9 @@
-from collections.abc import Callable
 import json
-import os
-from typing import Any
 import logging
+import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from ..domain.orchestration import (
     OrchestratedTurn,
@@ -15,6 +15,7 @@ from ..domain.orchestration import (
     build_trace_event,
     create_trace_context,
 )
+from ..domain.request_context import RequestContext
 from ..output_cleaner import sanitize_public_answer
 from ..settings import load_agent_settings
 from ..stream import (
@@ -22,14 +23,13 @@ from ..stream import (
     extract_result_text,
     extract_skill_activation_events_from_result,
     extract_tool_activation_events_from_result,
-    extract_tool_trace_events_from_result,
     extract_tool_names_from_result,
+    extract_tool_trace_events_from_result,
 )
 from .async_policy import AsyncPolicyPredictor
 from .planning_service import build_execution_plan
 from .policy_engine import intercept as intercept_policy
 from .team_runtime import run_team_tasks
-from ..domain.request_context import RequestContext
 
 logger = logging.getLogger(__name__)
 

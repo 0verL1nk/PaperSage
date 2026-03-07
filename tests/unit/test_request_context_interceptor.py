@@ -8,12 +8,11 @@ RequestContext 拦截器专项测试。
 - force_plan / force_team 覆盖语义
 - LLM 不可用时降级到启发式
 """
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+from agent.domain.orchestration import PolicyDecision
 from agent.domain.request_context import RequestContext
 from agent.orchestration.policy_engine import intercept
-from agent.domain.orchestration import PolicyDecision
-
 
 # ---------------------------------------------------------------------------
 # RequestContext 基本构造

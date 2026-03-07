@@ -3,10 +3,9 @@
 """
 
 import json
+import logging
 import os
 import sys
-import logging
-from typing import Any
 
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -18,44 +17,44 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     from utils.utils import (
         extract_files,
-        save_content_to_database,
+        extract_json_string,
         get_api_key,
         get_base_url,
         get_model_name,
-        extract_json_string,
         llm_content_to_text,
+        save_content_to_database,
     )
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
-    import sys
     import os
+    import sys
 
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from utils.utils import (
         extract_files,
-        save_content_to_database,
+        extract_json_string,
         get_api_key,
         get_base_url,
         get_model_name,
-        extract_json_string,
         llm_content_to_text,
+        save_content_to_database,
     )
 
-from openai import OpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from openai import OpenAI
 
 try:
-    from agent.settings import load_agent_settings
     from agent.llm_provider import build_openai_compatible_chat_model
+    from agent.settings import load_agent_settings
 except ImportError:
-    from agent.settings import load_agent_settings
     from agent.llm_provider import build_openai_compatible_chat_model
+    from agent.settings import load_agent_settings
 
 try:
-    from utils.task_queue import update_task_status, TaskStatus
+    from utils.task_queue import TaskStatus, update_task_status
 except ImportError:
-    from utils.task_queue import update_task_status, TaskStatus
+    from utils.task_queue import TaskStatus, update_task_status
 
 logger = logging.getLogger("llm_app.worker_tasks")
 if not logger.handlers:
@@ -300,19 +299,19 @@ def task_generate_mindmap(task_id: str, file_path: str, uid: str, user_uuid: str
     1. 主题提取
        - 准确识别文档的核心主题作为根节点
        - 确保主题概括准确且简洁
-    
+
     2. 结构设计
        - 第一层：识别文档的主要章节或核心概念（3-5个）
        - 第二层：提取每个主要章节下的关键要点（2-4个）
        - 第三层：补充具体的细节和示例（如果必要）
        - 最多不超过4层结构
-    
+
     3. 内容处理
        - 使用简洁的关键词或短语
        - 每个节点内容控制在15字以内
        - 保持逻辑连贯性和层次关系
        - 确保专业术语的准确性
-    
+
     4. 特殊注意
        - 研究类文献：突出研究背景、方法、结果、结论等关键环节
        - 综述类文献：强调研究现状、问题、趋势等主要方面

@@ -1,8 +1,8 @@
 import datetime
 import hashlib
 import os
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 import streamlit as st
 
@@ -15,11 +15,11 @@ from utils.utils import (
     ensure_local_user,
     get_file_project_counts,
     get_uid_by_md5,
+    get_user_files,
+    init_database,
     list_project_files,
     list_projects,
     remove_file_from_project,
-    get_user_files,
-    init_database,
     save_file_to_database,
 )
 

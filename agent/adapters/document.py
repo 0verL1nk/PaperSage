@@ -1,7 +1,6 @@
 from typing import Any
 
-from utils import extract_files
-from utils.utils import get_content_by_uid, save_content_to_database
+from utils.utils import extract_files, get_content_by_uid, save_content_to_database
 
 
 def extract_document_payload(file_path: str) -> dict[str, Any]:
