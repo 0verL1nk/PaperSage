@@ -169,6 +169,19 @@ def ensure_agent_runtime(
 
         read_document_fn = _read_document_fn
 
+    _captured_scope_docs = list(scope_docs)
+
+    def list_documents_fn() -> list[dict]:
+        return [
+            {
+                "doc_uid": str(item.get("uid") or item.get("doc_uid") or ""),
+                "doc_name": str(item.get("file_name") or item.get("doc_name") or ""),
+                "text": str(item.get("text") or ""),
+            }
+            for item in _captured_scope_docs
+            if isinstance(item, dict)
+        ]
+
     scope_names = [str(item.get("file_name") or "") for item in scope_docs]
     scope_preview = ", ".join(scope_names[:5])
     if len(scope_names) > 5:
@@ -181,6 +194,7 @@ def ensure_agent_runtime(
             search_document_fn=search_document_fn,
             search_document_evidence_fn=search_document_evidence_fn,
             read_document_fn=read_document_fn,
+            list_documents_fn=list_documents_fn,
             document_name=scope_preview or "项目范围",
             project_name=project_name,
             scope_summary=scope_preview or "空范围",

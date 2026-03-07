@@ -1,8 +1,9 @@
 import streamlit as st
+from typing import Any
 
 
 def initialize_agent_center_session_state() -> None:
-    defaults = {
+    defaults: dict[str, Any] = {
         "paper_agent": None,
         "paper_evidence_retriever": None,
         "paper_agent_runtime_config": None,

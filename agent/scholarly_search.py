@@ -31,7 +31,7 @@ def _paper_from_semantic_scholar(item: dict[str, Any]) -> dict[str, Any]:
         for author in authors
         if isinstance(author, dict) and author.get("name")
     ]
-    external_ids = item.get("externalIds") if isinstance(item.get("externalIds"), dict) else {}
+    external_ids: dict[str, Any] = item.get("externalIds") if isinstance(item.get("externalIds"), dict) else {}
     doi = external_ids.get("DOI") if isinstance(external_ids.get("DOI"), str) else None
 
     open_access_pdf = item.get("openAccessPdf")
@@ -67,7 +67,7 @@ def search_semantic_scholar(
         return []
 
     safe_limit = max(1, min(limit, 20))
-    params = {
+    params: dict[str, Any] = {
         "query": query_normalized,
         "limit": safe_limit,
         "fields": SEMANTIC_SCHOLAR_FIELDS,

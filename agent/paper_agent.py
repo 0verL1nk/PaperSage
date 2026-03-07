@@ -76,6 +76,7 @@ def create_paper_agent_session(
     search_document_fn,
     search_document_evidence_fn=None,
     read_document_fn=None,
+    list_documents_fn=None,
     system_prompt: str = PAPER_QA_SYSTEM_PROMPT,
     document_name: str | None = None,
     project_name: str | None = None,
@@ -96,6 +97,7 @@ def create_paper_agent_session(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
         read_document_fn=read_document_fn,
+        list_documents_fn=list_documents_fn,
     )
     middleware = build_progressive_tool_middleware(tools)
 

@@ -25,7 +25,7 @@ def aggregate_evidence(payloads: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "locator": str(item.get("locator") or ""),
                 "score": float(item.get("score", 0.0)) if isinstance(item.get("score"), (int, float)) else 0.0,
             }
-            if not record["text"].strip():
+            if not str(record["text"]).strip():
                 continue
             records.append(record)
     return records

@@ -14,9 +14,9 @@ try:
     from langchain_chroma import Chroma as _LangchainChroma
 except Exception:
     try:
-        from langchain_community.vectorstores import Chroma as _LangchainChroma
+        from langchain_community.vectorstores import Chroma as _LangchainChroma  # type: ignore[assignment]
     except Exception:
-        _LangchainChroma = None
+        _LangchainChroma = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ def _build_chroma_vectorstore(
     )
     existing_count = 0
     try:
-        existing_count = int(store._collection.count())  # type: ignore[attr-defined]
+        existing_count = int(store._collection.count())
     except Exception:
         existing_count = 0
     if existing_count <= 0:

@@ -30,6 +30,13 @@ class SearchDocumentInput(BaseModel):
     )
 
 
+class ListDocumentInput(BaseModel):
+    verbose: bool = Field(
+        default=False,
+        description="If True, include character length for each document.",
+    )
+
+
 class ReadDocumentInput(BaseModel):
     offset: int = Field(
         default=0,
@@ -103,6 +110,7 @@ _DANGEROUS_QUERY_PATTERNS = [
 ]
 _DEFAULT_FIXED_TOOL_NAMES = {
     "search_document",
+    "list_document",
     "read_document",
     "use_skill",
     "ask_human",
@@ -112,6 +120,10 @@ _TOOL_METADATA = (
     ToolMetadata(
         name="search_document",
         description="Search uploaded paper content for relevant evidence snippets using RAG.",
+    ),
+    ToolMetadata(
+        name="list_document",
+        description="List all documents loaded in the current project scope with their names and identifiers.",
     ),
     ToolMetadata(
         name="read_document",
@@ -398,11 +410,15 @@ def build_progressive_tool_middleware(tools: list[Any]) -> list[AgentMiddleware]
     ]
 
 
-def discover_available_tools(*, read_document_enabled: bool = True) -> list[ToolMetadata]:
+def discover_available_tools(
+    *, read_document_enabled: bool = True, list_document_enabled: bool = True
+) -> list[ToolMetadata]:
     """发现可用工具（元信息阶段，不创建运行时实例）"""
     discovered: list[ToolMetadata] = []
     for item in _TOOL_METADATA:
         if item.name == "read_document" and not read_document_enabled:
+            continue
+        if item.name == "list_document" and not list_document_enabled:
             continue
         discovered.append(item)
     return discovered
@@ -610,6 +626,7 @@ def build_agent_tools(
     search_document_fn: Callable[[str], str],
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
     read_document_fn: Callable[[int, int], tuple[str, int]] | None = None,
+    list_documents_fn: Callable[[], list[dict[str, Any]]] | None = None,
     allowed_tools: set[str] | None = None,
 ):
     """构建 Agent 工具集
@@ -617,13 +634,17 @@ def build_agent_tools(
     Args:
         search_document_fn: RAG 检索函数
         read_document_fn: 分块读取函数，接收 (offset, limit)，返回 (content, total_length)
+        list_documents_fn: 文档列表函数，返回 list[{doc_uid, doc_name, char_length}]
     """
     if allowed_tools is None:
         normalized_allowlist = None
     else:
         normalized_allowlist = {name.strip().lower() for name in allowed_tools if name.strip()}
 
-    discovered_tools = discover_available_tools(read_document_enabled=read_document_fn is not None)
+    discovered_tools = discover_available_tools(
+        read_document_enabled=read_document_fn is not None,
+        list_document_enabled=list_documents_fn is not None,
+    )
     enabled_tool_names = {
         item.name for item in discovered_tools if _tool_enabled(item.name, normalized_allowlist)
     }
@@ -759,6 +780,39 @@ def build_agent_tools(
             return search_document_fn(safe_query)
 
         _register_tool(search_document)
+
+    if "list_document" in enabled_tool_names and list_documents_fn is not None:
+        @tool(
+            "list_document",
+            description="List all documents loaded in the current project scope with their names and identifiers.",
+            args_schema=ListDocumentInput,
+        )
+        def list_document(verbose: bool = False) -> str:
+            logger.info("tool.list_document called: verbose=%s", verbose)
+            try:
+                docs = list_documents_fn()
+            except Exception as exc:
+                logger.exception("tool.list_document failed: %s", exc)
+                return f"Failed to list documents: {exc}"
+            if not isinstance(docs, list) or not docs:
+                logger.info("tool.list_document: no documents found")
+                return "No documents loaded in current project scope."
+            items: list[dict[str, Any]] = []
+            for doc in docs:
+                if not isinstance(doc, dict):
+                    continue
+                entry: dict[str, Any] = {
+                    "doc_uid": str(doc.get("doc_uid") or doc.get("uid") or ""),
+                    "doc_name": str(doc.get("doc_name") or doc.get("file_name") or ""),
+                }
+                if verbose:
+                    text = doc.get("text") or ""
+                    entry["char_length"] = len(str(text))
+                items.append(entry)
+            logger.info("tool.list_document success: count=%s", len(items))
+            return json.dumps({"count": len(items), "documents": items}, ensure_ascii=False)
+
+        _register_tool(list_document)
 
     for local_tool in build_local_ops_tools(enabled_tool_names=enabled_tool_names):
         _register_tool(local_tool)
