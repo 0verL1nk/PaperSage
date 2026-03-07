@@ -10,6 +10,25 @@ from .vector_store import build_vectorstore, stable_vectorstore_key
 from ..settings import load_agent_settings
 
 
+def _clamp_relevance_score(value: Any) -> float:
+    try:
+        score = float(value)
+    except Exception:
+        return 0.0
+    if score < 0.0:
+        return 0.0
+    if score > 1.0:
+        return 1.0
+    return score
+
+
+def _min_relevance_score(settings: Any) -> float:
+    raw = getattr(settings, "rag_min_relevance_score", None)
+    if raw is None:
+        raw = os.getenv("LOCAL_RAG_MIN_RELEVANCE_SCORE", "0.2")
+    return _clamp_relevance_score(raw)
+
+
 def ensure_local_embedding_model_downloaded() -> str:
     settings = load_agent_settings()
     os.makedirs(settings.local_embedding_cache_dir, exist_ok=True)
@@ -76,6 +95,7 @@ def _build_evidence_payload(
     doc_uid: str,
     ranked_chunks: list[str],
     source_docs: list[Any],
+    source_scores: list[float] | None = None,
     doc_name: str = "",
     project_uid: str = "",
     trace: dict[str, Any] | None = None,
@@ -121,7 +141,15 @@ def _build_evidence_payload(
             doc_name=metadata_doc_name if isinstance(metadata_doc_name, str) else doc_name,
             chunk_id=chunk_id,
             text=text,
-            score=float(1.0 / (rank + 1)),
+            score=(
+                _clamp_relevance_score(source_scores[matched_idx])
+                if (
+                    isinstance(source_scores, list)
+                    and matched_idx is not None
+                    and matched_idx < len(source_scores)
+                )
+                else float(1.0 / (rank + 1))
+            ),
             page_no=metadata.get("page_no") if isinstance(metadata.get("page_no"), int) else None,
             offset_start=offset_start,
             offset_end=(offset_start + len(text)) if isinstance(offset_start, int) else None,
@@ -186,9 +214,37 @@ def build_local_evidence_retriever(
         if settings.rag_rerank_enabled
         else None
     )
+    min_relevance_score = _min_relevance_score(settings)
 
     def search_document_evidence(query: str) -> dict[str, Any]:
-        docs = retriever.invoke(query)
+        scored_search_failed = False
+        raw_candidate_count = 0
+        docs: list[Any] = []
+        scores: list[float] = []
+        try:
+            scored_docs = vectorstore.similarity_search_with_relevance_scores(
+                query,
+                k=settings.rag_dense_candidate_k,
+            )
+            if isinstance(scored_docs, list):
+                raw_candidate_count = len(scored_docs)
+                for item in scored_docs:
+                    if not isinstance(item, (list, tuple)) or len(item) < 2:
+                        continue
+                    doc = item[0]
+                    score = _clamp_relevance_score(item[1])
+                    if score < min_relevance_score:
+                        continue
+                    docs.append(doc)
+                    scores.append(score)
+        except Exception:
+            scored_search_failed = True
+
+        if scored_search_failed:
+            docs = retriever.invoke(query)
+            scores = [0.0] * len(docs)
+            raw_candidate_count = len(docs)
+
         ranked_chunks = _rerank_docs(
             query=query,
             docs=docs,
@@ -198,6 +254,9 @@ def build_local_evidence_retriever(
         trace = {
             "mode": "dense",
             "candidate_count": len(docs),
+            "candidate_count_raw": raw_candidate_count,
+            "min_relevance_score": min_relevance_score,
+            "scored_search_failed": scored_search_failed,
             "top_k": settings.rag_top_k,
             "vector_backend": vector_backend,
             "vector_key": collection_key[:16],
@@ -206,6 +265,7 @@ def build_local_evidence_retriever(
             doc_uid=doc_uid,
             ranked_chunks=ranked_chunks,
             source_docs=docs,
+            source_scores=scores,
             doc_name=doc_name,
             project_uid=project_uid,
             trace=trace,
