@@ -69,13 +69,13 @@ def _route_with_llm(
             # Compatibility fallback for lightweight stubs/mocks that cannot compose with prompt runnable.
             if not hasattr(structured, "invoke"):
                 return None
-            payload = structured.invoke(input_payload)
+            payload = _invoke_structured_compat(structured, input_payload)
         else:
             if (
                 not isinstance(payload, (dict, PolicyRouterOutput, PolicyDecision))
                 and hasattr(structured, "invoke")
             ):
-                payload = structured.invoke(input_payload)
+                payload = _invoke_structured_compat(structured, input_payload)
         if isinstance(payload, PolicyDecision):
             return payload
         if isinstance(payload, dict):
@@ -100,6 +100,33 @@ def _with_structured_output(llm: Any, schema: type[BaseModel]) -> Any:
         return llm.with_structured_output(schema, method="function_calling")
     except TypeError:
         return llm.with_structured_output(schema)
+
+
+def _invoke_structured_compat(structured: Any, input_payload: dict[str, str]) -> Any:
+    """Invoke structured output runnable with cross-version compatible inputs."""
+    prompt_value = POLICY_ROUTER_PROMPT.invoke(input_payload)
+    candidates: list[Any] = [prompt_value]
+    try:
+        candidates.append(prompt_value.to_messages())
+    except Exception:
+        pass
+    try:
+        candidates.append(prompt_value.to_string())
+    except Exception:
+        pass
+    # Keep dict as the final fallback for simple local mocks.
+    candidates.append(input_payload)
+
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            return structured.invoke(candidate)
+        except Exception as exc:
+            last_error = exc
+            continue
+    if last_error is not None:
+        raise last_error
+    return None
 
 
 def _heuristic_route(prompt: str, *, context_digest: str = "") -> PolicyDecision:
