@@ -109,7 +109,7 @@ class AgentSettings:
     agent_policy_async_enabled: bool
     agent_policy_async_refresh_seconds: float
     agent_policy_async_min_confidence: float
-    agent_policy_async_max_staleness_float: float
+    agent_policy_async_max_staleness_seconds: float
     agent_llm_request_timeout: float
 
 

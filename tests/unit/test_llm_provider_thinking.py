@@ -56,6 +56,7 @@ def _settings(*, enable_thinking: bool, reasoning_effort: str) -> AgentSettings:
         agent_policy_async_refresh_seconds=4.0,
         agent_policy_async_min_confidence=0.6,
         agent_policy_async_max_staleness_seconds=20.0,
+        agent_llm_request_timeout=120.0,
     )
 
 
