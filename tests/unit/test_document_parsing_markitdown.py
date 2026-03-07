@@ -125,3 +125,30 @@ def test_extract_files_respects_mineru_backend_fallback_for_docx(
     assert result["parser"] == "pymupdf"
     assert result["format"] == "plain"
     assert result["text"] == "legacy-docx"
+
+
+def test_extract_files_fallbacks_to_legacy_when_mineru_pdf_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    sample = tmp_path / "sample.pdf"
+    sample.write_text("dummy", encoding="utf-8")
+
+    monkeypatch.setenv("DOC_PARSE_BACKEND", "mineru")
+    monkeypatch.setattr(
+        "utils.utils._extract_text_with_mineru_api",
+        lambda _path: (_ for _ in ()).throw(RuntimeError("mineru down")),
+    )
+    monkeypatch.setattr(
+        "utils.utils._extract_text_with_legacy",
+        lambda *, file_path, file_type: (
+            "legacy-pdf",
+            "pymupdf",
+            "plain",
+        ),
+    )
+
+    result = extract_files(str(sample))
+    assert result["result"] == 1
+    assert result["parser"] == "pymupdf"
+    assert result["format"] == "plain"
+    assert result["text"] == "legacy-pdf"

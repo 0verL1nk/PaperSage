@@ -1945,9 +1945,21 @@ def extract_files(file_path: str):
 
             if backend == "mineru":
                 if file_type == "pdf":
-                    text = _extract_text_with_mineru_api(file_path)
-                    parser = "mineru-api"
-                    format_name = "markdown"
+                    try:
+                        text = _extract_text_with_mineru_api(file_path)
+                        parser = "mineru-api"
+                        format_name = "markdown"
+                    except Exception:
+                        try:
+                            text, parser, format_name = _extract_text_with_legacy(
+                                file_path=file_path,
+                                file_type=file_type,
+                            )
+                        except TypeError:
+                            text, parser, format_name = _extract_text_with_legacy(
+                                file_path,
+                                file_type,
+                            )
                 else:
                     text, parser, format_name = _extract_text_with_legacy(
                         file_path=file_path,
