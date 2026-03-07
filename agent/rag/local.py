@@ -1,43 +1,13 @@
 import os
+import hashlib
 from typing import Any, Callable
 
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
-from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from .evidence import EvidenceItem, EvidencePayload
+from .vector_store import build_vectorstore, stable_vectorstore_key
 from ..settings import load_agent_settings
-
-
-def _resolve_index_batch_size() -> int:
-    try:
-        raw = int(os.getenv("RAG_INDEX_BATCH_SIZE", "256"))
-    except Exception:
-        raw = 256
-    return max(16, raw)
-
-
-def _build_vectorstore_in_batches(
-    *,
-    texts: list[str],
-    embedding: Any,
-    metadatas: list[dict[str, Any]] | None = None,
-) -> InMemoryVectorStore:
-    vectorstore = InMemoryVectorStore(embedding=embedding)
-    if not texts:
-        return vectorstore
-    batch_size = _resolve_index_batch_size()
-    total = len(texts)
-    for start in range(0, total, batch_size):
-        end = min(start + batch_size, total)
-        batch_texts = texts[start:end]
-        batch_metas = (
-            metadatas[start:end]
-            if isinstance(metadatas, list) and len(metadatas) >= end
-            else None
-        )
-        vectorstore.add_texts(batch_texts, metadatas=batch_metas)
-    return vectorstore
 
 
 def ensure_local_embedding_model_downloaded() -> str:
@@ -192,10 +162,23 @@ def build_local_evidence_retriever(
         model_name=model_name,
         cache_dir=settings.local_embedding_cache_dir,
     )
-    vectorstore = _build_vectorstore_in_batches(
+    key_payload = {
+        "mode": "local_doc_dense",
+        "project_uid": str(project_uid or ""),
+        "doc_uid": str(doc_uid or ""),
+        "doc_name": str(doc_name or ""),
+        "model_name": model_name,
+        "chunk_size": int(settings.rag_chunk_size),
+        "chunk_overlap": int(settings.rag_chunk_overlap),
+        "text_sha1": hashlib.sha1(document_text.encode("utf-8")).hexdigest(),
+    }
+    collection_key = stable_vectorstore_key(key_payload)
+    vectorstore, vector_backend = build_vectorstore(
         texts=chunks,
         embedding=embeddings,
         metadatas=metadatas,
+        collection_prefix="local_doc",
+        collection_key=collection_key,
     )
     retriever = vectorstore.as_retriever(search_kwargs={"k": settings.rag_dense_candidate_k})
     reranker = (
@@ -216,6 +199,8 @@ def build_local_evidence_retriever(
             "mode": "dense",
             "candidate_count": len(docs),
             "top_k": settings.rag_top_k,
+            "vector_backend": vector_backend,
+            "vector_key": collection_key[:16],
         }
         return _build_evidence_payload(
             doc_uid=doc_uid,

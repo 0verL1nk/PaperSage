@@ -17,10 +17,10 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
-from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from .evidence import EvidenceItem, EvidencePayload
+from .vector_store import build_vectorstore, stable_vectorstore_key
 from ..settings import load_agent_settings
 
 logger = logging.getLogger(__name__)
@@ -78,37 +78,6 @@ class RetrievalTrace:
     final_count: int = 0
     neighbor_expanded: bool = False
     fallback_reason: str | None = None
-
-
-def _resolve_index_batch_size() -> int:
-    try:
-        raw = int(os.getenv("RAG_INDEX_BATCH_SIZE", "256"))
-    except Exception:
-        raw = 256
-    return max(16, raw)
-
-
-def _build_vectorstore_in_batches(
-    *,
-    texts: list[str],
-    embedding: Any,
-    metadatas: list[dict[str, Any]] | None = None,
-) -> InMemoryVectorStore:
-    vectorstore = InMemoryVectorStore(embedding=embedding)
-    if not texts:
-        return vectorstore
-    batch_size = _resolve_index_batch_size()
-    total = len(texts)
-    for start in range(0, total, batch_size):
-        end = min(start + batch_size, total)
-        batch_texts = texts[start:end]
-        batch_metas = (
-            metadatas[start:end]
-            if isinstance(metadatas, list) and len(metadatas) >= end
-            else None
-        )
-        vectorstore.add_texts(batch_texts, metadatas=batch_metas)
-    return vectorstore
 
 
 def _project_index_cache_root() -> Path:
@@ -534,6 +503,7 @@ class HybridRetriever:
         chunks: list[str],
         embedding_model: str,
         embedding_cache_dir: str,
+        vectorstore_collection_key: str = "",
         dense_k: int = 30,
         sparse_k: int = 30,
         rrf_k: int = 40,
@@ -556,6 +526,7 @@ class HybridRetriever:
         self.query_preprocess_enabled = query_preprocess_enabled
         self.query_rewrite_enabled = query_rewrite_enabled
         self.query_split_enabled = query_split_enabled
+        self.vectorstore_collection_key = str(vectorstore_collection_key or "").strip()
 
         # LLM 客户端（用于 query 预处理）
         self.llm_client: Any = None
@@ -565,9 +536,13 @@ class HybridRetriever:
             model_name=embedding_model,
             cache_dir=embedding_cache_dir,
         )
-        self.vectorstore = _build_vectorstore_in_batches(
+        chunk_metadatas = [{"chunk_index": idx} for idx in range(len(chunks))]
+        self.vectorstore, self.vector_backend = build_vectorstore(
             texts=chunks,
             embedding=embeddings,
+            metadatas=chunk_metadatas,
+            collection_prefix="hybrid_doc",
+            collection_key=self.vectorstore_collection_key,
         )
 
         # 初始化 Sparse 检索（BM25）
@@ -757,7 +732,13 @@ class HybridRetriever:
             return RetrievalResult(
                 chunks=ranked_chunks,
                 sources=sources,
-                metadata={"trace": trace.__dict__},
+                metadata={
+                    "trace": {
+                        **trace.__dict__,
+                        "vector_backend": self.vector_backend,
+                        "vector_key": self.vectorstore_collection_key[:16],
+                    }
+                },
             )
 
         return ranked_chunks
@@ -868,7 +849,13 @@ class HybridRetriever:
             return RetrievalResult(
                 chunks=ranked_chunks,
                 sources=sources,
-                metadata={"trace": trace.__dict__},
+                metadata={
+                    "trace": {
+                        **trace.__dict__,
+                        "vector_backend": self.vector_backend,
+                        "vector_key": self.vectorstore_collection_key[:16],
+                    }
+                },
             )
 
         return ranked_chunks
@@ -926,12 +913,22 @@ def build_hybrid_retriever(
         separators=["\n\n", "\n", "。", "！", "？", ".", "!", "?"],
     )
     chunks = splitter.split_text(document_text)
+    vectorstore_key = stable_vectorstore_key(
+        {
+            "mode": "hybrid_doc_dense",
+            "text_sha1": _sha1_text(document_text),
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+            "embedding_model": embedding_model,
+        }
+    )
 
     # 创建混合检索器
     retriever = HybridRetriever(
         chunks=chunks,
         embedding_model=embedding_model,
         embedding_cache_dir=embedding_cache_dir,
+        vectorstore_collection_key=vectorstore_key,
         dense_k=dense_k,
         sparse_k=sparse_k,
         rrf_k=rrf_k,
@@ -980,11 +977,24 @@ def build_hybrid_evidence_retriever(
         separators=["\n\n", "\n", "。", "！", "？", ".", "!", "?"],
     )
     chunks = splitter.split_text(document_text)
+    vectorstore_key = stable_vectorstore_key(
+        {
+            "mode": "hybrid_doc_evidence",
+            "project_uid": str(project_uid or ""),
+            "doc_uid": str(doc_uid or ""),
+            "doc_name": str(doc_name or ""),
+            "text_sha1": _sha1_text(document_text),
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+            "embedding_model": embedding_model,
+        }
+    )
 
     retriever = HybridRetriever(
         chunks=chunks,
         embedding_model=embedding_model,
         embedding_cache_dir=embedding_cache_dir,
+        vectorstore_collection_key=vectorstore_key,
         dense_k=dense_k,
         sparse_k=sparse_k,
         rrf_k=rrf_k,
