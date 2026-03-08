@@ -2,14 +2,16 @@ import os
 import sqlite3
 from pathlib import Path
 
-from utils.utils import (
+from agent.adapters.sqlite.project_repository import (
     add_file_to_project,
     create_project,
     ensure_default_project_for_user,
-    ensure_local_user,
-    init_database,
     list_project_files,
     remove_file_from_project,
+)
+from utils.utils import (
+    ensure_local_user,
+    init_database,
     save_file_to_database,
 )
 

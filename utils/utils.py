@@ -16,6 +16,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
+from agent.application.language import detect_language as _detect_language
+from agent.application.runtime_tuning import apply_runtime_tuning_env
 from agent.llm_provider import build_openai_compatible_chat_model
 from agent.logging_utils import configure_application_logging
 from agent.memory.store import (
@@ -237,154 +239,16 @@ def _now_str() -> str:
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _project_repo_module():
+    # Lazy import avoids circular import during module initialization.
+    from agent.adapters.sqlite import project_repository
+
+    return project_repository
+
+
 def ensure_projects_tables(db_name: str = "./database.sqlite") -> None:
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_uid TEXT UNIQUE NOT NULL,
-            uuid TEXT NOT NULL,
-            project_name TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            archived INTEGER DEFAULT 0
-        )
-    """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS project_files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_uid TEXT NOT NULL,
-            file_uid TEXT NOT NULL,
-            uuid TEXT NOT NULL,
-            is_active INTEGER DEFAULT 1,
-            added_at TEXT NOT NULL,
-            UNIQUE(project_uid, file_uid)
-        )
-    """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS project_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_uid TEXT UNIQUE NOT NULL,
-            project_uid TEXT NOT NULL,
-            uuid TEXT NOT NULL,
-            session_name TEXT DEFAULT '',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            is_pinned INTEGER DEFAULT 0
-        )
-    """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS project_session_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_uid TEXT NOT NULL,
-            project_uid TEXT NOT NULL,
-            uuid TEXT NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            message_json TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-    """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS session_compact_memory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_uid TEXT NOT NULL,
-            project_uid TEXT NOT NULL,
-            uuid TEXT NOT NULL,
-            compact_summary TEXT DEFAULT '',
-            anchors_json TEXT DEFAULT '[]',
-            updated_at TEXT NOT NULL,
-            UNIQUE(session_uid, project_uid, uuid)
-        )
-    """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS memory_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            memory_uid TEXT UNIQUE NOT NULL,
-            uuid TEXT NOT NULL,
-            project_uid TEXT NOT NULL,
-            session_uid TEXT,
-            memory_type TEXT NOT NULL,
-            title TEXT DEFAULT '',
-            content TEXT NOT NULL,
-            source_prompt TEXT DEFAULT '',
-            source_answer TEXT DEFAULT '',
-            access_count INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            last_accessed_at TEXT,
-            expires_at TEXT DEFAULT ''
-        )
-    """
-    )
-    # Legacy migration: some existing DBs have memory_items without expires_at.
-    # Add the column before creating indexes that reference it.
-    cursor.execute("PRAGMA table_info(memory_items)")
-    memory_columns = {row[1] for row in cursor.fetchall()}
-    if "expires_at" not in memory_columns:
-        cursor.execute("ALTER TABLE memory_items ADD COLUMN expires_at TEXT DEFAULT ''")
-
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_projects_uuid_updated_at ON projects(uuid, updated_at DESC)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_project_files_project_uid ON project_files(project_uid)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_project_files_uuid ON project_files(uuid)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_project_sessions_project_uid ON project_sessions(project_uid, updated_at DESC)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_project_messages_session ON project_session_messages(session_uid, id ASC)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_project_messages_project ON project_session_messages(project_uid, uuid, id ASC)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_session_compact_scope ON session_compact_memory(session_uid, project_uid, uuid)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_memory_items_scope ON memory_items(uuid, project_uid, memory_type, updated_at DESC)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_memory_items_session ON memory_items(session_uid, updated_at DESC)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_memory_items_expire ON memory_items(expires_at)"
-    )
-
-    cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_outputs'"
-    )
-    has_agent_outputs = cursor.fetchone() is not None
-    if has_agent_outputs:
-        cursor.execute("PRAGMA table_info(agent_outputs)")
-        existing_columns = {row[1] for row in cursor.fetchall()}
-        if "project_uid" not in existing_columns:
-            cursor.execute("ALTER TABLE agent_outputs ADD COLUMN project_uid TEXT")
-        if "session_uid" not in existing_columns:
-            cursor.execute("ALTER TABLE agent_outputs ADD COLUMN session_uid TEXT")
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_outputs_uuid_project ON agent_outputs(uuid, project_uid, created_at)"
-        )
-
-    conn.commit()
-    conn.close()
+    repo = _project_repo_module()
+    repo.ensure_projects_tables(db_name=db_name)
 
 
 def create_project_session(
@@ -394,52 +258,14 @@ def create_project_session(
     is_pinned: int = 0,
     db_name: str = "./database.sqlite",
 ) -> dict[str, Any]:
-    ensure_projects_tables(db_name)
-    session_uid = gen_uuid()
-    now = _now_str()
-    normalized_name = session_name.strip() or "新会话"
-
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO project_sessions (
-            session_uid, project_uid, uuid, session_name, created_at, updated_at, is_pinned
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """,
-        (
-            session_uid,
-            project_uid,
-            uuid,
-            normalized_name,
-            now,
-            now,
-            1 if int(is_pinned) else 0,
-        ),
+    repo = _project_repo_module()
+    return repo.create_project_session(
+        project_uid=project_uid,
+        uuid=uuid,
+        session_name=session_name,
+        is_pinned=is_pinned,
+        db_name=db_name,
     )
-    cursor.execute(
-        """
-        UPDATE projects
-        SET updated_at = ?
-        WHERE project_uid = ? AND uuid = ?
-    """,
-        (now, project_uid, uuid),
-    )
-    conn.commit()
-    conn.close()
-
-    return {
-        "session_uid": session_uid,
-        "project_uid": project_uid,
-        "uuid": uuid,
-        "session_name": normalized_name,
-        "created_at": now,
-        "updated_at": now,
-        "is_pinned": 1 if int(is_pinned) else 0,
-        "message_count": 0,
-        "last_message": "",
-    }
 
 
 def update_project_session(
@@ -450,43 +276,15 @@ def update_project_session(
     is_pinned: int | None = None,
     db_name: str = "./database.sqlite",
 ) -> bool:
-    ensure_projects_tables(db_name)
-    updates: list[str] = []
-    values: list[Any] = []
-    if session_name is not None:
-        updates.append("session_name = ?")
-        values.append(session_name.strip() or "未命名会话")
-    if is_pinned is not None:
-        updates.append("is_pinned = ?")
-        values.append(1 if int(is_pinned) else 0)
-    updates.append("updated_at = ?")
-    now = _now_str()
-    values.append(now)
-    values.extend([session_uid, project_uid, uuid])
-
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        f"""
-        UPDATE project_sessions
-        SET {", ".join(updates)}
-        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-    """,
-        tuple(values),
+    repo = _project_repo_module()
+    return repo.update_project_session(
+        session_uid=session_uid,
+        project_uid=project_uid,
+        uuid=uuid,
+        session_name=session_name,
+        is_pinned=is_pinned,
+        db_name=db_name,
     )
-    affected = cursor.rowcount > 0
-    if affected:
-        cursor.execute(
-            """
-            UPDATE projects
-            SET updated_at = ?
-            WHERE project_uid = ? AND uuid = ?
-        """,
-            (now, project_uid, uuid),
-        )
-    conn.commit()
-    conn.close()
-    return affected
 
 
 def list_project_sessions(
@@ -494,57 +292,8 @@ def list_project_sessions(
     uuid: str,
     db_name: str = "./database.sqlite",
 ) -> list[dict[str, Any]]:
-    ensure_projects_tables(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT
-            s.session_uid,
-            s.project_uid,
-            s.uuid,
-            s.session_name,
-            s.created_at,
-            s.updated_at,
-            s.is_pinned,
-            (
-                SELECT COUNT(*)
-                FROM project_session_messages m
-                WHERE m.session_uid = s.session_uid
-                  AND m.project_uid = s.project_uid
-                  AND m.uuid = s.uuid
-            ) AS message_count,
-            (
-                SELECT m.content
-                FROM project_session_messages m
-                WHERE m.session_uid = s.session_uid
-                  AND m.project_uid = s.project_uid
-                  AND m.uuid = s.uuid
-                ORDER BY m.id DESC
-                LIMIT 1
-            ) AS last_message
-        FROM project_sessions s
-        WHERE s.project_uid = ? AND s.uuid = ?
-        ORDER BY s.is_pinned DESC, s.updated_at DESC, s.id DESC
-    """,
-        (project_uid, uuid),
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return [
-        {
-            "session_uid": row[0],
-            "project_uid": row[1],
-            "uuid": row[2],
-            "session_name": row[3] or "",
-            "created_at": row[4] or "",
-            "updated_at": row[5] or "",
-            "is_pinned": int(row[6] or 0),
-            "message_count": int(row[7] or 0),
-            "last_message": row[8] or "",
-        }
-        for row in rows
-    ]
+    repo = _project_repo_module()
+    return repo.list_project_sessions(project_uid=project_uid, uuid=uuid, db_name=db_name)
 
 
 def ensure_default_project_session(
@@ -552,16 +301,12 @@ def ensure_default_project_session(
     uuid: str,
     db_name: str = "./database.sqlite",
 ) -> str:
-    sessions = list_project_sessions(project_uid=project_uid, uuid=uuid, db_name=db_name)
-    if sessions:
-        return str(sessions[0]["session_uid"])
-    created = create_project_session(
+    repo = _project_repo_module()
+    return repo.ensure_default_project_session(
         project_uid=project_uid,
         uuid=uuid,
-        session_name="默认会话",
         db_name=db_name,
     )
-    return str(created["session_uid"])
 
 
 def delete_project_session(
@@ -570,43 +315,13 @@ def delete_project_session(
     uuid: str,
     db_name: str = "./database.sqlite",
 ) -> bool:
-    ensure_projects_tables(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        DELETE FROM project_session_messages
-        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-    """,
-        (session_uid, project_uid, uuid),
+    repo = _project_repo_module()
+    return repo.delete_project_session(
+        session_uid=session_uid,
+        project_uid=project_uid,
+        uuid=uuid,
+        db_name=db_name,
     )
-    cursor.execute(
-        """
-        DELETE FROM session_compact_memory
-        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-    """,
-        (session_uid, project_uid, uuid),
-    )
-    cursor.execute(
-        """
-        DELETE FROM project_sessions
-        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-    """,
-        (session_uid, project_uid, uuid),
-    )
-    affected = cursor.rowcount > 0
-    if affected:
-        cursor.execute(
-            """
-            UPDATE projects
-            SET updated_at = ?
-            WHERE project_uid = ? AND uuid = ?
-        """,
-            (_now_str(), project_uid, uuid),
-        )
-    conn.commit()
-    conn.close()
-    return affected
 
 
 def list_project_session_messages(
@@ -616,49 +331,14 @@ def list_project_session_messages(
     limit: int | None = None,
     db_name: str = "./database.sqlite",
 ) -> list[dict[str, Any]]:
-    ensure_projects_tables(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    if isinstance(limit, int) and limit > 0:
-        cursor.execute(
-            """
-            SELECT role, content, message_json
-            FROM (
-                SELECT id, role, content, message_json
-                FROM project_session_messages
-                WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-                ORDER BY id DESC
-                LIMIT ?
-            ) latest
-            ORDER BY id ASC
-        """,
-            (session_uid, project_uid, uuid, limit),
-        )
-    else:
-        cursor.execute(
-            """
-            SELECT role, content, message_json
-            FROM project_session_messages
-            WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-            ORDER BY id ASC
-        """,
-            (session_uid, project_uid, uuid),
-        )
-    rows = cursor.fetchall()
-    conn.close()
-
-    messages: list[dict[str, Any]] = []
-    for role, content, raw_json in rows:
-        fallback = {"role": role or "assistant", "content": content or ""}
-        try:
-            parsed = json.loads(raw_json)
-            if isinstance(parsed, dict):
-                messages.append(parsed)
-                continue
-        except Exception:
-            pass
-        messages.append(fallback)
-    return messages
+    repo = _project_repo_module()
+    return repo.list_project_session_messages(
+        session_uid=session_uid,
+        project_uid=project_uid,
+        uuid=uuid,
+        limit=limit,
+        db_name=db_name,
+    )
 
 
 def count_project_session_messages(
@@ -667,25 +347,13 @@ def count_project_session_messages(
     uuid: str,
     db_name: str = "./database.sqlite",
 ) -> int:
-    ensure_projects_tables(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT COUNT(1)
-        FROM project_session_messages
-        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-    """,
-        (session_uid, project_uid, uuid),
+    repo = _project_repo_module()
+    return repo.count_project_session_messages(
+        session_uid=session_uid,
+        project_uid=project_uid,
+        uuid=uuid,
+        db_name=db_name,
     )
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return 0
-    try:
-        return max(0, int(row[0]))
-    except Exception:
-        return 0
 
 
 def list_project_session_messages_page(
@@ -697,36 +365,15 @@ def list_project_session_messages_page(
     limit: int = 50,
     db_name: str = "./database.sqlite",
 ) -> list[dict[str, Any]]:
-    ensure_projects_tables(db_name)
-    safe_offset = max(0, int(offset))
-    safe_limit = max(1, min(int(limit), 500))
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT role, content, message_json
-        FROM project_session_messages
-        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-        ORDER BY id ASC
-        LIMIT ? OFFSET ?
-    """,
-        (session_uid, project_uid, uuid, safe_limit, safe_offset),
+    repo = _project_repo_module()
+    return repo.list_project_session_messages_page(
+        session_uid=session_uid,
+        project_uid=project_uid,
+        uuid=uuid,
+        offset=offset,
+        limit=limit,
+        db_name=db_name,
     )
-    rows = cursor.fetchall()
-    conn.close()
-
-    messages: list[dict[str, Any]] = []
-    for role, content, raw_json in rows:
-        fallback = {"role": role or "assistant", "content": content or ""}
-        try:
-            parsed = json.loads(raw_json)
-            if isinstance(parsed, dict):
-                messages.append(parsed)
-                continue
-        except Exception:
-            pass
-        messages.append(fallback)
-    return messages
 
 
 def save_project_session_messages(
@@ -736,51 +383,14 @@ def save_project_session_messages(
     messages: list[dict[str, Any]],
     db_name: str = "./database.sqlite",
 ) -> None:
-    ensure_projects_tables(db_name)
-    now = _now_str()
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        DELETE FROM project_session_messages
-        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-    """,
-        (session_uid, project_uid, uuid),
+    repo = _project_repo_module()
+    repo.save_project_session_messages(
+        session_uid=session_uid,
+        project_uid=project_uid,
+        uuid=uuid,
+        messages=messages,
+        db_name=db_name,
     )
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        role = str(message.get("role") or "assistant")
-        content = str(message.get("content") or "")
-        serialized = json.dumps(message, ensure_ascii=False)
-        cursor.execute(
-            """
-            INSERT INTO project_session_messages (
-                session_uid, project_uid, uuid, role, content, message_json, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-            (session_uid, project_uid, uuid, role, content, serialized, now),
-        )
-
-    cursor.execute(
-        """
-        UPDATE project_sessions
-        SET updated_at = ?
-        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
-    """,
-        (now, session_uid, project_uid, uuid),
-    )
-    cursor.execute(
-        """
-        UPDATE projects
-        SET updated_at = ?
-        WHERE project_uid = ? AND uuid = ?
-    """,
-        (now, project_uid, uuid),
-    )
-    conn.commit()
-    conn.close()
 
 
 def get_project_session_compact_memory(
@@ -892,29 +502,13 @@ def create_project(
     description: str = "",
     db_name: str = "./database.sqlite",
 ) -> dict[str, Any]:
-    ensure_projects_tables(db_name)
-    project_uid = gen_uuid()
-    now = _now_str()
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO projects (project_uid, uuid, project_name, description, created_at, updated_at, archived)
-        VALUES (?, ?, ?, ?, ?, ?, 0)
-    """,
-        (project_uid, uuid, project_name.strip() or "未命名项目", description, now, now),
+    repo = _project_repo_module()
+    return repo.create_project(
+        uuid=uuid,
+        project_name=project_name,
+        description=description,
+        db_name=db_name,
     )
-    conn.commit()
-    conn.close()
-    return {
-        "project_uid": project_uid,
-        "uuid": uuid,
-        "project_name": project_name.strip() or "未命名项目",
-        "description": description,
-        "created_at": now,
-        "updated_at": now,
-        "archived": 0,
-    }
 
 
 def list_projects(
@@ -922,43 +516,12 @@ def list_projects(
     include_archived: bool = False,
     db_name: str = "./database.sqlite",
 ) -> list[dict[str, Any]]:
-    ensure_projects_tables(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    if include_archived:
-        cursor.execute(
-            """
-            SELECT project_uid, uuid, project_name, description, created_at, updated_at, archived
-            FROM projects
-            WHERE uuid = ?
-            ORDER BY updated_at DESC, id DESC
-        """,
-            (uuid,),
-        )
-    else:
-        cursor.execute(
-            """
-            SELECT project_uid, uuid, project_name, description, created_at, updated_at, archived
-            FROM projects
-            WHERE uuid = ? AND archived = 0
-            ORDER BY updated_at DESC, id DESC
-        """,
-            (uuid,),
-        )
-    rows = cursor.fetchall()
-    conn.close()
-    return [
-        {
-            "project_uid": row[0],
-            "uuid": row[1],
-            "project_name": row[2],
-            "description": row[3] or "",
-            "created_at": row[4],
-            "updated_at": row[5],
-            "archived": int(row[6] or 0),
-        }
-        for row in rows
-    ]
+    repo = _project_repo_module()
+    return repo.list_projects(
+        uuid=uuid,
+        include_archived=include_archived,
+        db_name=db_name,
+    )
 
 
 def get_project_by_uid(
@@ -966,31 +529,12 @@ def get_project_by_uid(
     uuid: str,
     db_name: str = "./database.sqlite",
 ) -> dict[str, Any] | None:
-    ensure_projects_tables(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT project_uid, uuid, project_name, description, created_at, updated_at, archived
-        FROM projects
-        WHERE project_uid = ? AND uuid = ?
-        LIMIT 1
-    """,
-        (project_uid, uuid),
+    repo = _project_repo_module()
+    return repo.get_project_by_uid(
+        project_uid=project_uid,
+        uuid=uuid,
+        db_name=db_name,
     )
-    row = cursor.fetchone()
-    conn.close()
-    if row is None:
-        return None
-    return {
-        "project_uid": row[0],
-        "uuid": row[1],
-        "project_name": row[2],
-        "description": row[3] or "",
-        "created_at": row[4],
-        "updated_at": row[5],
-        "archived": int(row[6] or 0),
-    }
 
 
 def update_project(
@@ -1001,35 +545,15 @@ def update_project(
     archived: int | None = None,
     db_name: str = "./database.sqlite",
 ) -> bool:
-    ensure_projects_tables(db_name)
-    updates: list[str] = []
-    values: list[Any] = []
-    if project_name is not None:
-        updates.append("project_name = ?")
-        values.append(project_name.strip() or "未命名项目")
-    if description is not None:
-        updates.append("description = ?")
-        values.append(description)
-    if archived is not None:
-        updates.append("archived = ?")
-        values.append(1 if int(archived) else 0)
-    updates.append("updated_at = ?")
-    values.append(_now_str())
-    values.extend([project_uid, uuid])
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        f"""
-        UPDATE projects
-        SET {", ".join(updates)}
-        WHERE project_uid = ? AND uuid = ?
-    """,
-        tuple(values),
+    repo = _project_repo_module()
+    return repo.update_project(
+        project_uid=project_uid,
+        uuid=uuid,
+        project_name=project_name,
+        description=description,
+        archived=archived,
+        db_name=db_name,
     )
-    affected = cursor.rowcount > 0
-    conn.commit()
-    conn.close()
-    return affected
 
 
 def add_file_to_project(
@@ -1039,37 +563,14 @@ def add_file_to_project(
     is_active: int = 1,
     db_name: str = "./database.sqlite",
 ) -> bool:
-    ensure_projects_tables(db_name)
-    now = _now_str()
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO project_files (project_uid, file_uid, uuid, is_active, added_at)
-        VALUES (?, ?, ?, ?, ?)
-    """,
-        (project_uid, file_uid, uuid, 1 if int(is_active) else 0, now),
+    repo = _project_repo_module()
+    return repo.add_file_to_project(
+        project_uid=project_uid,
+        file_uid=file_uid,
+        uuid=uuid,
+        is_active=is_active,
+        db_name=db_name,
     )
-    cursor.execute(
-        """
-        UPDATE project_files
-        SET is_active = ?, added_at = ?
-        WHERE project_uid = ? AND file_uid = ? AND uuid = ?
-    """,
-        (1 if int(is_active) else 0, now, project_uid, file_uid, uuid),
-    )
-    cursor.execute(
-        """
-        UPDATE projects
-        SET updated_at = ?
-        WHERE project_uid = ? AND uuid = ?
-    """,
-        (now, project_uid, uuid),
-    )
-    affected = cursor.rowcount > 0
-    conn.commit()
-    conn.close()
-    return affected
 
 
 def remove_file_from_project(
@@ -1078,29 +579,13 @@ def remove_file_from_project(
     uuid: str,
     db_name: str = "./database.sqlite",
 ) -> bool:
-    ensure_projects_tables(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        DELETE FROM project_files
-        WHERE project_uid = ? AND file_uid = ? AND uuid = ?
-    """,
-        (project_uid, file_uid, uuid),
+    repo = _project_repo_module()
+    return repo.remove_file_from_project(
+        project_uid=project_uid,
+        file_uid=file_uid,
+        uuid=uuid,
+        db_name=db_name,
     )
-    affected = cursor.rowcount > 0
-    if affected:
-        cursor.execute(
-            """
-            UPDATE projects
-            SET updated_at = ?
-            WHERE project_uid = ? AND uuid = ?
-        """,
-            (_now_str(), project_uid, uuid),
-        )
-    conn.commit()
-    conn.close()
-    return affected
 
 
 def set_project_file_active(
@@ -1110,31 +595,14 @@ def set_project_file_active(
     is_active: int,
     db_name: str = "./database.sqlite",
 ) -> bool:
-    ensure_projects_tables(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    now = _now_str()
-    cursor.execute(
-        """
-        UPDATE project_files
-        SET is_active = ?, added_at = ?
-        WHERE project_uid = ? AND file_uid = ? AND uuid = ?
-    """,
-        (1 if int(is_active) else 0, now, project_uid, file_uid, uuid),
+    repo = _project_repo_module()
+    return repo.set_project_file_active(
+        project_uid=project_uid,
+        file_uid=file_uid,
+        uuid=uuid,
+        is_active=is_active,
+        db_name=db_name,
     )
-    affected = cursor.rowcount > 0
-    if affected:
-        cursor.execute(
-            """
-            UPDATE projects
-            SET updated_at = ?
-            WHERE project_uid = ? AND uuid = ?
-        """,
-            (now, project_uid, uuid),
-        )
-    conn.commit()
-    conn.close()
-    return affected
 
 
 def list_project_files(
@@ -1143,83 +611,21 @@ def list_project_files(
     active_only: bool = True,
     db_name: str = "./database.sqlite",
 ) -> list[dict[str, Any]]:
-    ensure_projects_tables(db_name)
-    ensure_files_table_columns(db_name)
-    file_columns = _files_table_columns(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    active_filter = "AND pf.is_active = 1" if active_only else ""
-    if "uuid" in file_columns and "user_uuid" in file_columns:
-        join_owner_filter = "AND (f.uuid = pf.uuid OR f.user_uuid = pf.uuid)"
-    elif "uuid" in file_columns:
-        join_owner_filter = "AND f.uuid = pf.uuid"
-    elif "user_uuid" in file_columns:
-        join_owner_filter = "AND f.user_uuid = pf.uuid"
-    else:
-        join_owner_filter = ""
-    cursor.execute(
-        f"""
-        SELECT
-            pf.project_uid,
-            pf.file_uid,
-            pf.is_active,
-            pf.added_at,
-            f.file_path,
-            COALESCE(f.original_filename, '') AS file_name,
-            COALESCE(f.created_at, '') AS created_at
-        FROM project_files pf
-        JOIN files f ON f.uid = pf.file_uid
-        {join_owner_filter}
-        WHERE pf.project_uid = ? AND pf.uuid = ?
-        {active_filter}
-        ORDER BY pf.added_at DESC, pf.id DESC, f.rowid DESC
-    """,
-        (project_uid, uuid),
+    repo = _project_repo_module()
+    return repo.list_project_files(
+        project_uid=project_uid,
+        uuid=uuid,
+        active_only=active_only,
+        db_name=db_name,
     )
-    rows = cursor.fetchall()
-    conn.close()
-    normalized: list[dict[str, Any]] = []
-    seen_file_uids: set[str] = set()
-    for row in rows:
-        file_uid = str(row[1] or "").strip()
-        if file_uid and file_uid in seen_file_uids:
-            continue
-        if file_uid:
-            seen_file_uids.add(file_uid)
-        record = FileRecord.model_validate(
-            {
-                "file_path": row[4] or "",
-                "file_name": row[5] or "",
-                "uid": file_uid,
-                "created_at": row[6] or "",
-            }
-        ).model_dump()
-        record["project_uid"] = row[0]
-        record["is_active"] = int(row[2] or 0)
-        record["added_at"] = row[3] or ""
-        normalized.append(record)
-    return normalized
 
 
 def get_file_project_counts(
     uuid: str,
     db_name: str = "./database.sqlite",
 ) -> dict[str, int]:
-    ensure_projects_tables(db_name)
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT file_uid, COUNT(*)
-        FROM project_files
-        WHERE uuid = ?
-        GROUP BY file_uid
-    """,
-        (uuid,),
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return {str(file_uid): int(count) for file_uid, count in rows}
+    repo = _project_repo_module()
+    return repo.get_file_project_counts(uuid=uuid, db_name=db_name)
 
 
 def ensure_default_project_for_user(
@@ -1227,33 +633,12 @@ def ensure_default_project_for_user(
     db_name: str = "./database.sqlite",
     sync_existing_files: bool = True,
 ) -> str:
-    ensure_projects_tables(db_name)
-    projects = list_projects(uuid=uuid, include_archived=True, db_name=db_name)
-    if projects:
-        default_project_uid = str(projects[0]["project_uid"])
-    else:
-        created = create_project(
-            uuid=uuid,
-            project_name="默认项目",
-            description="系统自动创建",
-            db_name=db_name,
-        )
-        default_project_uid = str(created["project_uid"])
-
-    if sync_existing_files:
-        user_files = get_user_files(uuid, db_name=db_name)
-        for file_item in user_files:
-            file_uid = str(file_item.get("uid") or "").strip()
-            if not file_uid:
-                continue
-            add_file_to_project(
-                project_uid=default_project_uid,
-                file_uid=file_uid,
-                uuid=uuid,
-                is_active=1,
-                db_name=db_name,
-            )
-    return default_project_uid
+    repo = _project_repo_module()
+    return repo.ensure_default_project_for_user(
+        uuid=uuid,
+        db_name=db_name,
+        sync_existing_files=sync_existing_files,
+    )
 
 
 def gen_random_str(length: int) -> str:
@@ -2306,27 +1691,8 @@ def llm_content_to_text(content: Any) -> str:
 
 
 def detect_language(text: str) -> str:
-    """
-    检测文本语言类型
-    返回 'zh' 表示中文，'en' 表示英文，'other' 表示其他语言
-    """
-    # 统计中文字符数量
-    chinese_chars = len([c for c in text if "\u4e00" <= c <= "\u9fff"])
-    # 统计英文字符数量
-    english_chars = len([c for c in text if c.isascii() and c.isalpha()])
-
-    # 计算中英文字符占比
-    total_chars = len(text.strip())
-    chinese_ratio = chinese_chars / total_chars if total_chars > 0 else 0
-    english_ratio = english_chars / total_chars if total_chars > 0 else 0
-
-    # 判断语言类型
-    if chinese_ratio > 0.3:  # 如果中文字符占比超过30%，认为是中文文本
-        return "zh"
-    elif english_ratio > 0.5:  # 如果英文字符占比超过50%，认为是英文文本
-        return "en"
-    else:
-        return "other"
+    """兼容入口，实际实现已迁移到 `agent.application.language`。"""
+    return _detect_language(text)
 
 
 def translate_text(
@@ -2910,29 +2276,7 @@ def get_user_runtime_tuning_settings(
 
 def apply_user_runtime_tuning_env(uuid: str | None = None) -> dict[str, str]:
     settings = get_user_runtime_tuning_settings(uuid)
-    env_by_key = {
-        "agent_policy_async_enabled": "AGENT_POLICY_ASYNC_ENABLED",
-        "agent_policy_async_refresh_seconds": "AGENT_POLICY_ASYNC_REFRESH_SECONDS",
-        "agent_policy_async_min_confidence": "AGENT_POLICY_ASYNC_MIN_CONFIDENCE",
-        "agent_policy_async_max_staleness_seconds": "AGENT_POLICY_ASYNC_MAX_STALENESS_SECONDS",
-        "rag_index_batch_size": "RAG_INDEX_BATCH_SIZE",
-        "agent_document_text_cache_max_chars": "AGENT_DOCUMENT_TEXT_CACHE_MAX_CHARS",
-        "local_rag_project_max_chars": "LOCAL_RAG_PROJECT_MAX_CHARS",
-        "local_rag_project_max_chunks": "LOCAL_RAG_PROJECT_MAX_CHUNKS",
-    }
-    applied: dict[str, str] = {}
-    for key, env_name in env_by_key.items():
-        value = settings.get(key)
-        if value is None:
-            os.environ.pop(env_name, None)
-            continue
-        if isinstance(value, bool):
-            normalized = "true" if value else "false"
-        else:
-            normalized = str(value)
-        os.environ[env_name] = normalized
-        applied[env_name] = normalized
-    return applied
+    return apply_runtime_tuning_env(settings=settings, environ=os.environ)
 
 
 def get_user_model_name(uuid: str | None = None) -> str | None:

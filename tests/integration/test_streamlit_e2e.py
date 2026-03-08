@@ -3,7 +3,10 @@ from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
-from utils.utils import add_file_to_project, ensure_default_project_for_user
+from agent.adapters.sqlite.project_repository import (
+    add_file_to_project,
+    ensure_default_project_for_user,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

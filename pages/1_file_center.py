@@ -6,20 +6,20 @@ from pathlib import Path
 
 import streamlit as st
 
-from ui.theme import inject_global_theme
-from utils.utils import (
-    LoggerManager,
+from agent.adapters.sqlite.project_repository import (
     add_file_to_project,
-    check_file_exists,
-    ensure_default_project_for_user,
-    ensure_local_user,
     get_file_project_counts,
-    get_uid_by_md5,
-    get_user_files,
-    init_database,
     list_project_files,
     list_projects,
     remove_file_from_project,
+)
+from ui.page_bootstrap import bootstrap_page_context
+from ui.theme import inject_global_theme
+from utils.utils import (
+    LoggerManager,
+    check_file_exists,
+    get_uid_by_md5,
+    get_user_files,
     save_file_to_database,
 )
 
@@ -183,19 +183,15 @@ def main() -> None:
     st.title("📁 文件中心")
     inject_global_theme()
 
-    if "uuid" not in st.session_state or not st.session_state["uuid"]:
-        st.session_state["uuid"] = "local-user"
-    if "files" not in st.session_state:
-        st.session_state["files"] = []
-    if "all_files" not in st.session_state:
-        st.session_state["all_files"] = []
-
-    init_database("./database.sqlite")
-    ensure_local_user(st.session_state["uuid"], db_name="./database.sqlite")
-    ensure_default_project_for_user(
-        st.session_state["uuid"],
+    bootstrap_page_context(
+        session_state=st.session_state,
         db_name="./database.sqlite",
+        ensure_default_project=True,
         sync_existing_files=False,
+        state_defaults={
+            "files": [],
+            "all_files": [],
+        },
     )
 
     repo_root = Path(__file__).resolve().parents[1]

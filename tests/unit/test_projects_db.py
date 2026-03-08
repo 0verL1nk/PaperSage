@@ -1,12 +1,14 @@
 from pathlib import Path
 
-from utils.utils import (
+from agent.adapters.sqlite.project_repository import (
     create_project,
     ensure_default_project_for_user,
-    ensure_local_user,
-    init_database,
     list_projects,
     update_project,
+)
+from utils.utils import (
+    ensure_local_user,
+    init_database,
 )
 
 

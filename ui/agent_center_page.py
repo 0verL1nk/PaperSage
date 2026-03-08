@@ -2,6 +2,7 @@ def run_agent_center_page() -> None:
     import json
     import logging
     import os
+    from functools import partial
 
     import streamlit as st
     import streamlit.components.v1 as components
@@ -9,6 +10,7 @@ def run_agent_center_page() -> None:
     DEBUG_MODE = os.getenv("DEBUG", "").lower() in {"1", "true", "yes"}
 
     from agent.adapters import (
+        apply_runtime_tuning_env_for_user,
         count_session_messages_for_project,
         create_chat_model,
         create_leader_session,
@@ -45,6 +47,7 @@ def run_agent_center_page() -> None:
         build_scope_cache_caption,
         build_session_maps,
         build_session_preview,
+        build_tool_load_signature,
         build_turn_execution_context,
         clear_turn_lock,
         create_and_select_session,
@@ -64,6 +67,7 @@ def run_agent_center_page() -> None:
         resolve_selected_doc_uid_for_logging,
         serialize_output_content,
         should_allow_delete_session,
+        should_emit_tool_load_event,
         store_turn_metrics,
         update_selected_session_map,
         validate_runtime_prerequisites,
@@ -117,6 +121,7 @@ def run_agent_center_page() -> None:
     from agent.application.agent_center import (
         update_context_usage as update_context_usage_state,
     )
+    from agent.application.language import detect_language
     from agent.context_governance import (
         auto_compact_messages,
         build_context_usage_snapshot,
@@ -144,10 +149,29 @@ def run_agent_center_page() -> None:
         _render_output_archive,
         _render_workflow_metrics,
     )
+    from ui.agent_center.controller import (
+        load_files_from_db,
+        load_projects_from_db,
+        render_chat_history_panel,
+        render_project_session_sidebar,
+        render_strategy_sidebar,
+    )
+    from ui.agent_center.state import (
+        apply_auto_compact as apply_auto_compact_runtime,
+    )
+    from ui.agent_center.state import (
+        clear_project_runtime,
+        ensure_agent_runtime,
+        has_cached_agent_session,
+        load_document_text,
+        prepare_agent_session,
+        update_context_usage,
+    )
     from ui.agent_center_sidebar import (
         render_pinned_human_requests_panel,
         render_pinned_todo_panel,
     )
+    from ui.page_bootstrap import bootstrap_page_context
     from ui.project_workspace import (
         build_project_doc_count_map,
         inject_workspace_styles,
@@ -157,13 +181,6 @@ def run_agent_center_page() -> None:
         select_scope_documents_drawer,
     )
     from ui.theme import inject_global_theme
-    from utils.utils import (
-        apply_user_runtime_tuning_env,
-        detect_language,
-        ensure_default_project_for_user,
-        ensure_local_user,
-        init_database,
-    )
 
     configure_application_logging(debug_mode=DEBUG_MODE, default_level="INFO")
     logger = logging.getLogger("llm_app.agent_center")
@@ -173,42 +190,16 @@ def run_agent_center_page() -> None:
     st.set_page_config(page_title="Agent 中心", page_icon="🤖")
     st.title("🤖 Agent 中心")
     inject_global_theme()
-    init_database("./database.sqlite")
-    if "uuid" not in st.session_state or not st.session_state["uuid"]:
-        st.session_state["uuid"] = "local-user"
-    ensure_local_user(st.session_state["uuid"], db_name="./database.sqlite")
-    ensure_default_project_for_user(
-        st.session_state["uuid"],
+    bootstrap_page_context(
+        session_state=st.session_state,
         db_name="./database.sqlite",
+        ensure_default_project=True,
         sync_existing_files=False,
+        state_defaults={
+            "files": [],
+            "projects": [],
+        },
     )
-
-    if "files" not in st.session_state:
-        st.session_state["files"] = []
-    if "projects" not in st.session_state:
-        st.session_state["projects"] = []
-
-
-    def _load_files_from_db() -> None:
-        raw_files = list_user_files(uuid=st.session_state["uuid"])
-        st.session_state["files"] = []
-        for file in raw_files:
-            st.session_state["files"].append(
-                {
-                    "file_path": file["file_path"],
-                    "file_name": file["file_name"],
-                    "uid": file["uid"],
-                    "created_at": file["created_at"],
-                }
-            )
-        logger.debug("Loaded file list from DB: count=%s", len(st.session_state["files"]))
-
-
-    def _load_projects_from_db() -> None:
-        st.session_state["projects"] = list_user_projects(
-            uuid=st.session_state["uuid"],
-            include_archived=False,
-        )
 
 
     def _drop_agent_session_cache(project_uid: str, session_uid: str) -> None:
@@ -272,87 +263,6 @@ def run_agent_center_page() -> None:
         )
 
 
-    def _scroll_chat_to_bottom() -> None:
-        components.html(
-            """
-            <script>
-            const root = window.parent.document;
-            const selectors = ['section.main', '[data-testid="stAppViewContainer"]'];
-            let target = null;
-            for (const sel of selectors) {
-              const el = root.querySelector(sel);
-              if (el) { target = el; break; }
-            }
-            if (target) {
-              target.scrollTo({ top: target.scrollHeight, behavior: 'auto' });
-            } else {
-              window.parent.scrollTo(0, document.body.scrollHeight);
-            }
-            </script>
-            """,
-            height=0,
-        )
-
-
-    def _inject_auto_load_more_on_scroll(conversation_key: str) -> None:
-        escaped_key = conversation_key.replace("\\", "\\\\").replace("'", "\\'")
-        components.html(
-            f"""
-            <script>
-            const parentWin = window.parent;
-            const parentDoc = parentWin.document;
-            if (!parentWin.__agentHistoryAutoLoader) {{
-              parentWin.__agentHistoryAutoLoader = {{
-                key: '',
-                lastClickAt: 0,
-                intervalId: null,
-              }};
-            }}
-            const state = parentWin.__agentHistoryAutoLoader;
-            state.key = '{escaped_key}';
-            const findScrollHost = () =>
-              parentDoc.querySelector('section.main') ||
-              parentDoc.querySelector('[data-testid="stAppViewContainer"]');
-            const findLoadButton = () =>
-              Array.from(parentDoc.querySelectorAll('button')).find(
-                (btn) => (btn.innerText || '').trim() === '加载更早对话'
-              );
-            if (!state.intervalId) {{
-              state.intervalId = parentWin.setInterval(() => {{
-                const host = findScrollHost();
-                const button = findLoadButton();
-                if (!host || !button || button.disabled) {{
-                  return;
-                }}
-                const now = Date.now();
-                if (host.scrollTop <= 64 && now - state.lastClickAt > 1200) {{
-                  state.lastClickAt = now;
-                  button.click();
-                }}
-              }}, 280);
-            }}
-            </script>
-            """,
-            height=0,
-        )
-
-
-    def _disable_auto_load_more_on_scroll() -> None:
-        components.html(
-            """
-            <script>
-            const parentWin = window.parent;
-            const state = parentWin.__agentHistoryAutoLoader;
-            if (state && state.intervalId) {
-              parentWin.clearInterval(state.intervalId);
-              state.intervalId = null;
-            }
-            </script>
-            """,
-            height=0,
-        )
-
-
     def _ensure_compact_summary(
         *,
         user_uuid: str,
@@ -370,259 +280,88 @@ def run_agent_center_page() -> None:
         )
 
 
-    def _render_project_session_sidebar(
-        *,
-        user_uuid: str,
-        project_uid: str,
-        disabled: bool = False,
-    ) -> dict[str, str]:
-        sessions = ensure_project_sessions(
-            list_sessions_fn=list_sessions_for_project,
-            ensure_default_session_fn=ensure_default_session_for_project,
-            project_uid=project_uid,
-            user_uuid=user_uuid,
-        )
-        if not sessions:
-            raise ValueError("会话初始化失败")
+    has_cached_agent_session_fn = partial(
+        has_cached_agent_session,
+        session_state=st.session_state,
+        build_session_key_fn=build_session_key,
+        mode_leader=MODE_LEADER,
+        has_cached_agent_session_state_fn=has_cached_agent_session_state,
+    )
 
-        by_uid, ordered_uids = build_session_maps(sessions)
-        selected_map = st.session_state.get("agent_project_selected_sessions", {})
-        current_uid = resolve_current_session_uid(
-            selected_map=selected_map,
-            project_uid=project_uid,
-            by_uid=by_uid,
-            ordered_uids=ordered_uids,
-        )
+    clear_project_runtime_fn = partial(
+        clear_project_runtime,
+        session_state=st.session_state,
+        mode_leader=MODE_LEADER,
+        clear_project_runtime_state_fn=clear_project_runtime_state,
+    )
 
-        selector_key = f"agent_project_session_selector_{project_uid}"
-        if str(st.session_state.get(selector_key) or "") != current_uid:
-            st.session_state[selector_key] = current_uid
-        selected_uid = st.selectbox(
-            "当前会话",
-            options=ordered_uids,
-            format_func=lambda uid: format_session_option(by_uid.get(uid, {})),
-            key=selector_key,
-            disabled=disabled,
-        )
-        st.session_state.agent_project_selected_sessions = update_selected_session_map(
-            selected_map=selected_map,
-            project_uid=project_uid,
-            selected_uid=selected_uid,
-        )
-        selected = by_uid[selected_uid]
+    ensure_agent_runtime_fn = partial(
+        ensure_agent_runtime,
+        session_state=st.session_state,
+        logger=logger,
+        mode_leader=MODE_LEADER,
+        build_session_key_fn=build_session_key,
+        clear_project_runtime_fn=clear_project_runtime_fn,
+        normalize_evidence_items_fn=_normalize_evidence_items,
+        get_user_api_key_fn=read_user_api_key,
+        get_user_model_name_fn=read_user_model_name,
+        get_user_base_url_fn=read_user_base_url,
+        get_user_policy_router_model_name_fn=read_user_policy_router_model_name,
+        get_user_policy_router_base_url_fn=read_user_policy_router_base_url,
+        get_user_policy_router_api_key_fn=read_user_policy_router_api_key,
+        create_chat_model_fn=create_chat_model,
+        create_project_evidence_retriever_fn=create_project_evidence_retriever,
+        create_leader_session_fn=create_leader_session,
+        ensure_agent_runtime_state_fn=ensure_agent_runtime_state,
+    )
 
-        action_cols = st.columns(2)
-        if action_cols[0].button(
-            "新建会话",
-            key=f"agent_project_session_new_{project_uid}",
-            disabled=disabled,
-            use_container_width=True,
-        ):
-            new_name = f"会话 {len(sessions) + 1}"
-            st.session_state.agent_project_selected_sessions = create_and_select_session(
-                create_session_fn=create_session_for_project,
-                selected_map=st.session_state.get("agent_project_selected_sessions", {}),
-                project_uid=project_uid,
-                user_uuid=user_uuid,
-                session_name=new_name,
-            )
-            st.rerun()
-            return {"session_uid": "", "session_name": ""}
+    load_document_text_fn = partial(
+        load_document_text,
+        st=st,
+        logger=logger,
+        session_state=st.session_state,
+        load_document_text_state_fn=load_document_text_state,
+        load_cached_extraction_fn=load_cached_extraction,
+        extract_document_payload_fn=extract_document_payload,
+        save_cached_extraction_fn=save_cached_extraction,
+    )
 
-        can_delete = should_allow_delete_session(sessions)
-        if action_cols[1].button(
-            "删除会话",
-            key=f"agent_project_session_delete_{project_uid}",
-            disabled=disabled or not can_delete,
-            use_container_width=True,
-        ):
-            selected_map, _next_uid = delete_and_select_next_session(
-                delete_session_fn=delete_session_for_project,
-                list_sessions_fn=list_sessions_for_project,
-                drop_agent_session_cache_fn=_drop_agent_session_cache,
-                drop_conversation_cache_fn=_drop_conversation_cache,
-                selected_map=st.session_state.get("agent_project_selected_sessions", {}),
-                project_uid=project_uid,
-                user_uuid=user_uuid,
-                selected_uid=selected_uid,
-            )
-            st.session_state.agent_project_selected_sessions = selected_map
-            st.rerun()
-            return {"session_uid": "", "session_name": ""}
+    prepare_agent_session_fn = partial(
+        prepare_agent_session,
+        st=st,
+        logger=logger,
+        has_cached_session_fn=has_cached_agent_session_fn,
+        ensure_agent_runtime_fn=ensure_agent_runtime_fn,
+        prepare_agent_session_state_fn=prepare_agent_session_state,
+    )
 
-        with st.expander("会话设置", expanded=False):
-            rename_key = f"agent_project_session_rename_{project_uid}_{selected_uid}"
-            if rename_key not in st.session_state:
-                st.session_state[rename_key] = str(selected.get("session_name") or "")
-            pin_key = f"agent_project_session_pin_{project_uid}_{selected_uid}"
-            if pin_key not in st.session_state:
-                st.session_state[pin_key] = bool(selected.get("is_pinned"))
-            st.text_input("会话名称", key=rename_key, disabled=disabled)
-            st.checkbox("置顶会话", key=pin_key, disabled=disabled)
-            if st.button(
-                "保存会话设置",
-                key=f"agent_project_session_save_{project_uid}_{selected_uid}",
-                disabled=disabled,
-                use_container_width=True,
-            ):
-                update_session_for_project(
-                    session_uid=selected_uid,
-                    project_uid=project_uid,
-                    uuid=user_uuid,
-                    session_name=str(st.session_state.get(rename_key) or ""),
-                    is_pinned=1 if st.session_state.get(pin_key) else 0,
-                )
-                st.rerun()
-                return {"session_uid": "", "session_name": ""}
-            st.caption(
-                "创建时间："
-                f"{str(selected.get('created_at') or '-')}"
-                " ｜ 最近更新："
-                f"{str(selected.get('updated_at') or '-')}"
-            )
+    update_context_usage_fn = partial(
+        update_context_usage,
+        st=st,
+        build_context_usage_snapshot_fn=build_context_usage_snapshot,
+        extract_skill_context_texts_from_trace_fn=extract_skill_context_texts_from_trace,
+        update_context_usage_state_fn=update_context_usage_state,
+    )
 
-        preview = build_session_preview(selected)
-        if preview:
-            st.caption(f"最近一条：{preview}")
-
-        return {
-            "session_uid": selected_uid,
-            "session_name": str(selected.get("session_name") or "未命名会话"),
-        }
-
-
-    def _has_cached_agent_session(project_uid: str, session_uid: str, scope_signature: str) -> bool:
-        return has_cached_agent_session_state(
-            session_state=st.session_state,
-            build_session_key_fn=build_session_key,
-            mode_leader=MODE_LEADER,
-            project_uid=project_uid,
-            session_uid=session_uid,
-            scope_signature=scope_signature,
-        )
-
-
-    def _load_document_text(selected_uid: str, file_path: str) -> tuple[str | None, str]:
-        def _extract_with_spinner(path: str):
-            with st.spinner("正在解析文档内容..."):
-                return extract_document_payload(path)
-
-        text, source, error = load_document_text_state(
-            session_state=st.session_state,
-            logger=logger,
-            selected_uid=selected_uid,
-            file_path=file_path,
-            load_cached_extraction_fn=load_cached_extraction,
-            extract_document_fn=_extract_with_spinner,
-            save_cached_extraction_fn=save_cached_extraction,
-        )
-        if error:
-            st.error(error)
-            return None, "error"
-        return text, source
-
-
-    def _clear_project_runtime(project_uid: str) -> None:
-        clear_project_runtime_state(
-            session_state=st.session_state,
-            project_uid=project_uid,
-            mode_leader=MODE_LEADER,
-        )
-
-
-    def _ensure_agent(
-        project_uid: str,
-        session_uid: str,
-        project_name: str,
-        scope_docs: list[dict],
-        scope_signature: str,
-    ) -> None:
-        ensure_agent_runtime_state(
-            session_state=st.session_state,
-            logger=logger,
-            project_uid=project_uid,
-            session_uid=session_uid,
-            project_name=project_name,
-            scope_docs=scope_docs,
-            scope_signature=scope_signature,
-            mode_leader=MODE_LEADER,
-            build_session_key_fn=build_session_key,
-            clear_project_runtime_fn=_clear_project_runtime,
-            normalize_evidence_items_fn=_normalize_evidence_items,
-            get_user_api_key_fn=read_user_api_key,
-            get_user_model_name_fn=read_user_model_name,
-            get_user_base_url_fn=read_user_base_url,
-            get_user_policy_router_model_name_fn=read_user_policy_router_model_name,
-            get_user_policy_router_base_url_fn=read_user_policy_router_base_url,
-            get_user_policy_router_api_key_fn=read_user_policy_router_api_key,
-            create_chat_model_fn=create_chat_model,
-            create_project_evidence_retriever_fn=create_project_evidence_retriever,
-            create_leader_session_fn=create_leader_session,
-        )
-
-
-    def _prepare_agent_session(
-        project_uid: str,
-        session_uid: str,
-        project_name: str,
-        scope_docs: list[dict],
-        scope_signature: str,
-    ) -> None:
-        def _run_with_spinner(run_fn):
-            with st.spinner("正在构建项目级 RAG 索引（首次会自动下载模型）..."):
-                run_fn()
-
-        prepare_agent_session_state(
-            logger=logger,
-            has_cached_session_fn=_has_cached_agent_session,
-            ensure_agent_runtime_fn=_ensure_agent,
-            cached_caption_fn=lambda: st.caption("项目级 RAG 索引已存在，已复用。"),
-            build_captioned_fn=_run_with_spinner,
-            project_uid=project_uid,
-            session_uid=session_uid,
-            project_name=project_name,
-            scope_docs=scope_docs,
-            scope_signature=scope_signature,
-        )
-
-
-    def _update_context_usage(project_uid: str, conversation_key: str) -> None:
-        update_context_usage_state(
-            st=st,
-            build_context_usage_snapshot_fn=build_context_usage_snapshot,
-            project_uid=project_uid,
-            conversation_key=conversation_key,
-            extract_skill_context_texts_from_trace_fn=extract_skill_context_texts_from_trace,
-        )
-
-
-    def _apply_auto_compact(
-        project_uid: str,
-        session_uid: str,
-        user_uuid: str,
-        conversation_key: str,
-    ) -> str:
-        return apply_auto_compact_state(
-            st=st,
-            logger=logger,
-            should_trigger_auto_compact_fn=should_trigger_auto_compact,
-            auto_compact_messages_fn=auto_compact_messages,
-            build_openai_compatible_chat_model_fn=create_chat_model,
-            get_user_api_key_fn=read_user_api_key,
-            get_user_model_name_fn=read_user_model_name,
-            get_user_base_url_fn=read_user_base_url,
-            save_project_session_compact_memory_fn=save_project_session_compact_memory,
-            persist_active_conversation_fn=_persist_active_conversation,
-            project_uid=project_uid,
-            session_uid=session_uid,
-            user_uuid=user_uuid,
-            conversation_key=conversation_key,
-        )
+    apply_auto_compact_fn = partial(
+        apply_auto_compact_runtime,
+        st=st,
+        logger=logger,
+        should_trigger_auto_compact_fn=should_trigger_auto_compact,
+        auto_compact_messages_fn=auto_compact_messages,
+        build_openai_compatible_chat_model_fn=create_chat_model,
+        get_user_api_key_fn=read_user_api_key,
+        get_user_model_name_fn=read_user_model_name,
+        get_user_base_url_fn=read_user_base_url,
+        save_project_session_compact_memory_fn=save_project_session_compact_memory,
+        persist_active_conversation_fn=_persist_active_conversation,
+        apply_auto_compact_state_fn=apply_auto_compact_state,
+    )
 
 
     def main():
         user_uuid = st.session_state.get("uuid", "local-user")
-        applied_runtime_env = apply_user_runtime_tuning_env(user_uuid)
+        applied_runtime_env = apply_runtime_tuning_env_for_user(uuid=user_uuid)
         if applied_runtime_env:
             logger.debug(
                 "Applied user runtime env overrides: %s",
@@ -648,7 +387,11 @@ def run_agent_center_page() -> None:
             return
 
         inject_workspace_styles()
-        _load_projects_from_db()
+        load_projects_from_db(
+            session_state=st.session_state,
+            user_uuid=user_uuid,
+            list_user_projects_fn=list_user_projects,
+        )
         projects = st.session_state.get("projects", [])
         project_doc_count_map = build_project_doc_count_map(projects, user_uuid)
         with st.sidebar:
@@ -666,10 +409,27 @@ def run_agent_center_page() -> None:
         selected_project_name = str(selected_project["project_name"])
         with st.sidebar:
             st.markdown("### 项目会话")
-            selected_session = _render_project_session_sidebar(
+            selected_session = render_project_session_sidebar(
+                st=st,
                 user_uuid=user_uuid,
                 project_uid=selected_project_uid,
                 disabled=turn_in_progress,
+                ensure_project_sessions_fn=ensure_project_sessions,
+                list_sessions_fn=list_sessions_for_project,
+                ensure_default_session_fn=ensure_default_session_for_project,
+                build_session_maps_fn=build_session_maps,
+                resolve_current_session_uid_fn=resolve_current_session_uid,
+                format_session_option_fn=format_session_option,
+                update_selected_session_map_fn=update_selected_session_map,
+                create_and_select_session_fn=create_and_select_session,
+                create_session_fn=create_session_for_project,
+                delete_session_fn=delete_session_for_project,
+                should_allow_delete_session_fn=should_allow_delete_session,
+                delete_and_select_next_session_fn=delete_and_select_next_session,
+                drop_agent_session_cache_fn=_drop_agent_session_cache,
+                drop_conversation_cache_fn=_drop_conversation_cache,
+                update_session_for_project_fn=update_session_for_project,
+                build_session_preview_fn=build_session_preview,
             )
         selected_session_uid = str(selected_session.get("session_uid") or "")
         if not selected_session_uid:
@@ -721,15 +481,15 @@ def run_agent_center_page() -> None:
                 scope_docs=scope_docs,
                 load_scope_docs_with_text_fn=lambda *, scope_docs: load_scope_docs_with_text(
                     scope_docs=scope_docs,
-                    load_document_text_fn=_load_document_text,
+                    load_document_text_fn=load_document_text_fn,
                 ),
                 build_scope_cache_caption_fn=build_scope_cache_caption,
                 build_scope_signature_fn=build_scope_signature,
-                has_cached_session_fn=_has_cached_agent_session,
-                prepare_agent_session_fn=_prepare_agent_session,
+                has_cached_session_fn=has_cached_agent_session_fn,
+                prepare_agent_session_fn=prepare_agent_session_fn,
                 ensure_conversation_messages_fn=_ensure_conversation_messages,
                 ensure_compact_summary_fn=_ensure_compact_summary,
-                update_context_usage_fn=_update_context_usage,
+                update_context_usage_fn=update_context_usage_fn,
             )
             if scope_runtime is None:
                 return
@@ -738,82 +498,38 @@ def run_agent_center_page() -> None:
             if scope_runtime.cache_caption:
                 st.caption(scope_runtime.cache_caption)
 
-        force_plan: bool | None = None
-        force_team: bool | None = None
-        with st.sidebar:
-            with st.expander("执行策略", expanded=False):
-                strategy_mode = st.radio(
-                    "策略模式",
-                    options=["自动", "手动"],
-                    key=f"agent_strategy_mode_{selected_project_uid}_{selected_session_uid}",
-                    disabled=turn_in_progress,
-                    horizontal=True,
-                )
-                if strategy_mode == "手动":
-                    force_plan = st.toggle(
-                        "启用 Plan",
-                        value=False,
-                        key=f"agent_force_plan_{selected_project_uid}_{selected_session_uid}",
-                        disabled=turn_in_progress,
-                    )
-                    force_team = st.toggle(
-                        "启用 Team",
-                        value=False,
-                        key=f"agent_force_team_{selected_project_uid}_{selected_session_uid}",
-                        disabled=turn_in_progress,
-                    )
-                    st.caption("手动模式下将覆盖自动策略判定。")
-                else:
-                    st.caption("自动模式：由策略路由器决定是否启用 Plan/Team。")
-
-            st.markdown("### 会话信息")
-            st.caption(f"当前会话：{selected_session_name}")
-            _render_output_archive(selected_project_uid, disable_interaction=turn_in_progress)
-            _render_workflow_metrics(conversation_key)
-            _render_context_usage(conversation_key)
-            render_pinned_todo_panel(project_uid=selected_project_uid, expanded=True)
-            render_pinned_human_requests_panel(
-                project_uid=selected_project_uid,
-                chat_messages=st.session_state.get("agent_messages", []),
-                expanded=False,
-            )
-            if turn_in_progress:
-                st.info("正在生成回答，已临时锁定归档与文档切换，避免中断当前对话。")
-
         chat_messages = st.session_state.get("agent_messages", [])
-        render_project_context_hint(selected_project_name, scope_docs)
-        paging_state = get_history_paging_state(
+        force_plan, force_team = render_strategy_sidebar(
             st=st,
+            selected_project_uid=selected_project_uid,
+            selected_session_uid=selected_session_uid,
+            selected_session_name=selected_session_name,
             conversation_key=conversation_key,
+            turn_in_progress=turn_in_progress,
+            chat_messages=chat_messages,
+            render_output_archive_fn=_render_output_archive,
+            render_workflow_metrics_fn=_render_workflow_metrics,
+            render_context_usage_fn=_render_context_usage,
+            render_pinned_todo_panel_fn=render_pinned_todo_panel,
+            render_pinned_human_requests_panel_fn=render_pinned_human_requests_panel,
         )
-        if bool(paging_state.get("has_more_before")):
-            loaded_count = int(paging_state.get("loaded_count", len(chat_messages)) or len(chat_messages))
-            total_count = int(paging_state.get("total_count", loaded_count) or loaded_count)
-            st.caption(f"会话记录：已加载 {loaded_count} / {total_count}")
-            if st.button(
-                "加载更早对话",
-                key=f"agent_history_load_more_{conversation_key}",
-                use_container_width=True,
-                disabled=turn_in_progress,
-            ):
-                loaded = load_more_conversation_messages_state(
-                    st=st,
-                    list_project_session_messages_page_fn=list_session_messages_page_for_project,
-                    user_uuid=user_uuid,
-                    project_uid=selected_project_uid,
-                    session_uid=selected_session_uid,
-                    conversation_key=conversation_key,
-                )
-                st.session_state["agent_history_keep_position"] = loaded > 0
-                st.rerun()
-                return
-            _inject_auto_load_more_on_scroll(conversation_key)
-        else:
-            _disable_auto_load_more_on_scroll()
-        _render_chat_history(chat_messages)
-        if not bool(st.session_state.get("agent_history_keep_position", False)):
-            _scroll_chat_to_bottom()
-        st.session_state["agent_history_keep_position"] = False
+        render_project_context_hint(selected_project_name, scope_docs)
+        render_chat_history_panel(
+            st=st,
+            components=components,
+            chat_messages=chat_messages,
+            conversation_key=conversation_key,
+            turn_in_progress=turn_in_progress,
+            user_uuid=user_uuid,
+            project_uid=selected_project_uid,
+            session_uid=selected_session_uid,
+            get_history_paging_state_fn=get_history_paging_state,
+            load_more_conversation_messages_fn=lambda **kwargs: load_more_conversation_messages_state(
+                **kwargs,
+                list_project_session_messages_page_fn=list_session_messages_page_for_project,
+            ),
+            render_chat_history_fn=_render_chat_history,
+        )
 
         prompt_input = st.chat_input("输入你的论文问题", disabled=turn_in_progress)
         prompt_gate = gate_prompt_and_enqueue(
@@ -838,7 +554,7 @@ def run_agent_center_page() -> None:
             return
         prompt = str(prompt_gate.prompt or "")
 
-        compact_summary = _apply_auto_compact(
+        compact_summary = apply_auto_compact_fn(
             selected_project_uid,
             selected_session_uid,
             user_uuid,
@@ -865,30 +581,16 @@ def run_agent_center_page() -> None:
             scope_docs_with_text=scope_docs_with_text,
         )
 
-        def _build_tool_load_signature(tool_specs: list[dict[str, object]] | None) -> str:
-            if not isinstance(tool_specs, list):
-                return ""
-            normalized: list[tuple[str, str, bool]] = []
-            for item in tool_specs:
-                if not isinstance(item, dict):
-                    continue
-                name = str(item.get("name") or "").strip()
-                if not name:
-                    continue
-                schema_level = str(item.get("schema_level") or "").strip().lower()
-                has_schema = bool(str(item.get("args_schema") or "").strip())
-                normalized.append((name, schema_level, has_schema))
-            normalized.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
-            return json.dumps(normalized, ensure_ascii=False)
-
         current_tool_specs = st.session_state.get("paper_current_tool_specs", [])
-        tool_load_signature = _build_tool_load_signature(current_tool_specs)
+        tool_load_signature = build_tool_load_signature(current_tool_specs)
         tool_load_signature_map = st.session_state.get("agent_tool_load_signature_map", {})
+        emit_tool_load_event = should_emit_tool_load_event(
+            signature_map=tool_load_signature_map,
+            conversation_key=conversation_key,
+            tool_load_signature=tool_load_signature,
+        )
         if not isinstance(tool_load_signature_map, dict):
             tool_load_signature_map = {}
-        emit_tool_load_event = (
-            tool_load_signature_map.get(conversation_key) != tool_load_signature
-        )
         try:
             turn_result = execute_assistant_turn(
                 prompt=prompt,
@@ -955,13 +657,18 @@ def run_agent_center_page() -> None:
             session_uid=selected_session_uid,
             conversation_key=conversation_key,
         )
-        _update_context_usage(selected_project_uid, conversation_key)
+        update_context_usage_fn(selected_project_uid, conversation_key)
         st.rerun()
 
 
     initialize_agent_center_session_state()
 
-    _load_files_from_db()
+    load_files_from_db(
+        session_state=st.session_state,
+        user_uuid=str(st.session_state.get("uuid") or "local-user"),
+        list_user_files_fn=list_user_files,
+        logger=logger,
+    )
 
     if not st.session_state.files:
         st.write("### 暂无文档，请前往“文件中心”页面上传。")

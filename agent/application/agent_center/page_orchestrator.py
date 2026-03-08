@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
@@ -31,6 +32,34 @@ class ArchivePayload:
     serialized_content: str
     doc_uid: str | None
     doc_name: str
+
+
+def build_tool_load_signature(tool_specs: Any) -> str:
+    if not isinstance(tool_specs, list):
+        return ""
+    normalized: list[tuple[str, str, bool]] = []
+    for item in tool_specs:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        schema_level = str(item.get("schema_level") or "").strip().lower()
+        has_schema = bool(str(item.get("args_schema") or "").strip())
+        normalized.append((name, schema_level, has_schema))
+    normalized.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
+    return json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+
+
+def should_emit_tool_load_event(
+    *,
+    signature_map: Any,
+    conversation_key: str,
+    tool_load_signature: str,
+) -> bool:
+    if not isinstance(signature_map, dict):
+        return True
+    return signature_map.get(conversation_key) != tool_load_signature
 
 
 def prepare_scope_runtime(

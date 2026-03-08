@@ -1,15 +1,13 @@
 import streamlit as st
 
-from ui.theme import inject_global_theme
-from utils.utils import (
+from agent.adapters.sqlite.project_repository import (
     create_project,
-    ensure_default_project_for_user,
-    ensure_local_user,
-    init_database,
     list_project_files,
     list_projects,
     update_project,
 )
+from ui.page_bootstrap import bootstrap_page_context
+from ui.theme import inject_global_theme
 
 
 def _project_summary(project_uid: str, user_uuid: str) -> str:
@@ -22,14 +20,10 @@ def main() -> None:
     st.title("🗂️ 项目中心")
     inject_global_theme()
 
-    init_database("./database.sqlite")
-    if "uuid" not in st.session_state or not st.session_state["uuid"]:
-        st.session_state["uuid"] = "local-user"
-    user_uuid = st.session_state["uuid"]
-    ensure_local_user(user_uuid, db_name="./database.sqlite")
-    ensure_default_project_for_user(
-        user_uuid,
+    user_uuid = bootstrap_page_context(
+        session_state=st.session_state,
         db_name="./database.sqlite",
+        ensure_default_project=True,
         sync_existing_files=False,
     )
 

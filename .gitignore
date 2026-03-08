@@ -48,7 +48,9 @@ models
 # unit tests
 .coverage
 
-docs
+docs/*
+!docs/plan/
+!docs/plan/**/*.md
 
 .serena
 

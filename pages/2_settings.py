@@ -1,44 +1,47 @@
 import streamlit as st
 
-from agent.settings import load_agent_settings
-from utils.utils import (
-    apply_user_runtime_tuning_env,
-    ensure_local_user,
-    get_api_key,
-    get_base_url,
-    get_model_name,
-    get_policy_router_api_key,
-    get_policy_router_base_url,
-    get_policy_router_model_name,
-    get_runtime_tuning_settings,
-    init_database,
-    save_api_key,
-    save_base_url,
-    save_model_name,
-    save_policy_router_api_key,
-    save_policy_router_base_url,
-    save_policy_router_model_name,
-    save_runtime_tuning_settings,
+from agent.adapters import (
+    apply_runtime_tuning_env_for_user,
+    read_api_key_for_user,
+    read_base_url_for_user,
+    read_model_name_for_user,
+    read_policy_router_api_key_for_user,
+    read_policy_router_base_url_for_user,
+    read_policy_router_model_name_for_user,
+    read_runtime_tuning_settings_for_user,
+    save_api_key_for_user,
+    save_base_url_for_user,
+    save_model_name_for_user,
+    save_policy_router_api_key_for_user,
+    save_policy_router_base_url_for_user,
+    save_policy_router_model_name_for_user,
+    save_runtime_tuning_settings_for_user,
 )
+from agent.settings import load_agent_settings
+from ui.page_bootstrap import bootstrap_page_context
 
 
 def main() -> None:
     st.set_page_config(page_title="设置中心", page_icon="⚙️")
     st.title("⚙️ 设置中心")
 
-    init_database("./database.sqlite")
-    if "uuid" not in st.session_state or not st.session_state["uuid"]:
-        st.session_state["uuid"] = "local-user"
-    ensure_local_user(st.session_state["uuid"], db_name="./database.sqlite")
-
-    user_uuid = st.session_state["uuid"]
-    saved_api_key = get_api_key(user_uuid)
-    saved_model_name = get_model_name(user_uuid) or ""
-    saved_base_url = get_base_url(user_uuid) or ""
-    saved_policy_router_model_name = get_policy_router_model_name(user_uuid) or ""
-    saved_policy_router_base_url = get_policy_router_base_url(user_uuid) or ""
-    saved_policy_router_api_key = get_policy_router_api_key(user_uuid) or ""
-    saved_runtime_tuning = get_runtime_tuning_settings(user_uuid)
+    user_uuid = bootstrap_page_context(
+        session_state=st.session_state,
+        db_name="./database.sqlite",
+    )
+    saved_api_key = read_api_key_for_user(uuid=user_uuid)
+    saved_model_name = read_model_name_for_user(uuid=user_uuid) or ""
+    saved_base_url = read_base_url_for_user(uuid=user_uuid) or ""
+    saved_policy_router_model_name = (
+        read_policy_router_model_name_for_user(uuid=user_uuid) or ""
+    )
+    saved_policy_router_base_url = (
+        read_policy_router_base_url_for_user(uuid=user_uuid) or ""
+    )
+    saved_policy_router_api_key = (
+        read_policy_router_api_key_for_user(uuid=user_uuid) or ""
+    )
+    saved_runtime_tuning = read_runtime_tuning_settings_for_user(uuid=user_uuid)
     settings = load_agent_settings()
 
     st.caption("这里用于集中管理当前用户的模型配置。")
@@ -161,13 +164,22 @@ def main() -> None:
     )
 
     if st.button("保存设置", type="primary"):
-        save_api_key(user_uuid, api_key)
-        save_model_name(user_uuid, model_name.strip())
-        save_base_url(user_uuid, base_url.strip() or None)
-        save_policy_router_model_name(user_uuid, policy_router_model_name.strip() or None)
-        save_policy_router_base_url(user_uuid, policy_router_base_url.strip() or None)
-        save_policy_router_api_key(user_uuid, policy_router_api_key.strip() or None)
-        save_runtime_tuning_settings(
+        save_api_key_for_user(uuid=user_uuid, api_key=api_key)
+        save_model_name_for_user(uuid=user_uuid, model_name=model_name.strip())
+        save_base_url_for_user(uuid=user_uuid, base_url=base_url.strip() or None)
+        save_policy_router_model_name_for_user(
+            uuid=user_uuid,
+            model_name=policy_router_model_name.strip() or None,
+        )
+        save_policy_router_base_url_for_user(
+            uuid=user_uuid,
+            base_url=policy_router_base_url.strip() or None,
+        )
+        save_policy_router_api_key_for_user(
+            uuid=user_uuid,
+            api_key=policy_router_api_key.strip() or None,
+        )
+        save_runtime_tuning_settings_for_user(
             user_uuid,
             agent_policy_async_enabled=async_enabled,
             agent_policy_async_refresh_seconds=float(async_refresh_seconds),
@@ -178,7 +190,7 @@ def main() -> None:
             local_rag_project_max_chars=int(local_rag_project_max_chars),
             local_rag_project_max_chunks=int(local_rag_project_max_chunks),
         )
-        apply_user_runtime_tuning_env(user_uuid)
+        apply_runtime_tuning_env_for_user(uuid=user_uuid)
         st.success("设置已保存")
 
 

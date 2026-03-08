@@ -1,6 +1,16 @@
 import datetime
 from pathlib import Path
 
+from agent.adapters.sqlite.project_repository import (
+    create_project,
+    create_project_session,
+    delete_project_session,
+    ensure_default_project_session,
+    list_project_session_messages,
+    list_project_sessions,
+    save_project_session_messages,
+    update_project_session,
+)
 from agent.memory.store import (
     get_project_session_compact_memory,
     list_project_memory_items,
@@ -9,16 +19,8 @@ from agent.memory.store import (
     upsert_project_memory_item,
 )
 from utils.utils import (
-    create_project,
-    create_project_session,
-    delete_project_session,
-    ensure_default_project_session,
     ensure_local_user,
     init_database,
-    list_project_session_messages,
-    list_project_sessions,
-    save_project_session_messages,
-    update_project_session,
 )
 
 

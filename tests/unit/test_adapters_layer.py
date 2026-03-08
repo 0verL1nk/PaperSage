@@ -19,10 +19,25 @@ from agent.adapters.project_store import (
 )
 from agent.adapters.rag import create_project_evidence_retriever
 from agent.adapters.user_settings import (
+    apply_runtime_tuning_env_for_user,
     list_user_files,
+    read_api_key_for_user,
+    read_base_url_for_user,
+    read_model_name_for_user,
+    read_policy_router_api_key_for_user,
+    read_policy_router_base_url_for_user,
+    read_policy_router_model_name_for_user,
+    read_runtime_tuning_settings_for_user,
     read_user_api_key,
     read_user_base_url,
     read_user_model_name,
+    save_api_key_for_user,
+    save_base_url_for_user,
+    save_model_name_for_user,
+    save_policy_router_api_key_for_user,
+    save_policy_router_base_url_for_user,
+    save_policy_router_model_name_for_user,
+    save_runtime_tuning_settings_for_user,
 )
 
 
@@ -195,8 +210,99 @@ def test_user_settings_adapters_delegate(monkeypatch):
     monkeypatch.setattr("agent.adapters.user_settings.get_user_model_name", lambda: "m")
     monkeypatch.setattr("agent.adapters.user_settings.get_user_base_url", lambda: "u")
     monkeypatch.setattr("agent.adapters.user_settings.get_user_files", lambda uuid: [{"uuid": uuid}])
+    monkeypatch.setattr("agent.adapters.user_settings.get_api_key", lambda uuid: f"k:{uuid}")
+    monkeypatch.setattr("agent.adapters.user_settings.get_model_name", lambda uuid: f"m:{uuid}")
+    monkeypatch.setattr("agent.adapters.user_settings.get_base_url", lambda uuid: f"b:{uuid}")
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.get_policy_router_model_name",
+        lambda uuid: f"pm:{uuid}",
+    )
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.get_policy_router_base_url",
+        lambda uuid: f"pb:{uuid}",
+    )
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.get_policy_router_api_key",
+        lambda uuid: f"pk:{uuid}",
+    )
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.get_runtime_tuning_settings",
+        lambda uuid: {
+            "agent_policy_async_enabled": True,
+            "agent_policy_async_refresh_seconds": 1.5,
+            "agent_policy_async_min_confidence": None,
+            "agent_policy_async_max_staleness_seconds": None,
+            "rag_index_batch_size": None,
+            "agent_document_text_cache_max_chars": None,
+            "local_rag_project_max_chars": None,
+            "local_rag_project_max_chunks": None,
+        },
+    )
+    save_calls = {}
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.save_api_key",
+        lambda uuid, value: save_calls.__setitem__("api_key", (uuid, value)),
+    )
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.save_model_name",
+        lambda uuid, value: save_calls.__setitem__("model_name", (uuid, value)),
+    )
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.save_base_url",
+        lambda uuid, value: save_calls.__setitem__("base_url", (uuid, value)),
+    )
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.save_policy_router_model_name",
+        lambda uuid, value: save_calls.__setitem__("policy_model", (uuid, value)),
+    )
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.save_policy_router_base_url",
+        lambda uuid, value: save_calls.__setitem__("policy_base_url", (uuid, value)),
+    )
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.save_policy_router_api_key",
+        lambda uuid, value: save_calls.__setitem__("policy_api_key", (uuid, value)),
+    )
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.save_runtime_tuning_settings",
+        lambda uuid, **kwargs: save_calls.__setitem__("runtime", (uuid, kwargs)),
+    )
 
     assert read_user_api_key() == "k"
     assert read_user_model_name() == "m"
     assert read_user_base_url() == "u"
     assert list_user_files(uuid="u1")[0]["uuid"] == "u1"
+    assert read_api_key_for_user(uuid="u1") == "k:u1"
+    assert read_model_name_for_user(uuid="u1") == "m:u1"
+    assert read_base_url_for_user(uuid="u1") == "b:u1"
+    assert read_policy_router_model_name_for_user(uuid="u1") == "pm:u1"
+    assert read_policy_router_base_url_for_user(uuid="u1") == "pb:u1"
+    assert read_policy_router_api_key_for_user(uuid="u1") == "pk:u1"
+    assert read_runtime_tuning_settings_for_user(uuid="u1")["agent_policy_async_enabled"]
+
+    save_api_key_for_user(uuid="u1", api_key="a")
+    save_model_name_for_user(uuid="u1", model_name="m1")
+    save_base_url_for_user(uuid="u1", base_url="https://x")
+    save_policy_router_model_name_for_user(uuid="u1", model_name="pm1")
+    save_policy_router_base_url_for_user(uuid="u1", base_url="https://p")
+    save_policy_router_api_key_for_user(uuid="u1", api_key="pk1")
+    save_runtime_tuning_settings_for_user(
+        "u1",
+        agent_policy_async_enabled=True,
+        agent_policy_async_refresh_seconds=1.0,
+        agent_policy_async_min_confidence=0.7,
+        agent_policy_async_max_staleness_seconds=10.0,
+        rag_index_batch_size=64,
+        agent_document_text_cache_max_chars=1000,
+        local_rag_project_max_chars=5000,
+        local_rag_project_max_chunks=200,
+    )
+    applied = apply_runtime_tuning_env_for_user(uuid="u1")
+    assert applied["AGENT_POLICY_ASYNC_ENABLED"] == "true"
+    assert save_calls["api_key"] == ("u1", "a")
+    assert save_calls["model_name"] == ("u1", "m1")
+    assert save_calls["base_url"] == ("u1", "https://x")
+    assert save_calls["policy_model"] == ("u1", "pm1")
+    assert save_calls["policy_base_url"] == ("u1", "https://p")
+    assert save_calls["policy_api_key"] == ("u1", "pk1")
+    assert save_calls["runtime"][0] == "u1"

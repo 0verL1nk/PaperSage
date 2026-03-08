@@ -26,9 +26,11 @@ from .page_orchestrator import (
     ScopeRuntimeResult,
     TurnExecutionContext,
     apply_turn_result,
+    build_tool_load_signature,
     build_turn_execution_context,
     gate_prompt_and_enqueue,
     prepare_scope_runtime,
+    should_emit_tool_load_event,
 )
 from .project_sessions import (
     build_session_maps,
@@ -78,7 +80,9 @@ __all__ = [
     "prepare_scope_runtime",
     "gate_prompt_and_enqueue",
     "build_turn_execution_context",
+    "build_tool_load_signature",
     "apply_turn_result",
+    "should_emit_tool_load_event",
     "persist_active_conversation",
     "ensure_conversation_messages",
     "ensure_compact_summary",
