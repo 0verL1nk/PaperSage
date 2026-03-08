@@ -334,6 +334,100 @@ def _normalize_evidence_items(raw_payload) -> list[dict]:
     return normalized
 
 
+_TODO_STATUS_ICON = {
+    "todo": "⬜",
+    "in_progress": "🔄",
+    "done": "✅",
+    "blocked": "🚫",
+    "canceled": "⏹",
+}
+_TODO_PRIORITY_ICON = {
+    "high": "🔴",
+    "medium": "🟡",
+    "low": "🟢",
+}
+
+
+def _render_team_todo_panel(
+    team_execution: dict[str, Any],
+    *,
+    key_prefix: str = "todo",
+) -> None:
+    """渲染 team 模式下 leader 规划的 Todo 看板。"""
+    if not isinstance(team_execution, dict):
+        return
+    if not team_execution.get("enabled"):
+        return
+    todo_records: list[dict[str, Any]] = team_execution.get("todo_records") or []
+    if not todo_records:
+        return
+
+    todo_stats: dict[str, int] = team_execution.get("todo_stats") or {}
+    done_n = int(todo_stats.get("done", 0))
+    total_n = len(todo_records)
+    blocked_n = int(todo_stats.get("blocked", 0))
+    leader_planned = any(rec.get("leader_planned") for rec in todo_records)
+
+    header = f"📋 Team Todo（{done_n}/{total_n} 完成"
+    if blocked_n:
+        header += f"，{blocked_n} 阻塞"
+    if leader_planned:
+        header += "，Leader 语义规划"
+    header += "）"
+
+    with st.expander(header, expanded=False):
+        # 统计芯片行
+        chips: list[str] = []
+        for status in ("done", "in_progress", "todo", "blocked", "canceled"):
+            n = int(todo_stats.get(status, 0))
+            if n == 0:
+                continue
+            icon = _TODO_STATUS_ICON.get(status, "")
+            chips.append(f"<span class='llm-chip'>{icon} {status} {n}</span>")
+        if chips:
+            st.markdown(
+                f"<div class='llm-chip-row'>{''.join(chips)}</div>",
+                unsafe_allow_html=True,
+            )
+
+        # 按轮次分组展示
+        rounds: dict[int, list[dict[str, Any]]] = {}
+        for rec in todo_records:
+            r = int(rec.get("round") or 1)
+            rounds.setdefault(r, []).append(rec)
+
+        for round_idx in sorted(rounds.keys()):
+            st.markdown(f"**Round {round_idx}**")
+            for rec in rounds[round_idx]:
+                status = str(rec.get("status") or "todo").lower()
+                priority = str(rec.get("priority") or "medium").lower()
+                s_icon = _TODO_STATUS_ICON.get(status, "❓")
+                p_icon = _TODO_PRIORITY_ICON.get(priority, "")
+                assignee = str(rec.get("assignee") or "n/a")
+                title = str(rec.get("title") or rec.get("id") or "task")
+                details = str(rec.get("details") or "").strip()
+                deps = rec.get("dependencies") or []
+                output = str(rec.get("output") or "").strip()
+
+                with st.container(border=True):
+                    # 标题行
+                    st.markdown(
+                        f"{s_icon} {p_icon} **{title}** "
+                        f"&nbsp;`{assignee}`&nbsp; `{status}`",
+                        unsafe_allow_html=True,
+                    )
+                    # 任务描述（leader 规划的 details）
+                    if details:
+                        st.caption(details)
+                    # 依赖关系
+                    if deps:
+                        st.caption(f"依赖：{', '.join(str(d) for d in deps)}")
+                    # 子 agent 输出（done 才展示）
+                    if output and status == "done":
+                        with st.expander("查看输出", expanded=False):
+                            st.markdown(output)
+
+
 def _render_evidence_panel(
     evidence_items: list[dict] | None,
     key_prefix: str,

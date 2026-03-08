@@ -51,6 +51,9 @@
 ### Agent 中心 — 智能问答
 ![alt text](images/agent中心.png)
 
+### Agent 中心 — Team模式
+![team](images/team调度.png)
+
 ### 文件中心 — 文档管理
 
 ![alt text](images/文件中心.png)

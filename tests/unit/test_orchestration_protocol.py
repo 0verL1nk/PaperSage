@@ -113,12 +113,13 @@ def test_run_team_tasks_normalizes_role_name_and_emits_round_metadata(monkeypatc
 
     assert execution.enabled is True
     assert execution.roles == ["leader_role"]
-    assert len(events) == 2
-    assert events[0]["performative"] == "dispatch"
-    assert events[0]["meta"]["round"] == 1
-    assert events[0]["meta"]["role"] == "leader_role"
-    assert events[1]["performative"] == "review"
+    assert len(events) == 3
+    assert events[0]["performative"] == "plan_todo"
+    assert events[1]["performative"] == "dispatch"
     assert events[1]["meta"]["round"] == 1
+    assert events[1]["meta"]["role"] == "leader_role"
+    assert events[2]["performative"] == "review"
+    assert events[2]["meta"]["round"] == 1
 
 
 def test_run_team_tasks_uses_todo_dependencies_for_ready_queue(monkeypatch):
@@ -132,6 +133,14 @@ def test_run_team_tasks_uses_todo_dependencies_for_ready_queue(monkeypatch):
     monkeypatch.setattr(
         "agent.orchestration.team_runtime._decide_team_rounds",
         lambda **_kwargs: 2,
+    )
+    # patch _leader_plan_todo 返回与机械生成完全一致的结构，以便断言 todo_id 顺序
+    from agent.orchestration.team_runtime import _build_team_todo_records_mechanical, TeamRole as TR
+    monkeypatch.setattr(
+        "agent.orchestration.team_runtime._leader_plan_todo",
+        lambda *, roles, actual_rounds, plan_id, **_kw: _build_team_todo_records_mechanical(
+            roles=roles, rounds=actual_rounds, plan_id=plan_id
+        ),
     )
     monkeypatch.setattr(
         "agent.orchestration.team_runtime._invoke_role_agent",
@@ -185,8 +194,9 @@ def test_run_team_tasks_blocks_when_dependency_cycle_detected(monkeypatch):
         "agent.orchestration.team_runtime._decide_team_rounds",
         lambda **_kwargs: 1,
     )
+    # 直接 patch _leader_plan_todo 注入一个有循环依赖的 todo 列表
     monkeypatch.setattr(
-        "agent.orchestration.team_runtime._build_team_todo_records",
+        "agent.orchestration.team_runtime._leader_plan_todo",
         lambda **_kwargs: [
             {
                 "id": "task_a",
@@ -195,6 +205,8 @@ def test_run_team_tasks_blocks_when_dependency_cycle_detected(monkeypatch):
                 "assignee": "researcher",
                 "dependencies": ["task_b"],
                 "history": [],
+                "round": 1,
+                "details": "do a",
             },
             {
                 "id": "task_b",
@@ -203,6 +215,8 @@ def test_run_team_tasks_blocks_when_dependency_cycle_detected(monkeypatch):
                 "assignee": "researcher",
                 "dependencies": ["task_a"],
                 "history": [],
+                "round": 1,
+                "details": "do b",
             },
         ],
     )
@@ -220,7 +234,21 @@ def test_run_team_tasks_blocks_when_dependency_cycle_detected(monkeypatch):
     assert execution.enabled is True
     assert execution.fallback_reason == "todo_dependency_cycle"
     assert execution.todo_stats["blocked"] == 2
-    assert execution.trace_events == []
+    # plan_todo: leader 每次规划都产生一个（共 max_todo_plan_retries+1 次，最后一次超限后返回）
+    # plan_todo_reject: 程序检测到环后反馈给 leader（共 max_todo_plan_retries 次）
+    plan_todo_events = [e for e in execution.trace_events if e.get("performative") == "plan_todo"]
+    reject_events = [e for e in execution.trace_events if e.get("performative") == "plan_todo_reject"]
+    assert len(plan_todo_events) >= 1   # 至少有首次 leader 规划事件
+    assert len(reject_events) >= 1      # 至少有一次系统反馈环事件
+    # reject 事件的 sender/receiver 符合路由规则
+    for ev in reject_events:
+        assert ev.get("sender") == "system"
+        assert ev.get("receiver") == "leader"
+    non_plan_events = [
+        e for e in execution.trace_events
+        if e.get("performative") not in {"plan_todo", "plan_todo_reject"}
+    ]
+    assert non_plan_events == []
 
 
 def test_execute_orchestrated_turn_syncs_team_todo_store(monkeypatch, tmp_path):
@@ -273,3 +301,46 @@ def test_execute_orchestrated_turn_syncs_team_todo_store(monkeypatch, tmp_path):
     assert isinstance(payload, list)
     assert payload
     assert payload[0]["id"] == "team_r1_researcher"
+
+
+def test_persist_team_todo_records_replaces_same_plan_id(tmp_path):
+    """同 plan_id 的记录应被全量替换，不同 plan_id 的记录应保留。"""
+    from agent.orchestration.orchestrator import _persist_team_todo_records
+    from agent.domain.orchestration import TeamExecution
+    import json, os
+
+    todo_file = tmp_path / ".agent" / "todo.json"
+    os.environ["AGENT_FILE_TOOLS_ROOT"] = str(tmp_path)
+    os.environ["AGENT_TODO_FILE"] = ".agent/todo.json"
+
+    # 先写入两个不同 plan_id 的记录
+    todo_file.parent.mkdir(parents=True, exist_ok=True)
+    todo_file.write_text(json.dumps([
+        {"id": "old_t1", "plan_id": "team:plan-A", "status": "done", "title": "old A"},
+        {"id": "old_t2", "plan_id": "team:plan-B", "status": "todo", "title": "old B"},
+    ], ensure_ascii=False), encoding="utf-8")
+
+    # 用 plan-A 的新记录来 persist（应替换 plan-A 的旧记录，保留 plan-B）
+    te = TeamExecution(
+        enabled=True,
+        roles=["researcher"],
+        member_count=1,
+        rounds=1,
+        summary="",
+        todo_records=[
+            {"id": "new_t1", "plan_id": "team:plan-A", "status": "done", "title": "new A"},
+            {"id": "new_t2", "plan_id": "team:plan-A", "status": "done", "title": "new A2"},
+        ],
+        todo_stats={"done": 2},
+        trace_events=[],
+    )
+    _persist_team_todo_records(te)
+
+    result = json.loads(todo_file.read_text(encoding="utf-8"))
+    ids = [r["id"] for r in result]
+    # plan-B 的 old_t2 应保留，plan-A 的 old_t1 应被替换为 new_t1/new_t2
+    assert "old_t2" in ids, "不同 plan_id 的记录应被保留"
+    assert "old_t1" not in ids, "同 plan_id 的旧记录应被替换"
+    assert "new_t1" in ids
+    assert "new_t2" in ids
+    assert len(result) == 3  # old_t2 + new_t1 + new_t2

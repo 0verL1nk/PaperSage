@@ -131,6 +131,10 @@ def _persist_team_todo_records(team_execution: TeamExecution) -> str:
     if not isinstance(todo_records, list) or not todo_records:
         return ""
     path = _resolve_team_todo_store_path()
+
+    # 取本次规划的 plan_id（所有记录共享同一个 plan_id）
+    current_plan_id = str(todo_records[0].get("plan_id") or "").strip() if todo_records else ""
+
     existing: list[dict[str, Any]] = []
     if path.exists() and path.is_file():
         try:
@@ -139,24 +143,19 @@ def _persist_team_todo_records(team_execution: TeamExecution) -> str:
                 existing = [item for item in payload if isinstance(item, dict)]
         except Exception:
             existing = []
-    id_to_index: dict[str, int] = {}
-    for idx, item in enumerate(existing):
-        todo_id = str(item.get("id") or "").strip()
-        if todo_id:
-            id_to_index[todo_id] = idx
+
+    # 删除与本次 plan_id 相同的旧记录（同一次规划，全量替换）
+    if current_plan_id:
+        existing = [
+            item for item in existing
+            if str(item.get("plan_id") or "").strip() != current_plan_id
+        ]
+
+    # 追加本次规划的所有记录
     for raw in todo_records:
-        if not isinstance(raw, dict):
-            continue
-        todo_id = str(raw.get("id") or "").strip()
-        if not todo_id:
-            continue
-        record = dict(raw)
-        index = id_to_index.get(todo_id)
-        if index is None:
-            id_to_index[todo_id] = len(existing)
-            existing.append(record)
-        else:
-            existing[index] = record
+        if isinstance(raw, dict):
+            existing.append(dict(raw))
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
     return path.as_posix()

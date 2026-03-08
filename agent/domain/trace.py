@@ -3,6 +3,8 @@ PHASE_BY_PERFORMATIVE = {
     "dispatch": "调度中",
     "policy": "策略判定",
     "plan": "规划",
+    "plan_todo": "任务规划",
+    "plan_todo_reject": "规划修正",
     "tool_load": "工具加载",
     "tool_call": "调用工具",
     "tool_result": "工具返回",

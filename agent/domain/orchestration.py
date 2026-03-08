@@ -57,6 +57,12 @@ def is_valid_trace_route(sender: str, receiver: str, performative: str) -> bool:
         return dst in {"leader", "coordinator"}
     if act in {"plan", "replan"}:
         return src == "planner" and src != dst
+    if act == "plan_todo":
+        # leader 自我规划 todo 列表
+        return src in {"leader", "coordinator"} and dst in {"leader", "coordinator"}
+    if act == "plan_todo_reject":
+        # 程序检测到依赖环，反馈给 leader 让其修正
+        return src == "system" and dst in {"leader", "coordinator"}
     if act == "dispatch":
         return src in {"leader", "coordinator"} and dst not in {"user", src}
     if act in {"draft", "review"}:

@@ -9,6 +9,7 @@ from agent.ui_helpers import (
     _render_evidence_panel,
     _render_method_compare_if_any,
     _render_mindmap_if_any,
+    _render_team_todo_panel,
     _render_trace_by_mode,
 )
 
@@ -72,6 +73,7 @@ def render_turn_result(
 
     _render_method_compare_if_any(method_compare_data, key_prefix="live")
     _render_ask_human_requests(ask_human_requests, key_prefix="live")
+    _render_team_todo_panel(team_execution, key_prefix="live")
     _render_evidence_panel(evidence_items, key_prefix="live")
     st.caption(
         f"本次耗时：{run_latency_ms:.0f} ms | Team rounds：{int(team_execution.get('rounds', 0))}"

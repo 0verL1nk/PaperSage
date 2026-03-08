@@ -115,16 +115,51 @@ def render_pinned_todo_panel(
     expanded: bool = True,
 ) -> None:
     path = _resolve_todo_path()
-    records = _load_todo_records(path)
+    all_records = _load_todo_records(path)
+
+    # ── 取最新一次 plan_id 的记录 ──────────────────────────────────────────
+    # plan_id 格式为 "team:<run_id>"，按文件中出现顺序取最后一个 plan_id
+    latest_plan_id: str = ""
+    for item in reversed(all_records):
+        pid = str(item.get("plan_id") or "").strip()
+        if pid:
+            latest_plan_id = pid
+            break
+
+    records = (
+        [r for r in all_records if str(r.get("plan_id") or "").strip() == latest_plan_id]
+        if latest_plan_id
+        else all_records
+    )
+
+    # ── 计算完成情况 ────────────────────────────────────────────────────────
+    terminal_statuses = {"done", "canceled"}
+    all_terminal = bool(records) and all(
+        str(r.get("status") or "todo").strip().lower() in terminal_statuses
+        for r in records
+    )
+    done_count = sum(
+        1 for r in records
+        if str(r.get("status") or "").strip().lower() in terminal_statuses
+    )
+
     if not records:
         with st.expander("📌 Todo（Pinned）", expanded=expanded):
             st.caption("暂无任务。可通过 write_todo 工具创建。")
         return
 
-    with st.expander("📌 Todo（Pinned）", expanded=expanded):
+    if all_terminal:
+        header = f"📌 Todo（已结束 · {done_count}/{len(records)} 完成）"
+    else:
+        header = f"📌 Todo（{done_count}/{len(records)} 完成）"
+
+    with st.expander(header, expanded=expanded and not all_terminal):
+        if all_terminal:
+            st.caption("✅ 本次 Team 规划所有任务已完成/取消，以下为历史记录。")
+
         show_done = st.toggle(
             "显示已完成",
-            value=False,
+            value=all_terminal,        # 全部完成时默认展示，否则默认隐藏
             key=f"todo_show_done_{project_uid}",
         )
         items = []
