@@ -88,7 +88,7 @@ def test_router_raises_when_llm_retries_exhausted():
     coordinator = MagicMock()
     coordinator.llm = MagicMock()
     coordinator.llm.with_structured_output = MagicMock(side_effect=Exception("LLM unavailable"))
-    with pytest.raises(RuntimeError, match="Policy router LLM is required"):
+    with pytest.raises(RuntimeError, match="Policy router failed after"):
         auto_select_workflow_mode(
             "请完成以下任务：1. 拆解研究问题并提炼核心假设；2. 基于文档证据与外部文献交叉验证；"
             "3. 输出结构化结论并补充待验证风险点。请说明多目标冲突如何权衡？",

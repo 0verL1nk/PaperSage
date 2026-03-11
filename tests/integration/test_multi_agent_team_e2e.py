@@ -58,7 +58,6 @@ class _ScriptedAgent:
 
 def test_agent_team_turn_engine_end_to_end(monkeypatch):
     from agent.domain.orchestration import PolicyDecision
-    from agent.domain.request_context import RequestContext
 
     def mock_intercept(ctx, *args, **kwargs):
         return PolicyDecision(

@@ -60,7 +60,7 @@ def test_intercept_raises_when_llm_returns_none():
         "agent.orchestration.policy_engine._route_with_llm",
         return_value=None,
     ):
-        with pytest.raises(RuntimeError, match="Policy router LLM is required"):
+        with pytest.raises(RuntimeError, match="Policy router failed after"):
             intercept(ctx, llm=MagicMock(spec=["with_structured_output"]))
 
 

@@ -8,6 +8,7 @@ from ..domain.orchestration import PolicyDecision
 from ..domain.request_context import RequestContext
 
 logger = logging.getLogger(__name__)
+POLICY_ROUTER_MAX_RETRIES = 2
 
 
 POLICY_ROUTER_INSTRUCTION = """
@@ -121,17 +122,37 @@ def _invoke_structured_compat(structured: Any, input_payload: dict[str, str]) ->
     return None
 
 
+def _resolve_policy_decision(
+    prompt: str,
+    llm: Any,
+    *,
+    context_digest: str = "",
+    max_retries: int = POLICY_ROUTER_MAX_RETRIES,
+) -> PolicyDecision:
+    retry_budget = max(0, int(max_retries))
+    total_attempts = retry_budget + 1
+    for attempt in range(1, total_attempts + 1):
+        llm_decision = _route_with_llm(prompt, llm, context_digest=context_digest)
+        if llm_decision is not None:
+            return llm_decision
+        if attempt < total_attempts:
+            logger.warning(
+                "Policy router returned empty decision, retrying (%s/%s)",
+                attempt,
+                total_attempts,
+            )
+    raise RuntimeError(f"Policy router failed after {total_attempts} attempts.")
+
+
 def decide_execution_policy(
     prompt: str,
     *,
     llm: Any | None = None,
     context_digest: str = "",
 ) -> PolicyDecision:
-    llm_decision = _route_with_llm(prompt, llm, context_digest=context_digest)
-    if llm_decision is None:
-        raise RuntimeError("Policy router LLM is required and failed to return a decision.")
-
-    decision = llm_decision
+    if llm is None:
+        raise RuntimeError("Policy router LLM is required when no manual override is provided.")
+    decision = _resolve_policy_decision(prompt, llm, context_digest=context_digest)
 
     if decision.team_enabled and not decision.plan_enabled:
         decision = PolicyDecision(
@@ -150,20 +171,17 @@ def intercept(
     llm: Any | None = None,
     emit_info_log: bool = True,
 ) -> PolicyDecision:
+    if llm is None:
+        raise RuntimeError("Policy router LLM is required when no manual override is provided.")
     try:
-        llm_decision = _route_with_llm(
+        decision = _resolve_policy_decision(
             ctx.prompt,
             llm,
             context_digest=ctx.context_digest,
         )
     except Exception:
         logger.exception("Interceptor LLM routing failed")
-        llm_decision = None
-
-    if llm_decision is None:
-        raise RuntimeError("Policy router LLM is required and failed to return a decision.")
-
-    decision = llm_decision
+        raise
 
     if decision.team_enabled and not decision.plan_enabled:
         decision = PolicyDecision(

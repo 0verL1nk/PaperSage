@@ -141,7 +141,6 @@ def test_build_trace_event_accepts_policy_switch_route():
 
 def test_execute_orchestrated_turn_emits_protocolized_trace(monkeypatch):
     from agent.domain.orchestration import PolicyDecision
-    from agent.domain.request_context import RequestContext
 
     def mock_intercept(ctx, *args, **kwargs):
         return PolicyDecision(
