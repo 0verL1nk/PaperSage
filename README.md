@@ -22,7 +22,7 @@
 
 <div align="center">
 
-![PaperSage 主界面](images/main.png)
+![PaperSage 主界面](images/main.jpg)
 
 > 基于 **Streamlit + LangChain + LangGraph** 构建。  
 > 以"项目化论文问答工作台"为核心：按项目组织文档、限定检索范围、自动路由 Agent 工作流、输出可追溯证据。
