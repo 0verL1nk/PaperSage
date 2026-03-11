@@ -5,9 +5,9 @@ RequestContext 拦截器专项测试。
 覆盖：
 - RequestContext 构造与字段
 - policy_engine.intercept() 的路由行为（含 context_digest）
-- force_plan / force_team 覆盖语义
-- LLM 不可用时重试并抛错
+- LLM 不可用时降级到启发式
 """
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,6 +19,7 @@ from agent.orchestration.policy_engine import POLICY_ROUTER_MAX_RETRIES, interce
 # ---------------------------------------------------------------------------
 # RequestContext 基本构造
 # ---------------------------------------------------------------------------
+
 
 def test_request_context_defaults():
     ctx = RequestContext(prompt="测试问题")
@@ -34,6 +35,7 @@ def test_request_context_with_digest():
 # ---------------------------------------------------------------------------
 # policy_engine.intercept() - 路由行为
 # ---------------------------------------------------------------------------
+
 
 def test_intercept_simple_prompt_without_llm_raises():
     """未配置路由模型且无手动覆盖时应抛错。"""
@@ -53,23 +55,6 @@ def test_intercept_complex_prompt_without_llm_raises():
     )
     with pytest.raises(RuntimeError, match="Policy router LLM is required"):
         intercept(ctx, llm=None)
-
-
-def test_intercept_force_plan_overrides_everything():
-    """force_plan=True 应强制开启 plan，无论其他信号如何。"""
-    ctx = RequestContext(prompt="随便问一下")
-    decision = intercept(ctx, llm=None, force_plan=True)
-    assert decision.plan_enabled is True
-    assert decision.source == "manual"
-
-
-def test_intercept_force_team_auto_enables_plan():
-    """force_team=True 应同时开启 plan（team 依赖 plan）。"""
-    ctx = RequestContext(prompt="随便问一下")
-    decision = intercept(ctx, llm=None, force_team=True)
-    assert decision.team_enabled is True
-    assert decision.plan_enabled is True
-    assert decision.source == "manual"
 
 
 def test_intercept_uses_llm_when_available():

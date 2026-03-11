@@ -39,8 +39,7 @@ POLICY_ROUTER_PROMPT = ChatPromptTemplate.from_messages(
         ("system", POLICY_ROUTER_INSTRUCTION),
         (
             "human",
-            "用户问题：\n{prompt}\n\n"
-            "会话上下文摘要（可能为空）：\n{context_digest}",
+            "用户问题：\n{prompt}\n\n会话上下文摘要（可能为空）：\n{context_digest}",
         ),
     ]
 )
@@ -70,9 +69,8 @@ def _route_with_llm(
                 return None
             payload = _invoke_structured_compat(structured, input_payload)
         else:
-            if (
-                not isinstance(payload, (dict, PolicyRouterOutput, PolicyDecision))
-                and hasattr(structured, "invoke")
+            if not isinstance(payload, (dict, PolicyRouterOutput, PolicyDecision)) and hasattr(
+                structured, "invoke"
             ):
                 payload = _invoke_structured_compat(structured, input_payload)
         if isinstance(payload, PolicyDecision):
@@ -146,9 +144,8 @@ def _manual_only_decision(
 
 def _resolve_policy_decision(
     *,
-    prompt: str,
-    llm: Any | None,
-    context_digest: str,
+    llm: Any | None = None,
+    context_digest: str = "",
     max_retries: int = POLICY_ROUTER_MAX_RETRIES,
 ) -> PolicyDecision:
     if llm is None:
@@ -165,34 +162,7 @@ def _resolve_policy_decision(
                 attempt,
                 total_attempts,
             )
-    raise RuntimeError(
-        f"Policy router failed after {total_attempts} attempts."
-    )
-
-
-def _apply_manual_overrides(
-    decision: PolicyDecision,
-    *,
-    force_plan: bool | None,
-    force_team: bool | None,
-) -> PolicyDecision:
-    if force_plan is not None:
-        decision = PolicyDecision(
-            plan_enabled=bool(force_plan),
-            team_enabled=decision.team_enabled,
-            reason=f"手动覆盖 plan={bool(force_plan)} | {decision.reason}",
-            confidence=decision.confidence,
-            source="manual",
-        )
-    if force_team is not None:
-        decision = PolicyDecision(
-            plan_enabled=decision.plan_enabled,
-            team_enabled=bool(force_team),
-            reason=f"手动覆盖 team={bool(force_team)} | {decision.reason}",
-            confidence=decision.confidence,
-            source="manual",
-        )
-    return decision
+    raise RuntimeError(f"Policy router failed after {total_attempts} attempts.")
 
 
 def _ensure_team_plan_invariant(decision: PolicyDecision) -> PolicyDecision:
@@ -239,8 +209,6 @@ def intercept(
     ctx: RequestContext,
     *,
     llm: Any | None = None,
-    force_plan: bool | None = None,
-    force_team: bool | None = None,
     emit_info_log: bool = True,
 ) -> PolicyDecision:
     """请求前拦截器：携带结构化 RequestContext 统一决策执行策略。
@@ -248,23 +216,18 @@ def intercept(
     以 prompt + context_digest 作为路由输入，优先走 LLM 判断，
     LLM 失败会自动重试，超过重试次数后抛出异常。
     """
-    manual_decision = _manual_only_decision(
-        force_plan=force_plan,
-        force_team=force_team,
+    decision = _resolve_policy_decision(
+        llm=llm,
+        context_digest=ctx.context_digest,
     )
-    if manual_decision is not None:
-        decision = _ensure_team_plan_invariant(
-            _apply_manual_overrides(
-                manual_decision,
-                force_plan=force_plan,
-                force_team=force_team,
-            )
-        )
-    else:
-        decision = _resolve_policy_decision(
-            prompt=ctx.prompt,
-            llm=llm,
-            context_digest=ctx.context_digest,
+
+    if decision.team_enabled and not decision.plan_enabled:
+        decision = PolicyDecision(
+            plan_enabled=True,
+            team_enabled=True,
+            reason=f"{decision.reason}（team 启用时自动开启 plan）",
+            confidence=decision.confidence,
+            source=decision.source,
         )
 
     log_fn = logger.info if emit_info_log else logger.debug

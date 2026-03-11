@@ -15,6 +15,25 @@ class _SequencedLeaderAgent:
         return {"messages": [{"role": "assistant", "content": response}]}
 
 
+def _start_plan_result() -> dict:
+    return {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"name": "start_plan", "args": {"goal": "拆步骤回答", "reason": "multi-step"}}
+                ],
+            },
+            {
+                "role": "tool",
+                "name": "start_plan",
+                "content": '{"type":"mode_activate","mode":"plan","goal":"拆步骤回答"}',
+            },
+        ]
+    }
+
+
 def test_plan_mode_turn_engine_emits_step_trace_events_end_to_end(monkeypatch):
     monkeypatch.setattr(
         "agent.orchestration.orchestrator.intercept_policy",
@@ -44,6 +63,7 @@ def test_plan_mode_turn_engine_emits_step_trace_events_end_to_end(monkeypatch):
     )
     leader = _SequencedLeaderAgent(
         [
+            _start_plan_result(),
             {
                 "messages": [
                     {
@@ -129,6 +149,7 @@ def test_plan_mode_turn_engine_replans_when_step_verification_fails(monkeypatch)
     )
     leader = _SequencedLeaderAgent(
         [
+            _start_plan_result(),
             "无证据内容",
             "依然无证据",
             {

@@ -28,8 +28,6 @@ class OrchestratedTurnExecutor(Protocol):
         policy_llm: Any | None = None,
         search_document_fn: Callable[[str], str] | None = None,
         search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
-        force_plan: bool | None = None,
-        force_team: bool | None = None,
         routing_context: str = "",
         max_team_members: int | None = None,
         max_team_rounds: int | None = None,

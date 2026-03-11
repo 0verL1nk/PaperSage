@@ -262,8 +262,6 @@ def test_real_papers_turn_engine_live_end_to_end(
         leader_runtime_config=leader_session.runtime_config,
         leader_llm=live_real_scenario.llm,
         search_document_evidence_fn=live_real_scenario.search_document_evidence_fn,
-        force_plan=True,
-        force_team=True,
     )
 
     assert isinstance(result["answer"], str) and result["answer"].strip()
@@ -286,7 +284,7 @@ def test_real_papers_turn_engine_live_end_to_end(
     assert performatives[-1] == "final"
     assert "plan" in performatives
     assert "dispatch" in performatives
-    assert "review" in performatives
+    assert "member_output" in performatives
 
 
 def test_real_papers_a2a_team_live_end_to_end(

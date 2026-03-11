@@ -28,15 +28,11 @@ class AsyncPolicyPredictor:
         prompt: str,
         llm: Any,
         context_digest: str = "",
-        force_plan: bool | None = None,
-        force_team: bool | None = None,
         refresh_interval_sec: float = 4.0,
         log_context: dict[str, str] | None = None,
     ) -> None:
         self._prompt = str(prompt or "")
         self._llm = llm
-        self._force_plan = force_plan
-        self._force_team = force_team
         self._refresh_interval = max(0.5, float(refresh_interval_sec))
         self._context_digest = str(context_digest or "")
         self._log_context = dict(log_context or get_logging_context())
@@ -103,8 +99,6 @@ class AsyncPolicyPredictor:
                             context_digest=context_digest,
                         ),
                         llm=self._llm,
-                        force_plan=self._force_plan,
-                        force_team=self._force_team,
                         emit_info_log=False,
                     )
                     if self._stop_event.is_set():

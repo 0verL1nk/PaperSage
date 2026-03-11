@@ -86,16 +86,20 @@ def test_router_raises_when_llm_retries_exhausted():
 
 
 # ---------------------------------------------------------------------------
-# decide_execution_policy 的 force 覆盖语义
+# decide_execution_policy 的 team->plan 约束
 # ---------------------------------------------------------------------------
 
-def test_decide_policy_force_plan_overrides_llm():
-    decision = decide_execution_policy("随便问一下", llm=None, force_plan=True)
-    assert decision.plan_enabled is True
-    assert decision.source == "manual"
-
-
-def test_decide_policy_force_team_auto_enables_plan():
-    decision = decide_execution_policy("随便问一下", llm=None, force_team=True)
+def test_decide_policy_team_auto_enables_plan():
+    with patch(
+        "agent.orchestration.policy_engine._route_with_llm",
+        return_value=PolicyDecision(
+            plan_enabled=False,
+            team_enabled=True,
+            reason="need team",
+            confidence=0.9,
+            source="llm",
+        ),
+    ):
+        decision = decide_execution_policy("随便问一下", llm=MagicMock())
     assert decision.plan_enabled is True
     assert decision.team_enabled is True

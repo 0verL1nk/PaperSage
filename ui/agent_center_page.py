@@ -505,7 +505,7 @@ def run_agent_center_page() -> None:
                 st.caption(scope_runtime.cache_caption)
 
         chat_messages = st.session_state.get("agent_messages", [])
-        force_plan, force_team = render_strategy_sidebar(
+        render_strategy_sidebar(
             st=st,
             selected_project_uid=selected_project_uid,
             selected_session_uid=selected_session_uid,
@@ -624,8 +624,6 @@ def run_agent_center_page() -> None:
                             request=AgentCenterTurnRequest(
                                 prompt=prompt,
                                 hinted_prompt=turn_context.hinted_prompt,
-                                force_plan=force_plan,
-                                force_team=force_team,
                                 routing_context=turn_context.routing_context,
                                 emit_tool_load_event=emit_tool_load_event,
                             ),

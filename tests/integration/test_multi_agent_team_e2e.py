@@ -18,6 +18,26 @@ class _FakeLeaderAgent:
 
     def invoke(self, payload, config=None):
         self.calls.append((payload, config))
+        if len(self.calls) == 1:
+            return {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "name": "start_team",
+                                "args": {"goal": "团队协作回答", "reason": "need team"},
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "name": "start_team",
+                        "content": '{"type":"mode_activate","mode":"team","goal":"团队协作回答"}',
+                    },
+                ]
+            }
         return {"messages": [{"role": "assistant", "content": "final-from-leader"}]}
 
 
@@ -64,13 +84,11 @@ def test_agent_team_turn_engine_end_to_end(monkeypatch):
         leader_agent=_FakeLeaderAgent(),
         leader_runtime_config={},
         leader_llm=object(),
-        force_plan=True,
-        force_team=True,
         on_event=lambda event: event_log.append(event),
     )
 
     assert result["answer"] == "final-from-leader"
-    assert result["policy_decision"]["plan_enabled"] is True
+    assert result["policy_decision"]["plan_enabled"] is False
     assert result["policy_decision"]["team_enabled"] is True
     assert result["team_execution"]["enabled"] is True
     assert result["team_execution"]["rounds"] == 2
@@ -80,9 +98,9 @@ def test_agent_team_turn_engine_end_to_end(monkeypatch):
     assert performatives[0] == "request"
     assert performatives[-1] == "final"
     assert performatives.count("dispatch") == 4
-    assert performatives.count("draft") == 4
-    assert performatives.count("task_verify") == 4
-    assert performatives.count("review") == 4
+    assert performatives.count("member_output") == 4
+    assert performatives.count("member_request") == 4
+    assert performatives.count("leader_decision") == 4
 
     assert event_log
     assert all(isinstance(item.get("a2aMessage"), dict) for item in event_log)

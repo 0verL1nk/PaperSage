@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Added a shared runtime agent builder so paper agent, team member agent, and A2A agents use one assembly path for tools, middleware, and checkpointer setup.
+- Team member agents now load the shared tool system with `start_plan` / `start_team` removed at load time, preventing nested mode spawning inside team execution.
+
 ## [1.0.3] - 2026-03-07
 
 ## [1.0.2] - 2026-03-07

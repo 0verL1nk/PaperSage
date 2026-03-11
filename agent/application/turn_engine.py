@@ -86,8 +86,6 @@ def execute_turn_core(
     search_document_evidence_fn: EvidenceRetriever | None = None,
     leader_tool_specs: list[dict[str, Any]] | None = None,
     emit_tool_load_event: bool = True,
-    force_plan: bool | None = None,
-    force_team: bool | None = None,
     routing_context: str = "",
     on_event: EventCallback | None = None,
     orchestrated_turn_executor: OrchestratedTurnExecutor | None = None,
@@ -169,8 +167,6 @@ def execute_turn_core(
         search_document_evidence_fn=(
             search_document_evidence_fn if callable(search_document_evidence_fn) else None
         ),
-        force_plan=force_plan,
-        force_team=force_team,
         routing_context=routing_context,
         on_event=_collect_event,
     )
