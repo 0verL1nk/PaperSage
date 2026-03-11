@@ -1,5 +1,4 @@
 import logging
-import re
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -7,9 +6,9 @@ from pydantic import BaseModel, Field
 
 from ..domain.orchestration import PolicyDecision
 from ..domain.request_context import RequestContext
-from ..settings import load_agent_settings
 
 logger = logging.getLogger(__name__)
+POLICY_ROUTER_MAX_RETRIES = 2
 
 
 POLICY_ROUTER_INSTRUCTION = """
@@ -90,7 +89,7 @@ def _route_with_llm(
             source="llm",
         )
     except Exception:
-        logger.exception("Policy router LLM failed, fallback to heuristic")
+        logger.exception("Policy router LLM failed")
         return None
 
 
@@ -129,124 +128,54 @@ def _invoke_structured_compat(structured: Any, input_payload: dict[str, str]) ->
     return None
 
 
-def _heuristic_route(prompt: str, *, context_digest: str = "") -> PolicyDecision:
-    settings = load_agent_settings()
-    normalized = prompt.strip()
-    text_len = len(normalized)
-    sentence_count = len(
-        [part for part in re.split(r"[。！？!?;\n]+", normalized) if part.strip()]
-    )
-    enumerated_steps = len(re.findall(r"\b\d+[\.\)]\s*", normalized))
-    comma_count = normalized.count("，") + normalized.count(",")
-    question_mark_count = normalized.count("?") + normalized.count("？")
-    conjunction_count = (
-        normalized.count("并")
-        + normalized.count("且")
-        + normalized.count("同时")
-        + normalized.lower().count(" and ")
-    )
-
-    complexity_score = 0
-    if text_len >= settings.agent_policy_text_len_medium:
-        complexity_score += 1
-    if text_len >= settings.agent_policy_text_len_high:
-        complexity_score += 1
-    if sentence_count >= settings.agent_policy_sentence_threshold:
-        complexity_score += 1
-    if comma_count >= settings.agent_policy_comma_threshold:
-        complexity_score += 1
-    if question_mark_count >= settings.agent_policy_question_threshold:
-        complexity_score += 1
-    if enumerated_steps >= settings.agent_policy_enum_steps_threshold:
-        complexity_score += 1
-    if conjunction_count >= settings.agent_policy_conjunction_threshold:
-        complexity_score += 1
-    digest = context_digest.strip()
-    if digest:
-        if len(digest) >= settings.agent_policy_context_chars_threshold:
-            complexity_score += 1
-        digest_lines = len([line for line in digest.splitlines() if line.strip()])
-        if digest_lines >= settings.agent_policy_context_lines_threshold:
-            complexity_score += 1
-
-    plan_threshold = max(1, settings.agent_policy_score_plan)
-    team_threshold = max(plan_threshold + 1, settings.agent_policy_score_team)
-
-    if complexity_score >= team_threshold:
-        return PolicyDecision(
-            plan_enabled=True,
-            team_enabled=True,
-            reason="结构复杂度高（长度/句数/步骤密度），启用 plan + team。",
-            source="heuristic",
-        )
-
-    if complexity_score >= plan_threshold:
-        return PolicyDecision(
-            plan_enabled=True,
-            team_enabled=False,
-            reason="结构复杂度中等，启用 plan。",
-            source="heuristic",
-        )
-
+def _manual_only_decision(
+    *,
+    force_plan: bool | None,
+    force_team: bool | None,
+) -> PolicyDecision | None:
+    if force_plan is None and force_team is None:
+        return None
     return PolicyDecision(
         plan_enabled=False,
         team_enabled=False,
-        reason="结构复杂度低，走主 agent 快速路径。",
-        source="heuristic",
+        reason="仅应用手动路由覆盖。",
+        confidence=1.0,
+        source="manual",
     )
 
 
-_LOW_CONFIDENCE_THRESHOLD = 0.6
-
-
-def _merge_conservative(
-    llm_decision: PolicyDecision,
-    heuristic_decision: PolicyDecision,
-) -> PolicyDecision:
-    """低置信度时保守合并：两者均同意才开启 plan/team。"""
-    plan_enabled = llm_decision.plan_enabled and heuristic_decision.plan_enabled
-    team_enabled = llm_decision.team_enabled and heuristic_decision.team_enabled
-    reason = (
-        f"低置信度合并（LLM conf={llm_decision.confidence:.2f}）"
-        f"：LLM={llm_decision.reason} | 启发式={heuristic_decision.reason}"
-    )
-    return PolicyDecision(
-        plan_enabled=plan_enabled,
-        team_enabled=team_enabled,
-        reason=reason,
-        confidence=llm_decision.confidence,
-        source="merged",
-    )
-
-
-def decide_execution_policy(
-    prompt: str,
+def _resolve_policy_decision(
     *,
-    llm: Any | None = None,
-    force_plan: bool | None = None,
-    force_team: bool | None = None,
-    context_digest: str = "",
+    prompt: str,
+    llm: Any | None,
+    context_digest: str,
+    max_retries: int = POLICY_ROUTER_MAX_RETRIES,
 ) -> PolicyDecision:
-    llm_decision = _route_with_llm(prompt, llm, context_digest=context_digest)
-    heuristic_decision = _heuristic_route(prompt, context_digest=context_digest)
+    if llm is None:
+        raise RuntimeError("Policy router LLM is required when no manual override is provided.")
+    retry_budget = max(0, int(max_retries))
+    total_attempts = retry_budget + 1
+    for attempt in range(1, total_attempts + 1):
+        llm_decision = _route_with_llm(prompt, llm, context_digest=context_digest)
+        if llm_decision is not None:
+            return llm_decision
+        if attempt < total_attempts:
+            logger.warning(
+                "Policy router returned empty decision, retrying (%s/%s)",
+                attempt,
+                total_attempts,
+            )
+    raise RuntimeError(
+        f"Policy router failed after {total_attempts} attempts."
+    )
 
-    if llm_decision is None:
-        decision = heuristic_decision
-    elif (
-        llm_decision.confidence is not None
-        and llm_decision.confidence < _LOW_CONFIDENCE_THRESHOLD
-    ):
-        # LLM 路由置信度不足，与启发式保守合并
-        logger.info(
-            "Policy router low confidence (%.2f), merging with heuristic: llm=%s heuristic=%s",
-            llm_decision.confidence,
-            llm_decision.reason,
-            heuristic_decision.reason,
-        )
-        decision = _merge_conservative(llm_decision, heuristic_decision)
-    else:
-        decision = llm_decision
 
+def _apply_manual_overrides(
+    decision: PolicyDecision,
+    *,
+    force_plan: bool | None,
+    force_team: bool | None,
+) -> PolicyDecision:
     if force_plan is not None:
         decision = PolicyDecision(
             plan_enabled=bool(force_plan),
@@ -263,9 +192,12 @@ def decide_execution_policy(
             confidence=decision.confidence,
             source="manual",
         )
+    return decision
 
+
+def _ensure_team_plan_invariant(decision: PolicyDecision) -> PolicyDecision:
     if decision.team_enabled and not decision.plan_enabled:
-        decision = PolicyDecision(
+        return PolicyDecision(
             plan_enabled=True,
             team_enabled=True,
             reason=f"{decision.reason}（team 启用时自动开启 plan）",
@@ -273,6 +205,34 @@ def decide_execution_policy(
             source=decision.source,
         )
     return decision
+
+
+def decide_execution_policy(
+    prompt: str,
+    *,
+    llm: Any | None = None,
+    force_plan: bool | None = None,
+    force_team: bool | None = None,
+    context_digest: str = "",
+) -> PolicyDecision:
+    manual_decision = _manual_only_decision(
+        force_plan=force_plan,
+        force_team=force_team,
+    )
+    if manual_decision is not None:
+        return _ensure_team_plan_invariant(
+            _apply_manual_overrides(
+                manual_decision,
+                force_plan=force_plan,
+                force_team=force_team,
+            )
+        )
+    decision = _resolve_policy_decision(
+        prompt=prompt,
+        llm=llm,
+        context_digest=context_digest,
+    )
+    return _ensure_team_plan_invariant(decision)
 
 
 def intercept(
@@ -286,62 +246,25 @@ def intercept(
     """请求前拦截器：携带结构化 RequestContext 统一决策执行策略。
 
     以 prompt + context_digest 作为路由输入，优先走 LLM 判断，
-    LLM 不可用或失败时降级到启发式评分。
+    LLM 失败会自动重试，超过重试次数后抛出异常。
     """
-    try:
-        llm_decision = _route_with_llm(
-            ctx.prompt,
-            llm,
-            context_digest=ctx.context_digest,
-        )
-    except Exception:
-        logger.exception("Interceptor LLM routing failed, fallback to heuristic")
-        llm_decision = None
-    heuristic_decision = _heuristic_route(
-        ctx.prompt,
-        context_digest=ctx.context_digest,
+    manual_decision = _manual_only_decision(
+        force_plan=force_plan,
+        force_team=force_team,
     )
-
-    if llm_decision is None:
-        decision = heuristic_decision
-    elif (
-        llm_decision.confidence is not None
-        and llm_decision.confidence < _LOW_CONFIDENCE_THRESHOLD
-    ):
-        logger.info(
-            "Interceptor low confidence (%.2f), merging with heuristic: llm=%s heuristic=%s",
-            llm_decision.confidence,
-            llm_decision.reason,
-            heuristic_decision.reason,
+    if manual_decision is not None:
+        decision = _ensure_team_plan_invariant(
+            _apply_manual_overrides(
+                manual_decision,
+                force_plan=force_plan,
+                force_team=force_team,
+            )
         )
-        decision = _merge_conservative(llm_decision, heuristic_decision)
     else:
-        decision = llm_decision
-
-    if force_plan is not None:
-        decision = PolicyDecision(
-            plan_enabled=bool(force_plan),
-            team_enabled=decision.team_enabled,
-            reason=f"手动覆盖 plan={bool(force_plan)} | {decision.reason}",
-            confidence=decision.confidence,
-            source="manual",
-        )
-    if force_team is not None:
-        decision = PolicyDecision(
-            plan_enabled=decision.plan_enabled,
-            team_enabled=bool(force_team),
-            reason=f"手动覆盖 team={bool(force_team)} | {decision.reason}",
-            confidence=decision.confidence,
-            source="manual",
-        )
-
-    if decision.team_enabled and not decision.plan_enabled:
-        decision = PolicyDecision(
-            plan_enabled=True,
-            team_enabled=True,
-            reason=f"{decision.reason}（team 启用时自动开启 plan）",
-            confidence=decision.confidence,
-            source=decision.source,
+        decision = _resolve_policy_decision(
+            prompt=ctx.prompt,
+            llm=llm,
+            context_digest=ctx.context_digest,
         )
 
     log_fn = logger.info if emit_info_log else logger.debug

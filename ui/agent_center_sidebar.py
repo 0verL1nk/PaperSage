@@ -109,6 +109,58 @@ def _load_todo_records(path: Path) -> list[dict[str, Any]]:
     return [item for item in payload if isinstance(item, dict)]
 
 
+def _todo_status(record: dict[str, Any]) -> str:
+    return str(record.get("status") or "todo").strip().lower()
+
+
+def _select_pinned_todo_records(all_records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    """Pick records for pinned panel.
+
+    Returns:
+    - selected records
+    - history_only flag (True when no active todo exists)
+    """
+    records = [item for item in all_records if isinstance(item, dict)]
+    if not records:
+        return [], False
+
+    terminal_statuses = {"done", "canceled"}
+    active_records = [item for item in records if _todo_status(item) not in terminal_statuses]
+    if active_records:
+        latest_active_plan_id = ""
+        for item in reversed(active_records):
+            plan_id = str(item.get("plan_id") or "").strip()
+            if plan_id:
+                latest_active_plan_id = plan_id
+                break
+        if latest_active_plan_id:
+            selected = [
+                item
+                for item in active_records
+                if str(item.get("plan_id") or "").strip() in {"", latest_active_plan_id}
+            ]
+        else:
+            selected = [
+                item
+                for item in active_records
+                if not str(item.get("plan_id") or "").strip()
+            ]
+        return selected, False
+
+    latest_plan_id = ""
+    for item in reversed(records):
+        plan_id = str(item.get("plan_id") or "").strip()
+        if plan_id:
+            latest_plan_id = plan_id
+            break
+    selected = (
+        [item for item in records if str(item.get("plan_id") or "").strip() == latest_plan_id]
+        if latest_plan_id
+        else records
+    )
+    return selected, True
+
+
 def render_pinned_todo_panel(
     *,
     project_uid: str,
@@ -116,31 +168,17 @@ def render_pinned_todo_panel(
 ) -> None:
     path = _resolve_todo_path()
     all_records = _load_todo_records(path)
-
-    # ── 取最新一次 plan_id 的记录 ──────────────────────────────────────────
-    # plan_id 格式为 "team:<run_id>"，按文件中出现顺序取最后一个 plan_id
-    latest_plan_id: str = ""
-    for item in reversed(all_records):
-        pid = str(item.get("plan_id") or "").strip()
-        if pid:
-            latest_plan_id = pid
-            break
-
-    records = (
-        [r for r in all_records if str(r.get("plan_id") or "").strip() == latest_plan_id]
-        if latest_plan_id
-        else all_records
-    )
+    records, history_only = _select_pinned_todo_records(all_records)
 
     # ── 计算完成情况 ────────────────────────────────────────────────────────
     terminal_statuses = {"done", "canceled"}
     all_terminal = bool(records) and all(
-        str(r.get("status") or "todo").strip().lower() in terminal_statuses
+        _todo_status(r) in terminal_statuses
         for r in records
     )
     done_count = sum(
         1 for r in records
-        if str(r.get("status") or "").strip().lower() in terminal_statuses
+        if _todo_status(r) in terminal_statuses
     )
 
     if not records:
@@ -154,22 +192,25 @@ def render_pinned_todo_panel(
         header = f"📌 Todo（{done_count}/{len(records)} 完成）"
 
     with st.expander(header, expanded=expanded and not all_terminal):
-        if all_terminal:
+        if all_terminal and history_only:
             st.caption("✅ 本次 Team 规划所有任务已完成/取消，以下为历史记录。")
 
         show_done = st.toggle(
             "显示已完成",
-            value=all_terminal,        # 全部完成时默认展示，否则默认隐藏
+            value=all_terminal and history_only,
             key=f"todo_show_done_{project_uid}",
         )
         items = []
         for item in records:
-            status = str(item.get("status") or "todo").strip().lower()
+            status = _todo_status(item)
             if not show_done and status in {"done", "canceled"}:
                 continue
             items.append(item)
         if not items:
-            st.caption("当前筛选条件下无任务。")
+            if history_only and all_terminal:
+                st.caption("当前无进行中任务。打开“显示已完成”可查看历史记录。")
+            else:
+                st.caption("当前筛选条件下无任务。")
             return
 
         status_order = {

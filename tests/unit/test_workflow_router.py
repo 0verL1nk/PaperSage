@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
 from agent.a2a.router import _policy_to_workflow_mode, auto_select_workflow_mode
 from agent.domain.orchestration import PolicyDecision
@@ -22,28 +24,28 @@ def test_policy_to_mode_react():
 
 
 # ---------------------------------------------------------------------------
-# 启发式路由（无 coordinator / llm）
+# 无路由模型时
 # ---------------------------------------------------------------------------
 
-def test_router_uses_replan_for_high_complexity_prompt():
-    mode, _reason = auto_select_workflow_mode(
-        "请先完成三步：1) 提炼问题与约束；2) 交叉验证证据来源；3) 形成结论并给出风险清单。"
-        "同时回答两个问题：当前证据是否足够？若不足应如何补证？"
-    )
-    assert mode == WORKFLOW_PLAN_ACT_REPLAN
+def test_router_raises_for_high_complexity_prompt_without_llm():
+    with pytest.raises(RuntimeError, match="Policy router LLM is required"):
+        auto_select_workflow_mode(
+            "请先完成三步：1) 提炼问题与约束；2) 交叉验证证据来源；3) 形成结论并给出风险清单。"
+            "同时回答两个问题：当前证据是否足够？若不足应如何补证？"
+        )
 
 
-def test_router_uses_plan_act_for_medium_complexity_prompt():
-    mode, _reason = auto_select_workflow_mode(
-        "请完成以下任务：1. 拆解研究问题并提炼核心假设；2. 基于文档证据与外部文献交叉验证；"
-        "3. 输出结构化结论并补充待验证风险点。请说明多目标冲突如何权衡？"
-    )
-    assert mode == WORKFLOW_PLAN_ACT
+def test_router_raises_for_medium_complexity_prompt_without_llm():
+    with pytest.raises(RuntimeError, match="Policy router LLM is required"):
+        auto_select_workflow_mode(
+            "请完成以下任务：1. 拆解研究问题并提炼核心假设；2. 基于文档证据与外部文献交叉验证；"
+            "3. 输出结构化结论并补充待验证风险点。请说明多目标冲突如何权衡？"
+        )
 
 
-def test_router_uses_react_for_simple_fact_prompt():
-    mode, _reason = auto_select_workflow_mode("这篇论文的核心结论是什么")
-    assert mode == WORKFLOW_REACT
+def test_router_raises_for_simple_fact_prompt_without_llm():
+    with pytest.raises(RuntimeError, match="Policy router LLM is required"):
+        auto_select_workflow_mode("这篇论文的核心结论是什么")
 
 
 # ---------------------------------------------------------------------------
@@ -71,17 +73,16 @@ def test_router_prefers_llm_team_decision():
     assert mode == WORKFLOW_PLAN_ACT_REPLAN
 
 
-def test_router_fallbacks_to_heuristic_when_llm_raises():
+def test_router_raises_when_llm_retries_exhausted():
     coordinator = MagicMock()
     coordinator.llm = MagicMock()
     coordinator.llm.with_structured_output = MagicMock(side_effect=Exception("LLM unavailable"))
-    # 高复杂度 prompt，启发式应路由到 plan_act 或以上
-    mode, _reason = auto_select_workflow_mode(
-        "请完成以下任务：1. 拆解研究问题并提炼核心假设；2. 基于文档证据与外部文献交叉验证；"
-        "3. 输出结构化结论并补充待验证风险点。请说明多目标冲突如何权衡？",
-        coordinator=coordinator,
-    )
-    assert mode in {WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
+    with pytest.raises(RuntimeError, match="Policy router failed after"):
+        auto_select_workflow_mode(
+            "请完成以下任务：1. 拆解研究问题并提炼核心假设；2. 基于文档证据与外部文献交叉验证；"
+            "3. 输出结构化结论并补充待验证风险点。请说明多目标冲突如何权衡？",
+            coordinator=coordinator,
+        )
 
 
 # ---------------------------------------------------------------------------

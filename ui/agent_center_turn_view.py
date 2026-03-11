@@ -54,7 +54,7 @@ def render_turn_result(
             "<div class='llm-chip-row'>"
             f"<span class='llm-chip'>Plan {'ON' if policy_decision.get('plan_enabled') else 'OFF'}</span>"
             f"<span class='llm-chip'>Team {'ON' if policy_decision.get('team_enabled') else 'OFF'}</span>"
-            f"<span class='llm-chip'>Source {policy_decision.get('source', 'heuristic')}</span>"
+            f"<span class='llm-chip'>Source {policy_decision.get('source', 'fallback')}</span>"
             "</div>"
         ),
         unsafe_allow_html=True,

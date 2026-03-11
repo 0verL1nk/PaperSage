@@ -6,13 +6,15 @@ RequestContext 拦截器专项测试。
 - RequestContext 构造与字段
 - policy_engine.intercept() 的路由行为（含 context_digest）
 - force_plan / force_team 覆盖语义
-- LLM 不可用时降级到启发式
+- LLM 不可用时重试并抛错
 """
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from agent.domain.orchestration import PolicyDecision
 from agent.domain.request_context import RequestContext
-from agent.orchestration.policy_engine import intercept
+from agent.orchestration.policy_engine import POLICY_ROUTER_MAX_RETRIES, intercept
 
 # ---------------------------------------------------------------------------
 # RequestContext 基本构造
@@ -33,16 +35,15 @@ def test_request_context_with_digest():
 # policy_engine.intercept() - 路由行为
 # ---------------------------------------------------------------------------
 
-def test_intercept_simple_prompt_no_context_stays_react():
-    """简单问答 + 无 context_digest → 应保持 ReAct。"""
+def test_intercept_simple_prompt_without_llm_raises():
+    """未配置路由模型且无手动覆盖时应抛错。"""
     ctx = RequestContext(prompt="这篇论文的标题是什么")
-    decision = intercept(ctx, llm=None)
-    assert decision.plan_enabled is False
-    assert decision.team_enabled is False
+    with pytest.raises(RuntimeError, match="Policy router LLM is required"):
+        intercept(ctx, llm=None)
 
 
-def test_intercept_complex_prompt_routes_up():
-    """复杂结构化任务 prompt → 启发式应路由到 plan 或以上。"""
+def test_intercept_complex_prompt_without_llm_raises():
+    """未配置路由模型时，即使 prompt 复杂也应抛错。"""
     ctx = RequestContext(
         prompt=(
             "请完成以下任务：1. 拆解研究问题并提炼核心假设；"
@@ -50,8 +51,8 @@ def test_intercept_complex_prompt_routes_up():
             "3. 输出结构化结论并补充待验证风险点。请说明多目标冲突如何权衡？"
         )
     )
-    decision = intercept(ctx, llm=None)
-    assert decision.plan_enabled is True
+    with pytest.raises(RuntimeError, match="Policy router LLM is required"):
+        intercept(ctx, llm=None)
 
 
 def test_intercept_force_plan_overrides_everything():
@@ -90,16 +91,16 @@ def test_intercept_uses_llm_when_available():
     assert decision.plan_enabled is True
 
 
-def test_intercept_falls_back_to_heuristic_on_llm_error():
-    """LLM 调用失败时应静默降级到启发式，source='heuristic'。"""
+def test_intercept_raises_after_llm_retries_exhausted():
+    """LLM 路由失败时应重试并最终抛错。"""
     ctx = RequestContext(prompt="这篇论文的核心结论")
     with patch(
         "agent.orchestration.policy_engine._route_with_llm",
-        side_effect=Exception("LLM timeout"),
-    ):
-        decision = intercept(ctx, llm=MagicMock())
-    assert decision.source == "heuristic"
-    assert isinstance(decision.plan_enabled, bool)
+        return_value=None,
+    ) as mock_route:
+        with pytest.raises(RuntimeError, match="Policy router failed after"):
+            intercept(ctx, llm=MagicMock(spec=["with_structured_output"]))
+    assert mock_route.call_count == POLICY_ROUTER_MAX_RETRIES + 1
 
 
 def test_intercept_context_digest_passed_to_llm():
@@ -108,9 +109,16 @@ def test_intercept_context_digest_passed_to_llm():
         prompt="继续上次的分析",
         context_digest="上轮已分析了实验设计",
     )
+    llm_decision = PolicyDecision(
+        plan_enabled=True,
+        team_enabled=False,
+        reason="llm-route",
+        confidence=0.9,
+        source="llm",
+    )
     with patch(
         "agent.orchestration.policy_engine._route_with_llm",
-        return_value=None,
+        return_value=llm_decision,
     ) as mock_llm:
         intercept(ctx, llm=MagicMock())
     _, call_kwargs = mock_llm.call_args
