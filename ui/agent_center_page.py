@@ -37,13 +37,13 @@ def run_agent_center_page() -> None:
         save_session_messages_for_project,
         update_session_for_project,
     )
-    from agent.agent_center_runner import execute_assistant_turn
     from agent.application.agent_center import (
         append_assistant_turn_message,
         append_skill_context_texts,
         apply_turn_result,
         build_hinted_prompt,
         build_routing_context,
+        build_runtime_deps_from_session_state,
         build_scope_cache_caption,
         build_session_maps,
         build_session_preview,
@@ -121,6 +121,10 @@ def run_agent_center_page() -> None:
     from agent.application.agent_center import (
         update_context_usage as update_context_usage_state,
     )
+    from agent.application.agent_center.facade import (
+        AgentCenterTurnRequest,
+        execute_agent_center_turn,
+    )
     from agent.application.language import detect_language
     from agent.context_governance import (
         auto_compact_messages,
@@ -139,6 +143,7 @@ def run_agent_center_page() -> None:
         search_project_memory_items,
     )
     from agent.metrics import record_query_metrics
+    from agent.mindmap_renderer import render_mindmap_html_with_cli
     from agent.session_state import initialize_agent_center_session_state
     from agent.ui_helpers import (
         _get_doc_metrics,
@@ -171,6 +176,7 @@ def run_agent_center_page() -> None:
         render_pinned_human_requests_panel,
         render_pinned_todo_panel,
     )
+    from ui.agent_center_turn_view import build_status_event_line, render_turn_result
     from ui.page_bootstrap import bootstrap_page_context
     from ui.project_workspace import (
         build_project_doc_count_map,
@@ -592,20 +598,72 @@ def run_agent_center_page() -> None:
         if not isinstance(tool_load_signature_map, dict):
             tool_load_signature_map = {}
         try:
-            turn_result = execute_assistant_turn(
-                prompt=prompt,
-                hinted_prompt=turn_context.hinted_prompt,
-                user_uuid=user_uuid,
+            with logging_context(
+                uid=user_uuid,
                 project_uid=selected_project_uid,
-                selected_uid=turn_context.selected_doc_uid_for_logging,
+                doc_uid=turn_context.selected_doc_uid_for_logging,
                 run_id=turn_context.run_id,
                 session_id=turn_context.session_id,
-                logger=logger,
-                force_plan=force_plan,
-                force_team=force_team,
-                routing_context=turn_context.routing_context,
-                emit_tool_load_event=emit_tool_load_event,
-            )
+            ):
+                logger.info("Agent run started: prompt_len=%s", len(prompt))
+                with st.chat_message("assistant"):
+                    runtime_deps = build_runtime_deps_from_session_state(st.session_state)
+                    event_count = [0]
+                    with st.status("执行策略编排中...", expanded=True) as status:
+
+                        def _on_event(item: dict[str, str]) -> None:
+                            event_count[0] += 1
+                            label, line = build_status_event_line(
+                                event_index=event_count[0],
+                                item=item,
+                            )
+                            status.update(label=label, state="running", expanded=True)
+                            status.write(line)
+
+                        turn_result = execute_agent_center_turn(
+                            request=AgentCenterTurnRequest(
+                                prompt=prompt,
+                                hinted_prompt=turn_context.hinted_prompt,
+                                force_plan=force_plan,
+                                force_team=force_team,
+                                routing_context=turn_context.routing_context,
+                                emit_tool_load_event=emit_tool_load_event,
+                            ),
+                            deps=runtime_deps,
+                            on_event=_on_event,
+                        )
+                        status.update(label="执行完成", state="complete", expanded=False)
+
+                    mindmap_data = turn_result["mindmap_data"]
+                    mindmap_html = None
+                    mindmap_render_error = None
+                    if isinstance(mindmap_data, dict) and mindmap_data:
+                        mindmap_html, mindmap_render_error = render_mindmap_html_with_cli(
+                            mindmap_data,
+                            title="思维导图",
+                        )
+
+                    render_turn_result(
+                        answer=turn_result["answer"],
+                        policy_decision=turn_result["policy_decision"],
+                        team_execution=turn_result["team_execution"],
+                        trace_payload=turn_result["trace_payload"],
+                        evidence_items=turn_result["evidence_items"],
+                        mindmap_data=mindmap_data,
+                        mindmap_html=mindmap_html,
+                        mindmap_render_error=mindmap_render_error,
+                        method_compare_data=turn_result["method_compare_data"],
+                        ask_human_requests=turn_result.get("ask_human_requests", []),
+                        run_latency_ms=turn_result["run_latency_ms"],
+                        phase_path=turn_result["phase_path"],
+                    )
+                logger.info(
+                    "Agent run finished: latency_ms=%.2f trace_events=%s evidence_items=%s team_rounds=%s",
+                    float(turn_result["run_latency_ms"]),
+                    len(turn_result["trace_payload"]),
+                    len(turn_result["evidence_items"]),
+                    int(turn_result["team_execution"].get("rounds", 0)),
+                )
             if emit_tool_load_event:
                 tool_load_signature_map[conversation_key] = tool_load_signature
                 st.session_state["agent_tool_load_signature_map"] = tool_load_signature_map

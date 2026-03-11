@@ -11,6 +11,8 @@ PHASE_BY_PERFORMATIVE = {
     "step_retry": "步骤重试",
     "plan_todo": "任务规划",
     "plan_todo_reject": "规划修正",
+    "task_verify": "任务校验",
+    "task_retry": "任务重试",
     "tool_load": "工具加载",
     "tool_call": "调用工具",
     "tool_result": "工具返回",

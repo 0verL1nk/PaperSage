@@ -1,5 +1,8 @@
 import os
+from collections.abc import Mapping
 from typing import Any
+
+from .facade import AgentCenterRuntimeDeps
 
 
 def _env_int(name: str, default: int) -> int:
@@ -56,6 +59,36 @@ def has_cached_agent_session(
         leader_session_key in leader_sessions
         and project_uid in retrievers
         and current_signature == scope_signature
+    )
+
+
+def build_runtime_deps_from_session_state(
+    session_state: Mapping[Any, Any],
+) -> AgentCenterRuntimeDeps:
+    leader_agent = session_state.get("paper_agent")
+    if leader_agent is None:
+        raise ValueError("Leader agent is not initialized")
+
+    leader_runtime_config = session_state.get("paper_agent_runtime_config")
+    leader_llm = session_state.get("paper_leader_llm")
+    policy_llm = session_state.get("paper_policy_router_llm") or leader_llm
+    search_document_evidence_fn = session_state.get("paper_evidence_retriever")
+    leader_tool_specs = session_state.get("paper_current_tool_specs")
+    return AgentCenterRuntimeDeps(
+        leader_agent=leader_agent,
+        leader_runtime_config=(
+            leader_runtime_config if isinstance(leader_runtime_config, dict) else {}
+        ),
+        leader_llm=leader_llm,
+        policy_llm=policy_llm,
+        search_document_evidence_fn=(
+            search_document_evidence_fn
+            if callable(search_document_evidence_fn)
+            else None
+        ),
+        leader_tool_specs=(
+            leader_tool_specs if isinstance(leader_tool_specs, list) else []
+        ),
     )
 
 

@@ -68,6 +68,10 @@ def logging_context(**fields: Any) -> Iterator[None]:
         _LOG_CONTEXT.reset(token)
 
 
+def get_logging_context() -> dict[str, str]:
+    return dict(_LOG_CONTEXT.get({}))
+
+
 def configure_application_logging(
     *,
     debug_mode: bool = False,

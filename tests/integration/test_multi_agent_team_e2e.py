@@ -21,6 +21,14 @@ class _FakeLeaderAgent:
         return {"messages": [{"role": "assistant", "content": "final-from-leader"}]}
 
 
+def _team_done_output(label: str) -> str:
+    return (
+        f"[结论]\n{label}\n\n"
+        "[证据]\nsearch evidence [chunk_1]\n\n"
+        "[待验证点]\nnone"
+    )
+
+
 class _ScriptedAgent:
     def __init__(self, responses: list[str]) -> None:
         self._responses = list(responses)
@@ -46,7 +54,7 @@ def test_agent_team_turn_engine_end_to_end(monkeypatch):
     )
     monkeypatch.setattr(
         "agent.orchestration.team_runtime._invoke_role_agent",
-        lambda **kwargs: f"{kwargs['role'].name}-done",
+        lambda **kwargs: _team_done_output(f"{kwargs['role'].name}-done"),
     )
 
     event_log = []
@@ -72,6 +80,8 @@ def test_agent_team_turn_engine_end_to_end(monkeypatch):
     assert performatives[0] == "request"
     assert performatives[-1] == "final"
     assert performatives.count("dispatch") == 4
+    assert performatives.count("draft") == 4
+    assert performatives.count("task_verify") == 4
     assert performatives.count("review") == 4
 
     assert event_log

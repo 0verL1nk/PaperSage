@@ -1,6 +1,6 @@
 """请求级上下文，用于路由拦截器的结构化决策输入。
 
-在请求真正发出前，由调用方（agent_center_runner）组装后传入
+在请求真正发出前，由应用层调用方组装后传入
 policy_engine.intercept()，拦截器以此做路由决策。
 """
 from dataclasses import dataclass

@@ -6,6 +6,7 @@ from typing import Any
 
 from ..domain.orchestration import PolicyDecision
 from ..domain.request_context import RequestContext
+from ..logging_utils import get_logging_context, logging_context
 from .policy_engine import intercept
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class AsyncPolicyPredictor:
         force_plan: bool | None = None,
         force_team: bool | None = None,
         refresh_interval_sec: float = 4.0,
+        log_context: dict[str, str] | None = None,
     ) -> None:
         self._prompt = str(prompt or "")
         self._llm = llm
@@ -37,6 +39,7 @@ class AsyncPolicyPredictor:
         self._force_team = force_team
         self._refresh_interval = max(0.5, float(refresh_interval_sec))
         self._context_digest = str(context_digest or "")
+        self._log_context = dict(log_context or get_logging_context())
         self._snapshot: AsyncPolicySnapshot | None = None
         self._version = 0
         self._lock = threading.Lock()
@@ -62,8 +65,13 @@ class AsyncPolicyPredictor:
         thread = self._thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=max(0.0, float(join_timeout_sec)))
+        still_alive = bool(thread is not None and thread.is_alive())
         self._thread = None
-        logger.info("Async policy predictor stopped")
+        with logging_context(**self._log_context):
+            if still_alive:
+                logger.info("Async policy predictor stop requested (thread still shutting down)")
+            else:
+                logger.info("Async policy predictor stopped")
 
     def update_context_digest(self, context_digest: str) -> None:
         with self._lock:
@@ -86,43 +94,47 @@ class AsyncPolicyPredictor:
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                with self._lock:
-                    context_digest = self._context_digest
-                decision = intercept(
-                    RequestContext(
-                        prompt=self._prompt,
-                        context_digest=context_digest,
-                    ),
-                    llm=self._llm,
-                    force_plan=self._force_plan,
-                    force_team=self._force_team,
-                    emit_info_log=False,
-                )
-                now = time.monotonic()
-                with self._lock:
-                    self._version += 1
-                    version = self._version
-                    self._snapshot = AsyncPolicySnapshot(
-                        decision=decision,
-                        version=version,
-                        updated_at_monotonic=now,
+                with logging_context(**self._log_context):
+                    with self._lock:
+                        context_digest = self._context_digest
+                    decision = intercept(
+                        RequestContext(
+                            prompt=self._prompt,
+                            context_digest=context_digest,
+                        ),
+                        llm=self._llm,
+                        force_plan=self._force_plan,
+                        force_team=self._force_team,
+                        emit_info_log=False,
                     )
-                reason = str(decision.reason or "").strip()
-                if len(reason) > 120:
-                    reason = f"{reason[:117]}..."
-                logger.info(
-                    "Async policy refresh: version=%s plan=%s team=%s source=%s confidence=%s reason=%s",
-                    version,
-                    decision.plan_enabled,
-                    decision.team_enabled,
-                    decision.source,
-                    (
-                        f"{float(decision.confidence):.2f}"
-                        if decision.confidence is not None
-                        else "-"
-                    ),
-                    reason or "-",
-                )
+                    if self._stop_event.is_set():
+                        break
+                    now = time.monotonic()
+                    with self._lock:
+                        self._version += 1
+                        version = self._version
+                        self._snapshot = AsyncPolicySnapshot(
+                            decision=decision,
+                            version=version,
+                            updated_at_monotonic=now,
+                        )
+                    reason = str(decision.reason or "").strip()
+                    if len(reason) > 120:
+                        reason = f"{reason[:117]}..."
+                    logger.info(
+                        "Async policy refresh: version=%s plan=%s team=%s source=%s confidence=%s reason=%s",
+                        version,
+                        decision.plan_enabled,
+                        decision.team_enabled,
+                        decision.source,
+                        (
+                            f"{float(decision.confidence):.2f}"
+                            if decision.confidence is not None
+                            else "-"
+                        ),
+                        reason or "-",
+                    )
             except Exception:
-                logger.exception("Async policy predictor refresh failed")
+                with logging_context(**self._log_context):
+                    logger.exception("Async policy predictor refresh failed")
             self._stop_event.wait(self._refresh_interval)

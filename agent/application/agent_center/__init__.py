@@ -48,14 +48,10 @@ from .project_sessions import (
 )
 from .prompting import build_routing_context, with_language_hint
 from .runtime_state import (
+    build_runtime_deps_from_session_state,
     clear_project_runtime,
     has_cached_agent_session,
     load_document_text,
-)
-from .turn_execution import (
-    TurnRuntimeInputs,
-    execute_turn_with_runtime,
-    resolve_turn_runtime_inputs,
 )
 from .turn_state import (
     append_assistant_turn_message,
@@ -91,6 +87,7 @@ __all__ = [
     "get_history_paging_state",
     "load_more_conversation_messages",
     "has_cached_agent_session",
+    "build_runtime_deps_from_session_state",
     "clear_project_runtime",
     "load_document_text",
     "ensure_agent_runtime",
@@ -121,7 +118,4 @@ __all__ = [
     "append_skill_context_texts",
     "store_turn_metrics",
     "append_assistant_turn_message",
-    "TurnRuntimeInputs",
-    "resolve_turn_runtime_inputs",
-    "execute_turn_with_runtime",
 ]

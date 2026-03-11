@@ -16,6 +16,7 @@ from agent.orchestration.orchestrator import (
 )
 from agent.orchestration.team_runtime import (
     _build_team_todo_records_mechanical,
+    TeamTaskAttemptResult,
     run_team_tasks,
 )
 
@@ -37,6 +38,14 @@ class _SequencedLeaderAgent:
         if isinstance(response, dict):
             return response
         return {"messages": [{"role": "assistant", "content": response}]}
+
+
+def _team_done_output(label: str) -> str:
+    return (
+        f"[结论]\n{label}\n\n"
+        "[证据]\nsearch evidence [chunk_1]\n\n"
+        "[待验证点]\nnone"
+    )
 
 
 def test_build_trace_event_contains_required_envelope_fields():
@@ -447,7 +456,7 @@ def test_run_team_tasks_normalizes_role_name_and_emits_round_metadata(monkeypatc
     )
     monkeypatch.setattr(
         "agent.orchestration.team_runtime._invoke_role_agent",
-        lambda **_kwargs: "done",
+        lambda **_kwargs: _team_done_output("done"),
     )
     events = []
 
@@ -464,13 +473,15 @@ def test_run_team_tasks_normalizes_role_name_and_emits_round_metadata(monkeypatc
 
     assert execution.enabled is True
     assert execution.roles == ["leader_role"]
-    assert len(events) == 3
+    assert len(events) == 5
     assert events[0]["performative"] == "plan_todo"
     assert events[1]["performative"] == "dispatch"
     assert events[1]["meta"]["round"] == 1
     assert events[1]["meta"]["role"] == "leader_role"
-    assert events[2]["performative"] == "review"
-    assert events[2]["meta"]["round"] == 1
+    assert events[2]["performative"] == "draft"
+    assert events[-2]["performative"] == "task_verify"
+    assert events[-1]["performative"] == "review"
+    assert events[-1]["meta"]["round"] == 1
 
 
 def test_run_team_tasks_uses_todo_dependencies_for_ready_queue(monkeypatch):
@@ -494,7 +505,7 @@ def test_run_team_tasks_uses_todo_dependencies_for_ready_queue(monkeypatch):
     )
     monkeypatch.setattr(
         "agent.orchestration.team_runtime._invoke_role_agent",
-        lambda **kwargs: f"{kwargs['role'].name}-done",
+        lambda **kwargs: _team_done_output(f"{kwargs['role'].name}-done"),
     )
     events: list[dict] = []
 
@@ -533,6 +544,77 @@ def test_run_team_tasks_uses_todo_dependencies_for_ready_queue(monkeypatch):
         "team_r1_reviewer",
         "team_r2_researcher",
     ]
+    verify_events = [e for e in events if e["performative"] == "task_verify"]
+    assert len(verify_events) == 4
+    assert all(e["meta"]["verification_status"] == "passed" for e in verify_events)
+
+
+def test_run_team_tasks_retries_failed_member_task_once(monkeypatch):
+    monkeypatch.setattr(
+        "agent.orchestration.team_runtime.generate_dynamic_roles",
+        lambda *_args, **_kwargs: [TeamRole(name="researcher", goal="collect evidence")],
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.team_runtime._decide_team_rounds",
+        lambda **_kwargs: 1,
+    )
+    responses = iter(
+        [
+            TeamTaskAttemptResult(
+                answer="[结论]\nfirst try\n\n[证据]\nnone\n\n[待验证点]\nmissing",
+                tool_names=[],
+                tool_trace_events=[],
+                skill_activation_events=[],
+                tool_activation_events=[],
+            ),
+            TeamTaskAttemptResult(
+                answer=_team_done_output("second try"),
+                tool_names=["search_document"],
+                tool_trace_events=[
+                    {
+                        "sender": "leader",
+                        "receiver": "search_document",
+                        "performative": "tool_call",
+                        "content": "{'query': 'q'}",
+                    },
+                    {
+                        "sender": "search_document",
+                        "receiver": "leader",
+                        "performative": "tool_result",
+                        "content": "evidence [chunk_1]",
+                    },
+                ],
+                skill_activation_events=[],
+                tool_activation_events=[],
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.team_runtime._invoke_role_agent",
+        lambda **_kwargs: next(responses),
+    )
+
+    execution = run_team_tasks(
+        prompt="q",
+        plan_text="p",
+        llm=object(),
+        search_document_fn=lambda _query: "",
+        search_document_evidence_fn=None,
+        max_members=1,
+        max_rounds=1,
+    )
+
+    assert execution.enabled is True
+    assert execution.todo_stats["done"] == 1
+    assert execution.todo_stats["blocked"] == 0
+    performatives = [str(item.get("performative") or "") for item in execution.trace_events]
+    assert "task_retry" in performatives
+    verify_events = [item for item in execution.trace_events if item.get("performative") == "task_verify"]
+    assert len(verify_events) == 2
+    assert verify_events[0]["meta"]["verification_status"] == "failed"
+    assert verify_events[-1]["meta"]["verification_status"] == "passed"
+    assert "tool_call" in performatives
+    assert "tool_result" in performatives
 
 
 def test_run_team_tasks_blocks_when_dependency_cycle_detected(monkeypatch):
