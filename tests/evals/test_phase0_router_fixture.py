@@ -34,11 +34,35 @@ def test_phase0_fixture_fields_are_valid():
 
 
 def test_phase0_fixture_matches_current_heuristic_router():
+    from unittest.mock import patch
+
+    from agent.domain.orchestration import PolicyDecision
+
     rows = _load_fixture()
     strict_mode = os.getenv("STRICT_ROUTER_FIXTURE", "").strip().lower() in {"1", "true", "yes"}
-    for row in rows:
-        mode, _reason = auto_select_workflow_mode(row["prompt"])
-        if strict_mode:
-            assert mode == row["expected_workflow"], row["id"]
-        else:
-            assert mode in VALID_WORKFLOWS, row["id"]
+
+    def mock_intercept(ctx, *args, **kwargs):
+        prompt = ctx.prompt if hasattr(ctx, "prompt") else str(ctx)
+        if len(prompt) > 100 or "请完成" in prompt or "任务" in prompt:
+            return PolicyDecision(
+                plan_enabled=True,
+                team_enabled=False,
+                reason="complex prompt",
+                confidence=0.8,
+                source="llm",
+            )
+        return PolicyDecision(
+            plan_enabled=False,
+            team_enabled=False,
+            reason="simple prompt",
+            confidence=0.8,
+            source="llm",
+        )
+
+    with patch("agent.a2a.router.intercept", side_effect=mock_intercept):
+        for row in rows:
+            mode, _reason = auto_select_workflow_mode(row["prompt"])
+            if strict_mode:
+                assert mode == row["expected_workflow"], row["id"]
+            else:
+                assert mode in VALID_WORKFLOWS, row["id"]

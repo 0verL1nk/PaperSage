@@ -41,11 +41,7 @@ class _SequencedLeaderAgent:
 
 
 def _team_done_output(label: str) -> str:
-    return (
-        f"[结论]\n{label}\n\n"
-        "[证据]\nsearch evidence [chunk_1]\n\n"
-        "[待验证点]\nnone"
-    )
+    return f"[结论]\n{label}\n\n[证据]\nsearch evidence [chunk_1]\n\n[待验证点]\nnone"
 
 
 def _start_plan_result(goal: str = "拆步骤回答") -> dict[str, list[dict[str, str]]]:
@@ -143,7 +139,23 @@ def test_build_trace_event_accepts_policy_switch_route():
     assert event["receiver"] == "leader"
 
 
-def test_execute_orchestrated_turn_emits_protocolized_trace():
+def test_execute_orchestrated_turn_emits_protocolized_trace(monkeypatch):
+    from agent.domain.orchestration import PolicyDecision
+    from agent.domain.request_context import RequestContext
+
+    def mock_intercept(ctx, *args, **kwargs):
+        return PolicyDecision(
+            plan_enabled=False,
+            team_enabled=False,
+            reason="test",
+            confidence=0.9,
+            source="llm",
+        )
+
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.intercept_policy",
+        mock_intercept,
+    )
     result = execute_orchestrated_turn(
         prompt="请回答",
         hinted_prompt="请回答",
@@ -271,7 +283,9 @@ def test_execute_orchestrated_turn_retries_failed_step_once(monkeypatch):
 
     performatives = [str(item.get("performative") or "") for item in result.trace_payload]
     assert "step_retry" in performatives
-    verify_events = [item for item in result.trace_payload if item.get("performative") == "step_verify"]
+    verify_events = [
+        item for item in result.trace_payload if item.get("performative") == "step_verify"
+    ]
     assert len(verify_events) >= 2
     assert verify_events[0]["meta"]["verification_status"] == "failed"
     assert verify_events[-1]["meta"]["verification_status"] == "passed"
@@ -314,7 +328,9 @@ def test_execute_orchestrated_turn_respects_step_dependencies(monkeypatch):
     )
 
     dispatch_events = [
-        item for item in result.trace_payload if str(item.get("performative") or "") == "step_dispatch"
+        item
+        for item in result.trace_payload
+        if str(item.get("performative") or "") == "step_dispatch"
     ]
     assert dispatch_events
     assert str(dispatch_events[0].get("content") or "").startswith("[step_2]")
@@ -445,7 +461,9 @@ def test_execute_orchestrated_turn_stops_when_plan_cycle_guard_triggers(monkeypa
             ],
         ),
     )
-    leader = _SequencedLeaderAgent([_start_plan_result(), "plain text", "still plain text", "final answer"])
+    leader = _SequencedLeaderAgent(
+        [_start_plan_result(), "plain text", "still plain text", "final answer"]
+    )
 
     result = execute_orchestrated_turn(
         prompt="请回答",
@@ -458,7 +476,9 @@ def test_execute_orchestrated_turn_stops_when_plan_cycle_guard_triggers(monkeypa
     performatives = [str(item.get("performative") or "") for item in result.trace_payload]
     assert "replan" in performatives
     assert "fallback" in performatives
-    fallback_events = [item for item in result.trace_payload if item.get("performative") == "fallback"]
+    fallback_events = [
+        item for item in result.trace_payload if item.get("performative") == "fallback"
+    ]
     assert fallback_events[-1]["content"] == "plan_cycle_guard_triggered"
     assert result.runtime_state is not None
     assert "plan_cycle_guard_triggered" in result.runtime_state.errors
@@ -496,7 +516,9 @@ def test_execute_orchestrated_turn_skips_replan_for_non_revisable_failure(monkey
             },
         )
 
-    monkeypatch.setattr("agent.orchestration.orchestrator._run_single_agent_plan_steps", _fake_step_runner)
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator._run_single_agent_plan_steps", _fake_step_runner
+    )
     leader = _SequencedLeaderAgent([_start_plan_result(), "final answer"])
 
     result = execute_orchestrated_turn(
@@ -509,7 +531,9 @@ def test_execute_orchestrated_turn_skips_replan_for_non_revisable_failure(monkey
 
     performatives = [str(item.get("performative") or "") for item in result.trace_payload]
     assert "replan" not in performatives
-    fallback_events = [item for item in result.trace_payload if item.get("performative") == "fallback"]
+    fallback_events = [
+        item for item in result.trace_payload if item.get("performative") == "fallback"
+    ]
     assert fallback_events
     assert fallback_events[-1]["content"] == "replan_skipped:manual_abort"
     assert result.runtime_state is not None
@@ -900,7 +924,9 @@ def test_run_team_tasks_retries_failed_member_task_once(monkeypatch):
     performatives = [str(item.get("performative") or "") for item in execution.trace_events]
     assert "task_retry" not in performatives
     assert performatives.count("member_request") == 2
-    decision_events = [item for item in execution.trace_events if item.get("performative") == "leader_decision"]
+    decision_events = [
+        item for item in execution.trace_events if item.get("performative") == "leader_decision"
+    ]
     assert len(decision_events) == 2
     assert decision_events[0]["meta"]["verification_status"] == "failed"
     assert decision_events[0]["meta"]["decision"] == "retry"
@@ -942,7 +968,9 @@ def test_run_team_tasks_marks_block_as_leader_decision(monkeypatch):
 
     assert execution.enabled is True
     assert execution.todo_stats["blocked"] == 1
-    decision_events = [item for item in execution.trace_events if item.get("performative") == "leader_decision"]
+    decision_events = [
+        item for item in execution.trace_events if item.get("performative") == "leader_decision"
+    ]
     assert len(decision_events) == 2
     assert decision_events[-1]["meta"]["decision"] == "block"
     assert decision_events[-1]["meta"]["verification_status"] == "failed"
@@ -1000,15 +1028,18 @@ def test_run_team_tasks_blocks_when_dependency_cycle_detected(monkeypatch):
     # plan_todo: leader 每次规划都产生一个（共 max_todo_plan_retries+1 次，最后一次超限后返回）
     # plan_todo_reject: 程序检测到环后反馈给 leader（共 max_todo_plan_retries 次）
     plan_todo_events = [e for e in execution.trace_events if e.get("performative") == "plan_todo"]
-    reject_events = [e for e in execution.trace_events if e.get("performative") == "plan_todo_reject"]
-    assert len(plan_todo_events) >= 1   # 至少有首次 leader 规划事件
-    assert len(reject_events) >= 1      # 至少有一次系统反馈环事件
+    reject_events = [
+        e for e in execution.trace_events if e.get("performative") == "plan_todo_reject"
+    ]
+    assert len(plan_todo_events) >= 1  # 至少有首次 leader 规划事件
+    assert len(reject_events) >= 1  # 至少有一次系统反馈环事件
     # reject 事件的 sender/receiver 符合路由规则
     for ev in reject_events:
         assert ev.get("sender") == "system"
         assert ev.get("receiver") == "leader"
     non_plan_events = [
-        e for e in execution.trace_events
+        e
+        for e in execution.trace_events
         if e.get("performative") not in {"plan_todo", "plan_todo_reject"}
     ]
     assert non_plan_events == []
@@ -1077,10 +1108,16 @@ def test_persist_team_todo_records_replaces_same_plan_id(tmp_path):
 
     # 先写入两个不同 plan_id 的记录
     todo_file.parent.mkdir(parents=True, exist_ok=True)
-    todo_file.write_text(json.dumps([
-        {"id": "old_t1", "plan_id": "team:plan-A", "status": "done", "title": "old A"},
-        {"id": "old_t2", "plan_id": "team:plan-B", "status": "todo", "title": "old B"},
-    ], ensure_ascii=False), encoding="utf-8")
+    todo_file.write_text(
+        json.dumps(
+            [
+                {"id": "old_t1", "plan_id": "team:plan-A", "status": "done", "title": "old A"},
+                {"id": "old_t2", "plan_id": "team:plan-B", "status": "todo", "title": "old B"},
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     # 用 plan-A 的新记录来 persist（应替换 plan-A 的旧记录，保留 plan-B）
     te = TeamExecution(

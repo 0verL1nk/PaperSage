@@ -42,11 +42,7 @@ class _FakeLeaderAgent:
 
 
 def _team_done_output(label: str) -> str:
-    return (
-        f"[结论]\n{label}\n\n"
-        "[证据]\nsearch evidence [chunk_1]\n\n"
-        "[待验证点]\nnone"
-    )
+    return f"[结论]\n{label}\n\n[证据]\nsearch evidence [chunk_1]\n\n[待验证点]\nnone"
 
 
 class _ScriptedAgent:
@@ -61,6 +57,22 @@ class _ScriptedAgent:
 
 
 def test_agent_team_turn_engine_end_to_end(monkeypatch):
+    from agent.domain.orchestration import PolicyDecision
+    from agent.domain.request_context import RequestContext
+
+    def mock_intercept(ctx, *args, **kwargs):
+        return PolicyDecision(
+            plan_enabled=True,
+            team_enabled=True,
+            reason="test",
+            confidence=0.9,
+            source="llm",
+        )
+
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.intercept_policy",
+        mock_intercept,
+    )
     monkeypatch.setattr(
         "agent.orchestration.team_runtime.generate_dynamic_roles",
         lambda *_args, **_kwargs: [
