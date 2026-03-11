@@ -273,3 +273,27 @@ def test_extract_mode_activation_events_from_result_collects_mode_tools():
     assert len(events) == 2
     assert any(item["receiver"] == "mode:plan" for item in events)
     assert any(item["receiver"] == "mode:team" for item in events)
+
+
+def test_extract_mode_activation_events_from_result_requires_successful_tool_result():
+    result = {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "name": "start_plan",
+                        "args": {"goal": "", "reason": "bad input"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "name": "start_plan",
+                "content": "goal is required to start plan mode.",
+            },
+        ]
+    }
+
+    events = extract_mode_activation_events_from_result(result)
+    assert events == []

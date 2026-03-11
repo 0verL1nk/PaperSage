@@ -642,6 +642,98 @@ def test_execute_orchestrated_turn_runs_team_when_leader_requests_start_team(mon
     assert result.answer == "final answer"
 
 
+def test_execute_orchestrated_turn_executes_second_pass_team_request_after_plan(monkeypatch):
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.intercept_policy",
+        lambda *_args, **_kwargs: PolicyDecision(
+            plan_enabled=False,
+            team_enabled=False,
+            reason="react by default",
+            confidence=1.0,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.build_execution_plan",
+        lambda *_args, **_kwargs: ExecutionPlan(
+            goal="回答问题",
+            steps=[PlanStep(id="step_1", title="检索证据", done_when="有结果")],
+        ),
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.run_team_tasks",
+        lambda **_kwargs: TeamExecution(
+            enabled=True,
+            roles=["researcher"],
+            member_count=1,
+            rounds=1,
+            summary="researcher: ok",
+            todo_records=[],
+            todo_stats={"done": 1},
+            trace_events=[],
+        ),
+    )
+    leader = _SequencedLeaderAgent(
+        [
+            {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "name": "start_plan",
+                                "args": {"goal": "拆步骤回答", "reason": "multi-step"},
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "name": "start_plan",
+                        "content": '{"type":"mode_activate","mode":"plan","goal":"拆步骤回答"}',
+                    },
+                ]
+            },
+            "evidence found",
+            {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "name": "start_team",
+                                "args": {"goal": "交叉验证", "reason": "need reviewer"},
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "name": "start_team",
+                        "content": '{"type":"mode_activate","mode":"team","goal":"交叉验证"}',
+                    },
+                ]
+            },
+            "final answer",
+        ]
+    )
+
+    result = execute_orchestrated_turn(
+        prompt="请回答",
+        hinted_prompt="请回答",
+        leader_agent=leader,
+        leader_runtime_config={},
+        llm=object(),
+    )
+
+    performatives = [str(item.get("performative") or "") for item in result.trace_payload]
+    assert performatives.count("mode_activate") == 2
+    assert "plan" in performatives
+    assert result.policy_decision.team_enabled is True
+    assert result.policy_decision.plan_enabled is True
+    assert result.team_execution.enabled is True
+
+
 def test_run_team_tasks_normalizes_role_name_and_emits_round_metadata(monkeypatch):
     monkeypatch.setattr(
         "agent.orchestration.team_runtime.generate_dynamic_roles",

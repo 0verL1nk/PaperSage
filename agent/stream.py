@@ -299,20 +299,6 @@ def extract_mode_activation_events_from_result(result: Any) -> list[dict[str, st
         )
 
     for message in messages:
-        tool_calls = _message_attr(message, "tool_calls", None)
-        if isinstance(tool_calls, list):
-            for call in tool_calls:
-                if isinstance(call, dict):
-                    call_name = str(call.get("name") or "").strip()
-                    args = call.get("args", {})
-                else:
-                    call_name = str(getattr(call, "name", "") or "").strip()
-                    args = getattr(call, "args", {})
-                if call_name == "start_plan":
-                    _append("plan", str(args) if args else "")
-                elif call_name == "start_team":
-                    _append("team", str(args) if args else "")
-
         msg_type = str(_message_attr(message, "type", "") or "").lower()
         role = str(_message_attr(message, "role", "") or "").lower()
         if msg_type != "tool" and role != "tool":

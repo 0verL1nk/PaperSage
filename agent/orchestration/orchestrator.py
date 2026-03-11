@@ -1072,8 +1072,6 @@ def execute_orchestrated_turn(
         should_run_team = "team" in requested_modes and not team_execution.enabled
         if not should_run_plan and not should_run_team:
             break
-        if final_leader_passes >= 2:
-            break
         if should_run_plan:
             plan = build_execution_plan(prompt, llm=llm)
             plan_text = render_execution_plan(plan)
@@ -1152,6 +1150,8 @@ def execute_orchestrated_turn(
             confidence=policy_decision.confidence,
             source="leader_tool",
         )
+        if final_leader_passes >= 2:
+            break
     runtime_state = evolve_plan_runtime_state(
         runtime_state,
         artifact={"type": "final_answer", "content": answer},
