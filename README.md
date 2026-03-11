@@ -81,54 +81,82 @@
 
 ### 工作流路由与调度
 
-```text
-用户提问
-  │
-  ├─→ 智能路由（关键词快速路由 → LLM 结构化路由 → 兜底 ReAct）
-  │
-  ├─ ReAct 模式 ──────→ 单 Agent + Tool 直接回答
-  ├─ Plan-Act 模式 ───→ Planner 生成计划 → Leader 执行
-  └─ Plan-Act-RePlan ─→ Planner → Leader ⇄ Team（多角色） → Reviewer → RePlan
-                                                                    ↓
-                                                              质量门控循环
+```mermaid
+flowchart TD
+    A[用户提问] --> B{智能路由}
+    
+    B -->|关键词快速路由| C[LLM 结构化路由]
+    C -->|兜底| D[ReAct]
+    
+    D --> E[ReAct 模式]
+    E --> F[单 Agent + Tool 直接回答]
+    
+    C --> G[Plan-Act 模式]
+    G --> H[Planner 生成计划]
+    H --> I[Leader 执行]
+    
+    C --> J[Plan-Act-RePlan 模式]
+    J --> K[Planner]
+    K --> L[Leader]
+    L <--> M[Team 多角色]
+    M --> N[Reviewer]
+    N --> O[RePlan]
+    O -.->|质量门控循环| K
+    
+    style A fill:#f9f,stroke:#333
+    style F fill:#9f9,stroke:#333
+    style I fill:#9f9,stroke:#333
+    style O fill:#ff9,stroke:#333
 ```
 
 ### Hybrid RAG 检索管线
 
-```text
-用户 Query
-  │
-  ├─→ Dense 检索（FastEmbed bge-small-zh）
-  ├─→ BM25 稀疏检索
-  │         │
-  │         ├─→ RRF 融合排序
-  │         │         │
-  │         │         ├─→ FlashRank Rerank（可选）
-  │         │         │         │
-  │         │         │         └─→ 邻域 Chunk 扩展
-  │         │         │                   │
-  └─────────┴─────────┴───────────────────┴─→ 结构化 EvidenceItem
-                                                (doc_uid / chunk_id / score / page_no / offset)
+```mermaid
+flowchart LR
+    A[用户 Query] --> B{Dense 检索}
+    A --> C{BM25 稀疏检索}
+    
+    B --> D[FastEmbed bge-small-zh]
+    C --> D
+    
+    D --> E{RRF 融合排序}
+    E --> F{FlashRank Rerank}
+    F -->|可选| G[邻域 Chunk 扩展]
+    G --> H[结构化 EvidenceItem]
+    E --> H
+    
+    H --> I[(doc_uid / chunk_id / score / page_no / offset)]
+    
+    style A fill:#f9f,stroke:#333
+    style H fill:#9f9,stroke:#333
+    style I fill:#ff9,stroke:#333
 ```
 
 ### 长短期记忆架构
 
-```text
-┌─────────────────────────────────────────────┐
-│                 记忆三层架构                    │
-├─────────────────────────────────────────────┤
-│  短期：LangGraph InMemorySaver（当前会话）     │
-├─────────────────────────────────────────────┤
-│  中期：上下文自动压缩                          │
-│  （超 Token 阈值 → LLM 摘要 + 事实锚点提取）    │
-├─────────────────────────────────────────────┤
-│  长期：SQLite 持久化（按项目/用户隔离）          │
-│  ├─ episodic（事件）  TTL 30 天               │
-│  ├─ semantic（知识）  永久保留                  │
-│  └─ procedural（偏好）TTL 90 天               │
-│  检索：词项匹配 + 时效衰减评分                   │
-│  注入：容量熔断 + 冲突消解（证据优先于记忆）       │
-└─────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph 记忆三层架构
+        A[短期记忆] --> B[LangGraph InMemorySaver<br/>当前会话]
+        
+        C[中期记忆] --> D[上下文自动压缩<br/>超 Token 阈值 → LLM 摘要<br/>+ 事实锚点提取]
+        
+        E[长期记忆] --> F[SQLite 持久化<br/>按项目/用户隔离]
+        
+        G[检索机制] --> H[词项匹配 + 时效衰减评分]
+        I[注入机制] --> J[容量熔断 + 冲突消解<br/>证据优先于记忆]
+    end
+    
+    F -->|episodic 事件| K[TTL 30 天]
+    F -->|semantic 知识| L[永久保留]
+    F -->|procedural 偏好| M[TTL 90 天]
+    
+    style A fill:#f9f,stroke:#333
+    style C fill:#ff9,stroke:#333
+    style E fill:#9f9,stroke:#333
+    style K fill:#cfc,stroke:#333
+    style L fill:#cfc,stroke:#333
+    style M fill:#cfc,stroke:#333
 ```
 
 ---
