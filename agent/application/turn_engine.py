@@ -63,6 +63,18 @@ def try_parse_mindmap(answer: str) -> dict[str, Any] | None:
     return payload
 
 
+def _maybe_to_dict(payload: Any) -> dict[str, Any] | None:
+    if payload is None:
+        return None
+    to_dict = getattr(payload, "to_dict", None)
+    if not callable(to_dict):
+        return None
+    result = to_dict()
+    if not isinstance(result, dict):
+        return None
+    return result
+
+
 def execute_turn_core(
     *,
     prompt: str,
@@ -167,6 +179,8 @@ def execute_turn_core(
     policy_decision = orchestrated.policy_decision.to_dict()
     team_execution = orchestrated.team_execution.to_dict()
     trace_payload = event_logs if event_logs else orchestrated.trace_payload
+    plan_payload = getattr(orchestrated, "plan", None)
+    runtime_state_payload = getattr(orchestrated, "runtime_state", None)
 
     leader_tool_names = {
         str(name).strip()
@@ -193,6 +207,8 @@ def execute_turn_core(
         "policy_decision": policy_decision,
         "team_execution": team_execution,
         "trace_payload": trace_payload,
+        "plan": _maybe_to_dict(plan_payload),
+        "runtime_state": _maybe_to_dict(runtime_state_payload),
         "evidence_items": evidence_items,
         "mindmap_data": mindmap_data,
         "method_compare_data": method_compare_data,

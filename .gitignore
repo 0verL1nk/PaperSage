@@ -49,8 +49,6 @@ models
 .coverage
 
 docs/*
-!docs/plan/
-!docs/plan/**/*.md
 
 .serena
 

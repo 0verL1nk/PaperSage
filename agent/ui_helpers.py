@@ -939,12 +939,14 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
                 )
             latency_ms = message.get("latency_ms")
             if isinstance(latency_ms, (int, float)):
-                team_rounds = int(message.get("team_rounds", message.get("replan_rounds", 0)))
+                team_rounds = int(message.get("team_rounds", 0))
+                replan_rounds = int(message.get("replan_rounds", 0))
                 st.markdown(
                     (
                         "<div class='llm-chip-row'>"
                         f"<span class='llm-chip'>耗时 {float(latency_ms):.0f} ms</span>"
                         f"<span class='llm-chip'>Team rounds {team_rounds}</span>"
+                        f"<span class='llm-chip'>Replan rounds {replan_rounds}</span>"
                         "</div>"
                     ),
                     unsafe_allow_html=True,

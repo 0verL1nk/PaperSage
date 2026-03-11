@@ -17,8 +17,14 @@ case "${MODE}" in
     echo "[quality][full] mypy (full agent package)"
     uv run --extra dev mypy --config-file pyproject.toml main.py agent
     ;;
+  unused)
+    echo "[quality][unused] unused imports and variables"
+    uv run --extra dev python scripts/python_cleanup.py check
+    echo "[quality][unused] suspected dead code report"
+    uv run --extra dev python scripts/python_cleanup.py deadcode
+    ;;
   *)
-    echo "Usage: bash scripts/quality_gate.sh [core|full]"
+    echo "Usage: bash scripts/quality_gate.sh [core|full|unused]"
     exit 2
     ;;
 esac

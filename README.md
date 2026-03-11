@@ -282,6 +282,23 @@ APP_LOG_LEVEL=INFO
 
 ---
 
+## 🧭 Plan 术语约定
+
+为避免主链路、A2A、观测统计之间语义漂移，约定如下：
+
+| 术语 | 定义 |
+|------|------|
+| `plan` | planner 产出的结构化执行计划（`ExecutionPlan`） |
+| `replan` | 真实计划修订事件（revised plan） |
+| `policy_switch` | 路由策略切换事件，不代表计划修订 |
+| `step` | 单 agent 计划中的最小可执行动作（可带 `depends_on`） |
+| `review` | A2A reviewer 回路事件（不等于单 agent verifier） |
+| `verifier` | 单 agent step 校验阶段（对应 `step_verify`） |
+
+更多约束见：`docs/single-agent-plan.md`
+
+---
+
 ## 🧩 工具加载与 Schema 暴露
 
 为降低工具数量增长带来的上下文开销，运行时采用“工具已注册 + Schema 按级别暴露”的策略。

@@ -14,6 +14,14 @@ from agent.ui_helpers import (
 )
 
 
+def _count_replan_rounds(trace_payload: list[dict[str, str]]) -> int:
+    return sum(
+        1
+        for item in trace_payload
+        if isinstance(item, dict) and str(item.get("performative") or "").strip() == "replan"
+    )
+
+
 def build_status_event_line(*, event_index: int, item: dict[str, str]) -> tuple[str, str]:
     phase = _phase_label_from_performative(str(item.get("performative", "")))
     label = f"执行中... [阶段: {phase}]"
@@ -75,6 +83,10 @@ def render_turn_result(
     _render_ask_human_requests(ask_human_requests, key_prefix="live")
     _render_team_todo_panel(team_execution, key_prefix="live")
     _render_evidence_panel(evidence_items, key_prefix="live")
+    replan_rounds = _count_replan_rounds(trace_payload)
     st.caption(
-        f"本次耗时：{run_latency_ms:.0f} ms | Team rounds：{int(team_execution.get('rounds', 0))}"
+        "本次耗时："
+        f"{run_latency_ms:.0f} ms | "
+        f"Team rounds：{int(team_execution.get('rounds', 0))} | "
+        f"Replan rounds：{replan_rounds}"
     )

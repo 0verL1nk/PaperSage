@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any, TypedDict
 
+from typing_extensions import NotRequired
+
 from ..domain.orchestration import TraceEvent
 
 EventCallback = Callable[[TraceEvent], None]
@@ -20,3 +22,5 @@ class TurnCoreResult(TypedDict):
     phase_path: str
     used_document_rag: bool
     ask_human_requests: list[dict[str, str]]
+    plan: NotRequired[dict[str, Any] | None]
+    runtime_state: NotRequired[dict[str, Any] | None]

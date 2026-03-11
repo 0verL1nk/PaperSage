@@ -10,6 +10,7 @@ from agent.metrics import (
 def test_extract_replan_rounds_counts_only_replan_events():
     trace = [
         {"performative": "request"},
+        {"performative": "policy_switch"},
         {"performative": "plan"},
         {"performative": "replan"},
         {"performative": "replan"},
@@ -42,6 +43,13 @@ def test_record_query_metrics_accumulates_replan_rounds():
         latency_ms=300.0,
         trace_payload=[
             {"performative": "request"},
+            {"performative": "policy_switch"},
+            {
+                "performative": "step_verify",
+                "meta": {"verification_status": "failed"},
+            },
+            {"performative": "step_retry"},
+            {"performative": "step_complete"},
             {"performative": "replan"},
             {"performative": "replan"},
             {"performative": "final"},
@@ -53,3 +61,6 @@ def test_record_query_metrics_accumulates_replan_rounds():
     assert summary["replan_rounds_total"] == 2
     assert summary["replan_rounds_max"] == 2
     assert summary["average_replan_rounds"] == 2.0
+    assert summary["step_total"] == 1
+    assert summary["step_retry_total"] == 1
+    assert summary["step_verify_fail_total"] == 1

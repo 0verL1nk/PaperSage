@@ -1,4 +1,8 @@
-from agent.application.turn_engine import build_search_document_fn, execute_turn_core
+from agent.application.turn_engine import (
+    _maybe_to_dict,
+    build_search_document_fn,
+    execute_turn_core,
+)
 from agent.domain.orchestration import OrchestratedTurn, PolicyDecision, TeamExecution
 
 
@@ -59,6 +63,8 @@ def test_execute_turn_core_with_injected_executor_replaces_evidence():
 
     assert result["used_document_rag"] is True
     assert result["evidence_items"]
+    assert result["plan"] is None
+    assert result["runtime_state"] is None
     assert "[c1|p1]" in result["answer"]
     assert result["trace_payload"]
     assert events
@@ -205,3 +211,14 @@ def test_execute_turn_core_can_suppress_tool_load_event():
     )
 
     assert not any(item.get("performative") == "tool_load" for item in captured_events)
+
+
+def test_maybe_to_dict_handles_none_and_noncallable_values():
+    assert _maybe_to_dict(None) is None
+    assert _maybe_to_dict({"x": 1}) is None
+
+    class _Payload:
+        def to_dict(self):
+            return {"ok": True}
+
+    assert _maybe_to_dict(_Payload()) == {"ok": True}

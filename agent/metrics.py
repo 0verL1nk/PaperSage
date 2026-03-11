@@ -22,6 +22,9 @@ def create_session_metrics() -> dict[str, Any]:
         "max_latency_ms": 0.0,
         "replan_rounds_total": 0,
         "replan_rounds_max": 0,
+        "step_total": 0,
+        "step_retry_total": 0,
+        "step_verify_fail_total": 0,
         "trace_events_total": 0,
     }
 
@@ -47,6 +50,27 @@ def _extract_team_rounds(
         if isinstance(rounds, int):
             return max(0, rounds)
     return extract_replan_rounds(trace_payload)
+
+
+def _extract_step_metrics(trace_payload: list[dict[str, str]] | None) -> tuple[int, int, int]:
+    if not isinstance(trace_payload, list):
+        return 0, 0, 0
+    step_total = 0
+    step_retry_total = 0
+    step_verify_fail_total = 0
+    for item in trace_payload:
+        if not isinstance(item, dict):
+            continue
+        performative = str(item.get("performative") or "").strip()
+        if performative == "step_complete":
+            step_total += 1
+        elif performative == "step_retry":
+            step_retry_total += 1
+        elif performative == "step_verify":
+            meta = item.get("meta")
+            if isinstance(meta, dict) and str(meta.get("verification_status") or "").strip() == "failed":
+                step_verify_fail_total += 1
+    return step_total, step_retry_total, step_verify_fail_total
 
 
 def record_query_metrics(
@@ -94,6 +118,12 @@ def record_query_metrics(
         int(metrics.get("replan_rounds_max", 0)),
         replan_rounds,
     )
+    step_total, step_retry_total, step_verify_fail_total = _extract_step_metrics(trace_payload)
+    metrics["step_total"] = int(metrics.get("step_total", 0)) + step_total
+    metrics["step_retry_total"] = int(metrics.get("step_retry_total", 0)) + step_retry_total
+    metrics["step_verify_fail_total"] = int(
+        metrics.get("step_verify_fail_total", 0)
+    ) + step_verify_fail_total
 
     team_rounds = _extract_team_rounds(team_execution, trace_payload)
     metrics["team_rounds_total"] = int(metrics.get("team_rounds_total", 0)) + team_rounds
@@ -152,4 +182,7 @@ def summarize_session_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
         "replan_rounds_total": int(metrics.get("replan_rounds_total", 0)),
         "replan_rounds_max": int(metrics.get("replan_rounds_max", 0)),
         "average_replan_rounds": average_replan_rounds,
+        "step_total": int(metrics.get("step_total", 0)),
+        "step_retry_total": int(metrics.get("step_retry_total", 0)),
+        "step_verify_fail_total": int(metrics.get("step_verify_fail_total", 0)),
     }

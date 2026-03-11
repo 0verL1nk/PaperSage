@@ -1,20 +1,42 @@
 import json
+import os
 
 from agent.domain.orchestration import (
+    ExecutionPlan,
+    PlanStep,
     PolicyDecision,
     TeamExecution,
     TeamRole,
     build_trace_event,
     create_trace_context,
 )
-from agent.orchestration.orchestrator import execute_orchestrated_turn
-from agent.orchestration.team_runtime import run_team_tasks
+from agent.orchestration.orchestrator import (
+    _persist_team_todo_records,
+    execute_orchestrated_turn,
+)
+from agent.orchestration.team_runtime import (
+    _build_team_todo_records_mechanical,
+    run_team_tasks,
+)
 
 
 class _FakeLeaderAgent:
     def invoke(self, _payload, config=None):
         assert isinstance(config, dict)
         return {"messages": [{"role": "assistant", "content": "ok"}]}
+
+
+class _SequencedLeaderAgent:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls: list[dict] = []
+
+    def invoke(self, payload, config=None):
+        self.calls.append({"payload": payload, "config": config})
+        response = self._responses.pop(0) if self._responses else "ok"
+        if isinstance(response, dict):
+            return response
+        return {"messages": [{"role": "assistant", "content": response}]}
 
 
 def test_build_trace_event_contains_required_envelope_fields():
@@ -60,6 +82,20 @@ def test_build_trace_event_rejects_invalid_route():
         raise AssertionError("Expected invalid dispatch route to raise ValueError")
 
 
+def test_build_trace_event_accepts_policy_switch_route():
+    context = create_trace_context(run_id="run-switch", task_id="task-switch")
+    event = build_trace_event(
+        context=context,
+        sender="policy_engine",
+        receiver="leader",
+        performative="policy_switch",
+        content="async_switch@pre_plan",
+    )
+
+    assert event["performative"] == "policy_switch"
+    assert event["receiver"] == "leader"
+
+
 def test_execute_orchestrated_turn_emits_protocolized_trace():
     result = execute_orchestrated_turn(
         prompt="请回答",
@@ -83,6 +119,321 @@ def test_execute_orchestrated_turn_emits_protocolized_trace():
         assert item.get("channel") == "internal.orchestrator"
         assert isinstance(item.get("a2aMessage"), dict)
         assert item["a2aMessage"]["messageId"] == item["span_id"]
+
+
+def test_execute_orchestrated_turn_runs_step_loop_for_plan_mode(monkeypatch):
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.intercept_policy",
+        lambda *_args, **_kwargs: PolicyDecision(
+            plan_enabled=True,
+            team_enabled=False,
+            reason="forced",
+            confidence=1.0,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.build_execution_plan",
+        lambda *_args, **_kwargs: ExecutionPlan(
+            goal="回答问题",
+            steps=[
+                PlanStep(id="step_1", title="检索证据", done_when="有结果"),
+                PlanStep(id="step_2", title="提炼结论", done_when="有结论"),
+            ],
+        ),
+    )
+    leader = _SequencedLeaderAgent(["evidence found", "summary drafted", "final answer"])
+
+    result = execute_orchestrated_turn(
+        prompt="请回答",
+        hinted_prompt="请回答",
+        leader_agent=leader,
+        leader_runtime_config={},
+        llm=None,
+    )
+
+    performatives = [str(item.get("performative") or "") for item in result.trace_payload]
+    assert "step_dispatch" in performatives
+    assert "step_result" in performatives
+    assert "step_verify" in performatives
+    assert performatives.count("step_complete") == 2
+    assert performatives[-1] == "final"
+    assert result.answer == "final answer"
+    assert result.runtime_state is not None
+    assert result.runtime_state.completed_step_ids == ["step_1", "step_2"]
+    assert len(leader.calls) == 3
+
+
+def test_execute_orchestrated_turn_retries_failed_step_once(monkeypatch):
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.intercept_policy",
+        lambda *_args, **_kwargs: PolicyDecision(
+            plan_enabled=True,
+            team_enabled=False,
+            reason="forced",
+            confidence=1.0,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.build_execution_plan",
+        lambda *_args, **_kwargs: ExecutionPlan(
+            goal="回答问题",
+            steps=[PlanStep(id="step_1", title="检索证据", done_when="有结果")],
+        ),
+    )
+    leader = _SequencedLeaderAgent(["", "evidence found", "final answer"])
+
+    result = execute_orchestrated_turn(
+        prompt="请回答",
+        hinted_prompt="请回答",
+        leader_agent=leader,
+        leader_runtime_config={},
+        llm=None,
+    )
+
+    performatives = [str(item.get("performative") or "") for item in result.trace_payload]
+    assert "step_retry" in performatives
+    verify_events = [item for item in result.trace_payload if item.get("performative") == "step_verify"]
+    assert len(verify_events) >= 2
+    assert verify_events[0]["meta"]["verification_status"] == "failed"
+    assert verify_events[-1]["meta"]["verification_status"] == "passed"
+    assert result.runtime_state is not None
+    assert result.runtime_state.completed_step_ids == ["step_1"]
+    assert len(leader.calls) == 3
+
+
+def test_execute_orchestrated_turn_respects_step_dependencies(monkeypatch):
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.intercept_policy",
+        lambda *_args, **_kwargs: PolicyDecision(
+            plan_enabled=True,
+            team_enabled=False,
+            reason="forced",
+            confidence=1.0,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.build_execution_plan",
+        lambda *_args, **_kwargs: ExecutionPlan(
+            goal="回答问题",
+            steps=[
+                PlanStep(id="step_1", title="总结结论", depends_on=["step_2"], done_when="有结论"),
+                PlanStep(id="step_2", title="检索证据", done_when="有证据"),
+            ],
+        ),
+    )
+    leader = _SequencedLeaderAgent(["evidence found", "summary drafted", "final answer"])
+
+    result = execute_orchestrated_turn(
+        prompt="请回答",
+        hinted_prompt="请回答",
+        leader_agent=leader,
+        leader_runtime_config={},
+        llm=None,
+    )
+
+    dispatch_events = [
+        item for item in result.trace_payload if str(item.get("performative") or "") == "step_dispatch"
+    ]
+    assert dispatch_events
+    assert str(dispatch_events[0].get("content") or "").startswith("[step_2]")
+    assert result.runtime_state is not None
+    assert result.runtime_state.completed_step_ids == ["step_2", "step_1"]
+    assert result.answer == "final answer"
+
+
+def test_execute_orchestrated_turn_replans_when_required_tool_missing(monkeypatch):
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.intercept_policy",
+        lambda *_args, **_kwargs: PolicyDecision(
+            plan_enabled=True,
+            team_enabled=False,
+            reason="forced",
+            confidence=1.0,
+            source="test",
+        ),
+    )
+    initial_plan = ExecutionPlan(
+        goal="回答问题",
+        steps=[
+            PlanStep(
+                id="step_1",
+                title="检索证据",
+                done_when="需要文档证据",
+                tool_hints=["search_document"],
+            )
+        ],
+    )
+    revised_plan = ExecutionPlan(
+        goal="回答问题",
+        steps=[
+            PlanStep(
+                id="step_r1",
+                title="补充证据",
+                done_when="需要文档证据",
+                tool_hints=["search_document"],
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.build_execution_plan",
+        lambda *_args, **_kwargs: initial_plan,
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.revise_execution_plan",
+        lambda **_kwargs: revised_plan,
+    )
+    leader = _SequencedLeaderAgent(
+        [
+            "just words without evidence",
+            "still no evidence",
+            {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "已获得证据 [chunk_1]",
+                        "tool_calls": [{"name": "search_document", "args": {"query": "q"}}],
+                    },
+                    {
+                        "role": "tool",
+                        "name": "search_document",
+                        "content": "evidence chunk [chunk_1]",
+                    },
+                ]
+            },
+            "final answer",
+        ]
+    )
+
+    result = execute_orchestrated_turn(
+        prompt="请回答",
+        hinted_prompt="请回答",
+        leader_agent=leader,
+        leader_runtime_config={},
+        llm=None,
+    )
+
+    performatives = [str(item.get("performative") or "") for item in result.trace_payload]
+    assert "replan" in performatives
+    replan_events = [item for item in result.trace_payload if item.get("performative") == "replan"]
+    assert replan_events
+    assert replan_events[0]["meta"]["failure_reason"] == "missing_required_tool:search_document"
+    assert result.runtime_state is not None
+    assert "step_r1" in result.runtime_state.completed_step_ids
+    assert "search_document" in result.leader_tool_names
+    assert len(leader.calls) == 4
+
+
+def test_execute_orchestrated_turn_stops_when_plan_cycle_guard_triggers(monkeypatch):
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.intercept_policy",
+        lambda *_args, **_kwargs: PolicyDecision(
+            plan_enabled=True,
+            team_enabled=False,
+            reason="forced",
+            confidence=1.0,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.build_execution_plan",
+        lambda *_args, **_kwargs: ExecutionPlan(
+            goal="回答问题",
+            steps=[
+                PlanStep(
+                    id="step_1",
+                    title="检索证据",
+                    done_when="需要文档证据",
+                    tool_hints=["search_document"],
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.revise_execution_plan",
+        lambda **_kwargs: ExecutionPlan(
+            goal="回答问题",
+            steps=[
+                PlanStep(
+                    id="step_r1",
+                    title="继续检索证据",
+                    done_when="需要文档证据",
+                    tool_hints=["search_document"],
+                )
+            ],
+        ),
+    )
+    leader = _SequencedLeaderAgent(["plain text", "still plain text", "final answer"])
+
+    result = execute_orchestrated_turn(
+        prompt="请回答",
+        hinted_prompt="请回答",
+        leader_agent=leader,
+        leader_runtime_config={},
+        llm=None,
+    )
+
+    performatives = [str(item.get("performative") or "") for item in result.trace_payload]
+    assert "replan" in performatives
+    assert "fallback" in performatives
+    fallback_events = [item for item in result.trace_payload if item.get("performative") == "fallback"]
+    assert fallback_events[-1]["content"] == "plan_cycle_guard_triggered"
+    assert result.runtime_state is not None
+    assert "plan_cycle_guard_triggered" in result.runtime_state.errors
+
+
+def test_execute_orchestrated_turn_skips_replan_for_non_revisable_failure(monkeypatch):
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.intercept_policy",
+        lambda *_args, **_kwargs: PolicyDecision(
+            plan_enabled=True,
+            team_enabled=False,
+            reason="forced",
+            confidence=1.0,
+            source="test",
+        ),
+    )
+    monkeypatch.setattr(
+        "agent.orchestration.orchestrator.build_execution_plan",
+        lambda *_args, **_kwargs: ExecutionPlan(
+            goal="回答问题",
+            steps=[PlanStep(id="step_1", title="检索证据", done_when="有结果")],
+        ),
+    )
+
+    def _fake_step_runner(**kwargs):
+        return (
+            kwargs["runtime_state"],
+            [],
+            [],
+            kwargs["parent_span_id"],
+            {
+                "step_id": "step_1",
+                "step_title": "检索证据",
+                "reason": "manual_abort",
+            },
+        )
+
+    monkeypatch.setattr("agent.orchestration.orchestrator._run_single_agent_plan_steps", _fake_step_runner)
+    leader = _SequencedLeaderAgent(["final answer"])
+
+    result = execute_orchestrated_turn(
+        prompt="请回答",
+        hinted_prompt="请回答",
+        leader_agent=leader,
+        leader_runtime_config={},
+        llm=None,
+    )
+
+    performatives = [str(item.get("performative") or "") for item in result.trace_payload]
+    assert "replan" not in performatives
+    fallback_events = [item for item in result.trace_payload if item.get("performative") == "fallback"]
+    assert fallback_events
+    assert fallback_events[-1]["content"] == "replan_skipped:manual_abort"
+    assert result.runtime_state is not None
+    assert "replan_skipped:manual_abort" in result.runtime_state.errors
 
 
 def test_run_team_tasks_normalizes_role_name_and_emits_round_metadata(monkeypatch):
@@ -135,7 +486,6 @@ def test_run_team_tasks_uses_todo_dependencies_for_ready_queue(monkeypatch):
         lambda **_kwargs: 2,
     )
     # patch _leader_plan_todo 返回与机械生成完全一致的结构，以便断言 todo_id 顺序
-    from agent.orchestration.team_runtime import _build_team_todo_records_mechanical, TeamRole as TR
     monkeypatch.setattr(
         "agent.orchestration.team_runtime._leader_plan_todo",
         lambda *, roles, actual_rounds, plan_id, **_kw: _build_team_todo_records_mechanical(
@@ -305,9 +655,6 @@ def test_execute_orchestrated_turn_syncs_team_todo_store(monkeypatch, tmp_path):
 
 def test_persist_team_todo_records_replaces_same_plan_id(tmp_path):
     """同 plan_id 的记录应被全量替换，不同 plan_id 的记录应保留。"""
-    from agent.orchestration.orchestrator import _persist_team_todo_records
-    from agent.domain.orchestration import TeamExecution
-    import json, os
 
     todo_file = tmp_path / ".agent" / "todo.json"
     os.environ["AGENT_FILE_TOOLS_ROOT"] = str(tmp_path)

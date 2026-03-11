@@ -82,7 +82,7 @@ def save_api_key_for_user(*, uuid: str, api_key: str) -> None:
     save_api_key(uuid, api_key)
 
 
-def save_model_name_for_user(*, uuid: str, model_name: str | None) -> None:
+def save_model_name_for_user(*, uuid: str, model_name: str) -> None:
     save_model_name(uuid, model_name)
 
 
