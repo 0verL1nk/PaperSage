@@ -213,8 +213,8 @@ def _serialize_tool_inventory(
         name = str(item.get("name") or "").strip()
         if not name:
             continue
-        description = _collapse_inline_text(item.get("description"), limit=48)
-        fields = _collapse_inline_text(item.get("args_schema"), limit=36)
+        description = " ".join(str(item.get("description") or "").split()).strip()
+        fields = " ".join(str(item.get("args_schema") or "").split()).strip()
         pieces = [name]
         if description:
             pieces.append(description)
