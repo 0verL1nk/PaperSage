@@ -1,0 +1,17 @@
+server:
+  host: 0.0.0.0
+  port: 8080
+  log_level: INFO
+
+storage:
+  root_dir: /var/lib/openviking
+  sqlite_path: /var/lib/openviking/openviking.db
+
+runtime:
+  max_workers: 4
+  request_timeout_seconds: 30
+  default_tier: L2
+  allowed_tiers:
+    - L0
+    - L1
+    - L2

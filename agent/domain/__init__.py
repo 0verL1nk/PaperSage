@@ -1,3 +1,13 @@
+from .openviking_contracts import (
+    DEFAULT_OPENVIKING_SEARCH_TOP_K,
+    OpenVikingAdapter,
+    OpenVikingReadRequest,
+    OpenVikingReadResult,
+    OpenVikingResourceRecord,
+    OpenVikingSearchHit,
+    OpenVikingSearchRequest,
+    OpenVikingTier,
+)
 from .orchestration import (
     OrchestratedTurn,
     PolicyDecision,
@@ -38,4 +48,12 @@ __all__ = [
     "PHASE_BY_PERFORMATIVE",
     "phase_label_from_performative",
     "phase_summary",
+    "DEFAULT_OPENVIKING_SEARCH_TOP_K",
+    "OpenVikingAdapter",
+    "OpenVikingReadRequest",
+    "OpenVikingReadResult",
+    "OpenVikingResourceRecord",
+    "OpenVikingSearchHit",
+    "OpenVikingSearchRequest",
+    "OpenVikingTier",
 ]
