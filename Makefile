@@ -1,5 +1,8 @@
-.PHONY: lint quality-core quality-full quality-unused \
+.PHONY: run lint quality-core quality-full quality-unused \
 	cleanup-check cleanup-fix cleanup-deadcode cleanup-whitelist
+
+run:
+	uv run --extra dev paper-sage
 
 lint:
 	uv run --extra dev python scripts/python_cleanup.py fix-safe
