@@ -83,30 +83,34 @@
 
 ```mermaid
 flowchart TD
-    A[用户提问] --> B{智能路由}
+    A[用户提问] --> B{Policy Engine}
+    B -->|LLM 决策| C{plan_enabled?}
+    B -->|置信度| D{team_enabled?}
     
-    B -->|关键词快速路由| C[LLM 结构化路由]
-    C -->|兜底| D[ReAct]
-    
-    D --> E[ReAct 模式]
+    C -->|false| E[ReAct 模式]
     E --> F[单 Agent + Tool 直接回答]
     
-    C --> G[Plan-Act 模式]
-    G --> H[Planner 生成计划]
-    H --> I[Leader 执行]
+    C -->|true| G{team_enabled?}
+    G -->|false| H[Plan-Act 模式]
+    H --> I[Planner 生成计划]
+    I --> J[Leader 顺序执行步骤]
+    J --> K{step_verify}
+    K -->|失败| L[revision 循环]
     
-    C --> J[Plan-Act-RePlan 模式]
-    J --> K[Planner]
-    K --> L[Leader]
-    L <--> M[Team 多角色]
-    M --> N[Reviewer]
-    N --> O[RePlan]
-    O -.->|质量门控循环| K
+    G -->|true| M[Plan-Act-RePlan 模式]
+    M --> N[Team Runtime]
+    N --> O[动态生成角色]
+    O --> P[researcher / reviewer / writer]
+    P --> Q[多轮执行]
+    Q --> R{A2A Review}
+    R -->|通过| S[Finalizing]
+    R -->|需修订| T[RePlan]
+    T -->|循环| N
     
     style A fill:#f9f,stroke:#333
     style F fill:#9f9,stroke:#333
-    style I fill:#9f9,stroke:#333
-    style O fill:#ff9,stroke:#333
+    style S fill:#9f9,stroke:#333
+    style T fill:#ff9,stroke:#333
 ```
 
 ### Hybrid RAG 检索管线
@@ -122,14 +126,19 @@ flowchart LR
     D --> E{RRF 融合排序}
     E --> F{FlashRank Rerank}
     F -->|可选| G[邻域 Chunk 扩展]
-    G --> H[结构化 EvidenceItem]
+    G --> H[EvidenceItem 结构化]
     E --> H
     
-    H --> I[(doc_uid / chunk_id / score / page_no / offset)]
+    H --> I[doc_uid / chunk_id / text<br/>score / page_no / offset_start / offset_end]
+    
+    I --> J[(Chroma<br/>持久化)]
+    J -->|fallback| K[(InMemory<br/>内存)]
     
     style A fill:#f9f,stroke:#333
     style H fill:#9f9,stroke:#333
     style I fill:#ff9,stroke:#333
+    style J fill:#cef,stroke:#333
+    style K fill:#cef,stroke:#333
 ```
 
 ### 长短期记忆架构
@@ -137,26 +146,29 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph 记忆三层架构
-        A[短期记忆] --> B[LangGraph InMemorySaver<br/>当前会话]
+        A[短期记忆] --> B[LangGraph InMemorySaver<br/>Streamlit session_state]
         
-        C[中期记忆] --> D[上下文自动压缩<br/>超 Token 阈值 → LLM 摘要<br/>+ 事实锚点提取]
+        A -->|70% 上下文阈值| C[中期记忆]
+        C --> D[auto_compact_messages<br/>LLM 摘要 + 事实锚点]
+        D --> E[SQLite session_compact_memory]
         
-        E[长期记忆] --> F[SQLite 持久化<br/>按项目/用户隔离]
+        E --> F[长期记忆]
+        F --> G[SQLite memory_items<br/>按项目/用户隔离]
         
-        G[检索机制] --> H[词项匹配 + 时效衰减评分]
-        I[注入机制] --> J[容量熔断 + 冲突消解<br/>证据优先于记忆]
+        H[检索机制] --> I[词项匹配 + 时效衰减评分]
+        J[注入机制] --> K[容量熔断 + 冲突消解<br/>证据优先于记忆]
     end
     
-    F -->|episodic 事件| K[TTL 30 天]
-    F -->|semantic 知识| L[永久保留]
-    F -->|procedural 偏好| M[TTL 90 天]
+    G -->|episodic 事件| L[TTL 30 天]
+    G -->|semantic 知识| M[永久保留]
+    G -->|procedural 偏好| N[TTL 90 天]
     
     style A fill:#f9f,stroke:#333
     style C fill:#ff9,stroke:#333
-    style E fill:#9f9,stroke:#333
-    style K fill:#cfc,stroke:#333
+    style F fill:#9f9,stroke:#333
     style L fill:#cfc,stroke:#333
     style M fill:#cfc,stroke:#333
+    style N fill:#cfc,stroke:#333
 ```
 
 ---
