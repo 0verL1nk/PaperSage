@@ -13,6 +13,7 @@ from utils.utils import extract_json_string
 
 from .archive import list_agent_outputs
 from .domain.trace import phase_label_from_performative, phase_summary
+from .mindmap_renderer import render_mindmap_html_with_cli
 from .metrics import create_session_metrics, summarize_session_metrics
 
 LEGACY_WORKFLOW_LABELS = {
@@ -100,9 +101,8 @@ def _render_acp_trace(
 def _is_react_mode(policy_decision: dict[str, Any] | None) -> bool:
     if not isinstance(policy_decision, dict):
         return False
-    return (
-        not bool(policy_decision.get("plan_enabled", False))
-        and not bool(policy_decision.get("team_enabled", False))
+    return not bool(policy_decision.get("plan_enabled", False)) and not bool(
+        policy_decision.get("team_enabled", False)
     )
 
 
@@ -124,8 +124,7 @@ def _render_trace_by_mode(
         filtered = [
             item
             for item in trace_payload
-            if isinstance(item, dict)
-            and str(item.get("performative") or "").strip() in allowed
+            if isinstance(item, dict) and str(item.get("performative") or "").strip() in allowed
         ]
         if filtered:
             _render_acp_trace(filtered, expander_title="查看工具执行轨迹")
@@ -298,23 +297,15 @@ def _render_mindmap_if_any(
 ) -> None:
     if not mindmap_data:
         return
-    if isinstance(mindmap_html, str) and mindmap_html.strip():
-        try:
-            iframe_height = _infer_mindmap_iframe_height(mindmap_html)
-            components.html(mindmap_html, height=iframe_height, scrolling=False)
-        except Exception:
-            render_error = "思维导图 HTML 渲染失败，已自动回退到内置渲染。"
-        else:
-            if isinstance(render_error, str) and render_error.strip():
-                st.warning(render_error)
-            return
+    if not isinstance(mindmap_html, str) or not mindmap_html.strip():
+        error_msg = render_error or "思维导图渲染失败：缺少 HTML，请检查 mindmap-cli 是否正确安装。"
+        st.error(error_msg)
+        return
     try:
-        chart = _create_mindmap_chart(mindmap_data)
-        components.html(chart.render_embed(), height=480, scrolling=False)
-    except Exception:
-        st.warning("思维导图 JSON 已识别，但渲染失败。")
-    if isinstance(render_error, str) and render_error.strip():
-        st.warning(render_error)
+        iframe_height = _infer_mindmap_iframe_height(mindmap_html)
+        components.html(mindmap_html, height=iframe_height, scrolling=False)
+    except Exception as exc:
+        st.error(f"思维导图 HTML 渲染失败: {exc}")
 
 
 def _normalize_evidence_items(raw_payload) -> list[dict]:
@@ -412,8 +403,7 @@ def _render_team_todo_panel(
                 with st.container(border=True):
                     # 标题行
                     st.markdown(
-                        f"{s_icon} {p_icon} **{title}** "
-                        f"&nbsp;`{assignee}`&nbsp; `{status}`",
+                        f"{s_icon} {p_icon} **{title}** &nbsp;`{assignee}`&nbsp; `{status}`",
                         unsafe_allow_html=True,
                     )
                     # 任务描述（leader 规划的 details）
@@ -524,9 +514,7 @@ def _render_ask_human_requests(
             question = item["question"]
             context = item["context"]
             urgency = item["urgency"]
-            st.markdown(
-                f"**Q{index}**（紧急度：`{urgency_badge.get(urgency, '中')}`）"
-            )
+            st.markdown(f"**Q{index}**（紧急度：`{urgency_badge.get(urgency, '中')}`）")
             st.write(question)
             if context:
                 st.caption(f"上下文：{context}")
@@ -599,10 +587,8 @@ def _render_output_archive(project_uid: str, disable_interaction: bool = False) 
         selected = records[selected_index]
         content = selected["content"]
         if selected["output_type"] == "mindmap":
-            try:
-                _render_mindmap_if_any(json.loads(content))
-            except Exception:
-                st.write(content)
+            st.warning("归档记录不支持渲染，请重新生成思维导图")
+            st.code(content, language="json")
         else:
             st.write(content)
 
@@ -866,13 +852,24 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
                 continue
             mindmap_data = message.get("mindmap_data")
             if mindmap_data:
+                summary_text = re.sub(
+                    r"<mindmap>\s*\{.*?\}\s*</mindmap>",
+                    "",
+                    str(message.get("content", "") or ""),
+                    flags=re.DOTALL | re.IGNORECASE,
+                ).strip()
+                if summary_text:
+                    st.write(summary_text)
+                mindmap_html = message.get("mindmap_html")
+                if not mindmap_html:
+                    mindmap_html, _ = render_mindmap_html_with_cli(mindmap_data, title="思维导图")
                 _render_mindmap_if_any(
                     mindmap_data,
-                    mindmap_html=message.get("mindmap_html"),
+                    mindmap_html=mindmap_html,
                     render_error=message.get("mindmap_render_error"),
                 )
                 with st.expander("查看思维导图 JSON", expanded=False):
-                    st.code(str(message.get("content", "")), language="json")
+                    st.code(json.dumps(mindmap_data, ensure_ascii=False, indent=2), language="json")
             else:
                 st.write(message["content"])
             policy_decision = message.get("policy_decision")
@@ -890,11 +887,7 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
                 if reason:
                     chips += f"<span class='llm-chip'>{reason}</span>"
                 st.markdown(
-                    (
-                        "<div class='llm-chip-row'>"
-                        f"{chips}"
-                        "</div>"
-                    ),
+                    (f"<div class='llm-chip-row'>{chips}</div>"),
                     unsafe_allow_html=True,
                 )
             else:

@@ -366,6 +366,56 @@ const pageTemplate = `<!doctype html>
       border-radius: 999px;
       padding: 4px 8px;
     }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .fullscreen-btn {
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--title-color);
+      background: rgba(148, 163, 184, 0.15);
+      cursor: pointer;
+    }
+    .fullscreen-btn:hover {
+      background: rgba(148, 163, 184, 0.24);
+    }
+    .panel:fullscreen {
+      width: 100vw;
+      height: 100vh;
+      border-radius: 0;
+      border: none;
+    }
+    .panel:fullscreen #mindmap {
+      height: calc(100vh - 58px);
+    }
+    @media (prefers-color-scheme: light) {
+      body {
+        color: #0f172a;
+        background:
+          radial-gradient(1200px 600px at 20% -20%, rgba(99, 102, 241, 0.08), transparent 60%),
+          radial-gradient(900px 500px at 90% 120%, rgba(14, 165, 233, 0.08), transparent 60%),
+          linear-gradient(140deg, #f8fafc, #e2e8f0);
+      }
+      .panel {
+        background: rgba(255, 255, 255, 0.92);
+        border-color: rgba(99, 102, 241, 0.22);
+        box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.12), 0 30px 60px rgba(15, 23, 42, 0.12);
+      }
+      .panel-title {
+        color: #0f172a;
+      }
+      .panel-subtitle,
+      .pill {
+        color: #475569;
+      }
+      .pill {
+        border-color: rgba(99, 102, 241, 0.35);
+      }
+    }
   </style>
 </head>
 <body>
@@ -375,7 +425,10 @@ const pageTemplate = `<!doctype html>
         <h1 class="panel-title">{{ .Title }}</h1>
         <p class="panel-subtitle">Drag to pan, wheel to zoom, click nodes to expand/collapse.</p>
       </div>
-      <span class="pill">{{ .Theme.Name }}</span>
+      <div class="header-actions">
+        <span class="pill">{{ .Theme.Name }}</span>
+        <button id="fullscreen-toggle" type="button" class="fullscreen-btn">全屏</button>
+      </div>
     </header>
     <div id="mindmap"></div>
   </section>
@@ -409,67 +462,125 @@ const pageTemplate = `<!doctype html>
       return node;
     }
 
-    const chart = echarts.init(document.getElementById("mindmap"), null, { renderer: "canvas" });
-    const option = {
-      animationDuration: 650,
-      animationDurationUpdate: 420,
-      tooltip: {
-        trigger: "item",
-        triggerOn: "mousemove",
-        confine: true,
-        formatter: (params) => params?.data?.name || ""
-      },
-      toolbox: {
-        show: true,
-        orient: "horizontal",
-        right: 18,
-        top: 12,
-        itemSize: 16,
-        feature: {
-          restore: {},
-          saveAsImage: { title: "Save PNG", pixelRatio: 2 }
-        }
-      },
-      series: [
-        {
-          type: "tree",
-          data: [styleTree(root, 0)],
-          top: "8%",
-          bottom: "5%",
-          left: "4%",
-          right: "30%",
-          orient: "LR",
-          layout: "orthogonal",
-          edgeForkPosition: "10%",
-          symbol: "roundRect",
-          symbolSize: 10,
-          roam: true,
-          expandAndCollapse: true,
-          initialTreeDepth: {{ .InitialTreeDepth }},
-          emphasis: {
-            focus: "descendant"
+    const chartRoot = document.getElementById("mindmap");
+    const chart = echarts.init(chartRoot, null, { renderer: "canvas" });
+    const panel = document.querySelector(".panel");
+    const fullscreenBtn = document.getElementById("fullscreen-toggle");
+    const colorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+    function cloneRootData() {
+      if (typeof structuredClone === "function") {
+        return structuredClone(root);
+      }
+      return JSON.parse(JSON.stringify(root));
+    }
+
+    function buildOption() {
+      const isDark = colorSchemeQuery.matches;
+      const labelColor = isDark ? "{{ .Theme.TitleColor }}" : "#0f172a";
+      const labelBg = isDark ? "rgba(15, 23, 42, 0.32)" : "rgba(255, 255, 255, 0.85)";
+      const linkColor = isDark ? "{{ .Theme.LinkColor }}" : "#6366f1";
+
+      function themedTree(node, depth) {
+        const styled = styleTree(node, depth);
+        styled.lineStyle = {
+          color: linkColor,
+          width: Math.max(1.2, 3.2 - depth * 0.5),
+          curveness: 0.25,
+        };
+        styled.label = {
+          color: labelColor,
+          fontSize: depth === 0 ? 16 : 12,
+          backgroundColor: labelBg,
+          borderRadius: 6,
+          padding: [4, 7],
+        };
+        return styled;
+      }
+
+      return {
+        animationDuration: 650,
+        animationDurationUpdate: 420,
+        tooltip: {
+          trigger: "item",
+          triggerOn: "mousemove",
+          confine: true,
+          formatter: (params) => params?.data?.name || "",
+        },
+        toolbox: {
+          show: true,
+          orient: "horizontal",
+          right: 18,
+          top: 12,
+          itemSize: 16,
+          feature: {
+            restore: {},
+            saveAsImage: { title: "Save PNG", pixelRatio: 2 },
           },
-          lineStyle: {
-            color: "{{ .Theme.LinkColor }}",
-            width: 2
-          },
-          label: {
-            position: "right",
-            verticalAlign: "middle",
-            align: "left"
-          },
-          leaves: {
+        },
+        series: [
+          {
+            type: "tree",
+            data: [themedTree(cloneRootData(), 0)],
+            top: "8%",
+            bottom: "5%",
+            left: "4%",
+            right: "30%",
+            orient: "LR",
+            layout: "orthogonal",
+            edgeForkPosition: "10%",
+            symbol: "roundRect",
+            symbolSize: 10,
+            roam: true,
+            expandAndCollapse: true,
+            initialTreeDepth: {{ .InitialTreeDepth }},
+            emphasis: {
+              focus: "descendant",
+            },
+            lineStyle: {
+              color: linkColor,
+              width: 2,
+            },
             label: {
               position: "right",
               verticalAlign: "middle",
-              align: "left"
-            }
-          }
-        }
-      ]
-    };
+              align: "left",
+            },
+            leaves: {
+              label: {
+                position: "right",
+                verticalAlign: "middle",
+                align: "left",
+              },
+            },
+          },
+        ],
+      };
+    }
 
-    chart.setOption(option);
+    function renderChart() {
+      chart.setOption(buildOption(), true);
+      chart.resize();
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        panel.requestFullscreen?.();
+      } else {
+        document.exitFullscreen?.();
+      }
+    }
+
+    function syncFullscreenButton() {
+      const isFull = document.fullscreenElement === panel;
+      fullscreenBtn.textContent = isFull ? "退出全屏" : "全屏";
+      chart.resize();
+    }
+
+    fullscreenBtn.addEventListener("click", toggleFullscreen);
+    document.addEventListener("fullscreenchange", syncFullscreenButton);
+    colorSchemeQuery.addEventListener("change", renderChart);
+    renderChart();
     window.addEventListener("resize", () => chart.resize());
     console.info("mindmap rendered at {{ .GeneratedAt }}");
   </script>

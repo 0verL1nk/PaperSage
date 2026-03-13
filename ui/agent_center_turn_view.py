@@ -1,3 +1,5 @@
+import json
+import re
 from typing import Any
 
 import streamlit as st
@@ -49,6 +51,12 @@ def render_turn_result(
     mindmap_html: str | None = None,
     mindmap_render_error: str | None = None,
 ) -> None:
+    summary_text = re.sub(
+        r"<mindmap>\s*\{.*?\}\s*</mindmap>",
+        "",
+        str(answer or ""),
+        flags=re.DOTALL | re.IGNORECASE,
+    ).strip()
     st.markdown(
         (
             "<div class='llm-chip-row'>"
@@ -64,13 +72,15 @@ def render_turn_result(
         st.caption(f"策略原因：{policy_reason}")
 
     if mindmap_data:
+        if summary_text:
+            st.write(summary_text)
         _render_mindmap_if_any(
             mindmap_data,
             mindmap_html=mindmap_html,
             render_error=mindmap_render_error,
         )
         with st.expander("查看思维导图 JSON", expanded=False):
-            st.code(answer, language="json")
+            st.code(json.dumps(mindmap_data, ensure_ascii=False, indent=2), language="json")
     else:
         st.write(answer)
 
