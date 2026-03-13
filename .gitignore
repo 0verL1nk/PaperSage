@@ -51,7 +51,7 @@ models
 docs/*
 
 .serena
-
+.sisyphus
 # AI coding agent artifacts (generated when $HOME is set to project root)
 .claude/
 .codex/
