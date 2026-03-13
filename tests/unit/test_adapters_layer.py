@@ -58,35 +58,60 @@ def test_create_chat_model_delegates(monkeypatch):
 
 
 def test_create_project_evidence_retriever_routes_single_or_multi(monkeypatch):
+    ingest_calls = []
+
+    class _FakeHit:
+        def __init__(self, *, resource_id, content, score, metadata):
+            self.resource_id = resource_id
+            self.content = content
+            self.score = score
+            self.metadata = metadata
+
+    class _FakeAdapter:
+        def add_resource(self, *, project_uid, content, metadata=None):
+            ingest_calls.append((project_uid, content, metadata or {}))
+            return f"res-{len(ingest_calls)}"
+
+        def search(self, request):
+            assert request.project_uid == "p1"
+            return [
+                _FakeHit(
+                    resource_id="res-2",
+                    content="matched",
+                    score=0.88,
+                    metadata={
+                        "namespace": "rag",
+                        "doc_uid": "d2",
+                        "doc_name": "n2",
+                    },
+                )
+            ]
+
+    monkeypatch.setattr("agent.adapters.rag.get_openviking_adapter", lambda: _FakeAdapter())
     monkeypatch.setattr(
-        "agent.adapters.rag.build_local_evidence_retriever_with_settings",
-        lambda **_kwargs: "local",
+        "agent.adapters.rag.load_agent_settings",
+        lambda: type("_S", (), {"rag_top_k": 6})(),
     )
-    monkeypatch.setattr(
-        "agent.adapters.rag.build_project_evidence_retriever_with_settings",
-        lambda **_kwargs: "project",
+
+    retriever = create_project_evidence_retriever(
+        documents=[
+            {"doc_uid": "d1", "doc_name": "n1", "text": "t1"},
+            {"doc_uid": "d2", "doc_name": "n2", "text": "t2"},
+        ],
+        project_uid="p1",
     )
-    assert (
-        create_project_evidence_retriever(
-            documents=[{"doc_uid": "d1", "doc_name": "n", "text": "t"}],
-            project_uid="p1",
-        )
-        == "local"
-    )
-    assert (
-        create_project_evidence_retriever(
-            documents=[
-                {"doc_uid": "d1", "doc_name": "n1", "text": "t1"},
-                {"doc_uid": "d2", "doc_name": "n2", "text": "t2"},
-            ],
-            project_uid="p1",
-        )
-        == "project"
-    )
+    payload = retriever("query")
+
+    assert len(ingest_calls) == 2
+    assert all(call[2]["namespace"] == "rag" for call in ingest_calls)
+    assert payload["evidences"][0]["text"] == "matched"
+    assert payload["evidences"][0]["doc_uid"] == "d2"
 
 
 def test_document_adapter_load_and_save(monkeypatch):
-    monkeypatch.setattr("agent.adapters.document.get_content_by_uid", lambda *_args, **_kwargs: "abc")
+    monkeypatch.setattr(
+        "agent.adapters.document.get_content_by_uid", lambda *_args, **_kwargs: "abc"
+    )
     assert load_cached_extraction("u1") == "abc"
 
     monkeypatch.setattr("agent.adapters.document.get_content_by_uid", lambda *_args, **_kwargs: " ")
@@ -103,7 +128,9 @@ def test_document_adapter_load_and_save(monkeypatch):
 
 
 def test_extract_document_payload_delegates(monkeypatch):
-    monkeypatch.setattr("agent.adapters.document.extract_files", lambda _path: {"result": 1, "text": "x"})
+    monkeypatch.setattr(
+        "agent.adapters.document.extract_files", lambda _path: {"result": 1, "text": "x"}
+    )
     assert extract_document_payload("/tmp/a.pdf")["text"] == "x"
 
 
@@ -129,7 +156,9 @@ def test_create_leader_session_delegates(monkeypatch):
 
 def test_save_output_delegates(monkeypatch):
     captured = {}
-    monkeypatch.setattr("agent.adapters.archive.save_agent_output", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(
+        "agent.adapters.archive.save_agent_output", lambda **kwargs: captured.update(kwargs)
+    )
     save_output(uuid="u1", project_uid="p1", session_uid="s1", output_type="text", content="c")
     assert captured["uuid"] == "u1"
 
@@ -137,7 +166,9 @@ def test_save_output_delegates(monkeypatch):
 def test_project_store_adapters_delegate(monkeypatch):
     monkeypatch.setattr(
         "agent.adapters.project_store.list_projects",
-        lambda uuid, include_archived=False: [{"project_uid": "p1", "uuid": uuid, "archived": include_archived}],
+        lambda uuid, include_archived=False: [
+            {"project_uid": "p1", "uuid": uuid, "archived": include_archived}
+        ],
     )
     monkeypatch.setattr(
         "agent.adapters.project_store.list_project_files",
@@ -180,7 +211,12 @@ def test_project_store_adapters_delegate(monkeypatch):
     assert list_user_projects(uuid="u1") == [{"project_uid": "p1", "uuid": "u1", "archived": False}]
     assert list_project_files_for_user(project_uid="p1", uuid="u1")[0]["project_uid"] == "p1"
     assert list_sessions_for_project(project_uid="p1", uuid="u1")[0]["project_uid"] == "p1"
-    assert list_session_messages_for_project(session_uid="s1", project_uid="p1", uuid="u1")[0]["session_uid"] == "s1"
+    assert (
+        list_session_messages_for_project(session_uid="s1", project_uid="p1", uuid="u1")[0][
+            "session_uid"
+        ]
+        == "s1"
+    )
     ensure_default_session_for_project(project_uid="p1", uuid="u1")
     create_session_for_project(project_uid="p1", uuid="u1", session_name="会话")
     update_session_for_project(
@@ -209,7 +245,9 @@ def test_user_settings_adapters_delegate(monkeypatch):
     monkeypatch.setattr("agent.adapters.user_settings.get_user_api_key", lambda: "k")
     monkeypatch.setattr("agent.adapters.user_settings.get_user_model_name", lambda: "m")
     monkeypatch.setattr("agent.adapters.user_settings.get_user_base_url", lambda: "u")
-    monkeypatch.setattr("agent.adapters.user_settings.get_user_files", lambda uuid: [{"uuid": uuid}])
+    monkeypatch.setattr(
+        "agent.adapters.user_settings.get_user_files", lambda uuid: [{"uuid": uuid}]
+    )
     monkeypatch.setattr("agent.adapters.user_settings.get_api_key", lambda uuid: f"k:{uuid}")
     monkeypatch.setattr("agent.adapters.user_settings.get_model_name", lambda uuid: f"m:{uuid}")
     monkeypatch.setattr("agent.adapters.user_settings.get_base_url", lambda uuid: f"b:{uuid}")
