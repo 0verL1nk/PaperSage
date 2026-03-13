@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Tool Search Mechanism:** Replaced the hardcoded `activate_tool` mechanism with a dynamic `search_tools` capability based on the "Just-in-Time Retrieval" design.
+- **Hybrid Tool Registry:** Introduced a new `ToolRegistry` (`agent/tools/registry.py`) that utilizes a 3-way hybrid retrieval engine (Regex intersection, BM25 sparse search, and FastEmbed dense vector search) to discover relevant tools and skills dynamically.
+- **Skill Ecosystem Integration:** Updated `SkillLoader` to parse and index `keywords` from `SKILL.md` frontmatter, making dynamically loaded skills discoverable through the central tool search via the `use_skill` proxy.
+
+### Changed
+- Progressive Tool Disclosure Middleware now extracts discovered tools from the `search_tools` JSON response to un-defer their schema definitions instead of relying on explicit activation names.
+
+
 ### Changed
 
 - Added a shared runtime agent builder so paper agent, team member agent, and A2A agents use one assembly path for tools, middleware, and checkpointer setup.
