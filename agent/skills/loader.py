@@ -23,6 +23,7 @@ class SkillMetadata:
     name: str
     description: str
     skill_path: Path
+    keywords: str = "" 
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class Skill:
     instructions: str
     skill_path: Path
     resources: SkillResources
+    keywords: str = "" 
 
 
 def _extract_frontmatter(content: str) -> tuple[dict[str, str], str]:
@@ -58,7 +60,7 @@ def _extract_frontmatter(content: str) -> tuple[dict[str, str], str]:
             continue
         key, raw_value = line.split(":", 1)
         normalized_key = key.strip().lower()
-        if normalized_key not in {"name", "description"}:
+        if normalized_key not in {"name", "description", "keywords"}:
             continue
         value = raw_value.strip()
         if value[:1] == value[-1:] and value[:1] in {"'", '"'}:

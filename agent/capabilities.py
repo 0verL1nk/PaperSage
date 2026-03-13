@@ -130,11 +130,6 @@ _DANGEROUS_QUERY_PATTERNS = [
 ]
 _DEFAULT_FIXED_TOOL_NAMES = {
     "search_document",
-    "list_document",
-    "read_document",
-    "use_skill",
-    "start_plan",
-    "start_team",
     "ask_human",
 }
 _TOOL_VISIBILITY_ATTR = "_progressive_tool_visibility"
@@ -1075,6 +1070,27 @@ def build_agent_tools(
         return exposed
 
     metadata_by_name = {item.name: item.description for item in discovered_tools}
+    
+    # 将 Skill 也直接作为伪工具元数据注入到 Registry（这样模型直接查 "翻译"，就能找到 use_skill，且知道传入啥 skill）
+    # 或者直接把 skill 的 keyword 附加给 use_skill 的 description 中
+    skills = discover_available_skills()
+    if skills:
+        skill_docs = []
+        for s in skills:
+            skill_docs.append(f"[{s.name}]: {s.description} (keywords: {getattr(s, 'keywords', '')})")
+        
+        # 增强 use_skill 的可搜索性
+        if "use_skill" in metadata_by_name:
+            metadata_by_name["use_skill"] += "\nAvailable skills to use:\n" + "\n".join(skill_docs)
+            
+        # Also update the tool object description so ToolRegistry can index it
+        if "use_skill" in runtime_tool_map:
+            runtime_tool_map["use_skill"].description = metadata_by_name["use_skill"]
+            
+        # 同时修改 runtime_tool_map 里的 description，让 registry 能够收到
+        if "use_skill" in runtime_tool_map:
+            runtime_tool_map["use_skill"].description += "\nAvailable skills to use:\n" + "\n".join(skill_docs)
+
 
     from .tools.registry import ToolRegistry
     registry = ToolRegistry()
