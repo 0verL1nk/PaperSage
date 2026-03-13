@@ -102,8 +102,8 @@ class StartTeamInput(BaseModel):
     )
 
 
-class ActivateToolInput(BaseModel):
-    tool_name: str = Field(description="Tool name to activate for progressive disclosure.")
+class SearchToolsInput(BaseModel):
+    query: str = Field(description="Search query describing the needed capability (e.g., 'read pdf', 'web search').")
     reason: str = Field(
         default="",
         description="Optional short reason for activation.",
@@ -315,15 +315,14 @@ def _content_to_text(content: Any) -> str:
     return ""
 
 
-def _extract_tool_name_from_activation_args(args: Any) -> str:
-    if isinstance(args, str):
-        try:
-            args = json.loads(args)
-        except Exception:
-            return ""
-    if not isinstance(args, dict):
-        return ""
-    return str(args.get("tool_name") or args.get("name") or "").strip()
+def _extract_tool_names_from_search_result(content: str) -> list[str]:
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict) and data.get("type") == "tool_search_result":
+            return [t.get("tool_name") for t in data.get("tools", []) if isinstance(t, dict) and "tool_name" in t]
+    except Exception:
+        pass
+    return []
 
 
 def _extract_activated_tool_names(messages: list[Any]) -> set[str]:
@@ -338,33 +337,21 @@ def _extract_activated_tool_names(messages: list[Any]) -> set[str]:
                 else:
                     call_name = str(getattr(call, "name", "") or "").strip()
                     args = getattr(call, "args", {})
-                if call_name != "activate_tool":
-                    continue
-                tool_name = _extract_tool_name_from_activation_args(args)
-                if tool_name:
-                    activated.add(tool_name)
+                pass
 
         msg_type = str(_message_attr(message, "type", "") or "").lower()
         role = str(_message_attr(message, "role", "") or "").lower()
         if msg_type != "tool" and role != "tool":
             continue
         tool_name = str(_message_attr(message, "name", "") or "").strip()
-        if tool_name != "activate_tool":
+        if tool_name != "search_tools":
             continue
         raw_content = _content_to_text(_message_attr(message, "content", ""))
         if not raw_content.strip():
             continue
-        try:
-            payload = json.loads(raw_content)
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        if str(payload.get("type") or "").strip() != "tool_activate":
-            continue
-        activated_name = str(payload.get("tool_name") or "").strip()
-        if activated_name:
-            activated.add(activated_name)
+        tool_names = _extract_tool_names_from_search_result(raw_content)
+        for t in tool_names:
+            activated.add(t)
     return activated
 
 
@@ -386,7 +373,7 @@ class ProgressiveToolDisclosureMiddleware(AgentMiddleware):
         activated_names = _extract_activated_tool_names(list(request.messages or []))
         visible_names = (
             set(self.fixed_tool_names)
-            | {"activate_tool"}
+            | {"search_tools"}
             | (activated_names & self.lazy_tool_names)
         )
         filtered_tools: list[Any] = []
@@ -423,7 +410,7 @@ def build_progressive_tool_middleware(tools: list[Any]) -> list[AgentMiddleware]
             visibility = str(getattr(item, _TOOL_VISIBILITY_ATTR, "") or "").strip().lower()
         if not name:
             continue
-        if name == "activate_tool":
+        if name == "search_tools":
             has_activation_tool = True
             continue
         if visibility == "lazy":
@@ -1089,38 +1076,49 @@ def build_agent_tools(
 
     metadata_by_name = {item.name: item.description for item in discovered_tools}
 
+    from .tools.registry import ToolRegistry
+    registry = ToolRegistry()
+    for name, obj in runtime_tool_map.items():
+        if name in lazy_tool_names:
+            registry.register(name, obj)
+
     @tool(
-        "activate_tool",
-        description="Activate one lazy tool and return its compact manifest.",
-        args_schema=ActivateToolInput,
+        "search_tools",
+        description="Search for available lazy tools by query and return their compact manifests.",
+        args_schema=SearchToolsInput,
     )
-    def activate_tool(tool_name: str, reason: str = "") -> str:
-        normalized_name = str(tool_name or "").strip()
-        if not normalized_name:
-            return "tool_name is required."
-        if normalized_name not in runtime_tool_map:
-            options = ", ".join(lazy_tool_names)
-            return f"Unknown tool '{normalized_name}'. Lazy tools: {options or '(none)'}."
-        if normalized_name in fixed_tool_names:
-            return (
-                f"Tool '{normalized_name}' is fixed-loaded; use it directly without activation."
-            )
-        runtime_tool = runtime_tool_map[normalized_name]
-        payload = {
-            "type": "tool_activate",
-            "tool_name": normalized_name,
-            "reason": str(reason or "").strip(),
-            "description": metadata_by_name.get(normalized_name, ""),
-            "manifest": _schema_manifest_for_tool(runtime_tool),
-        }
-        return json.dumps(payload, ensure_ascii=False)
+    def search_tools(query: str, reason: str = "") -> str:
+        safe_query = str(query or "").strip()
+        if not safe_query:
+            return "query is required."
+            
+        results = registry.search(safe_query, top_k=3)
+        if not results:
+             return json.dumps({"type": "tool_search_result", "query": safe_query, "tools": []})
+             
+        tools_payload = []
+        for t in results:
+            name = str(getattr(t, "name", ""))
+            tools_payload.append({
+                "tool_name": name,
+                "description": metadata_by_name.get(name, ""),
+                "manifest": _schema_manifest_for_tool(t),
+            })
+            
+        return json.dumps({
+             "type": "tool_search_result",
+             "query": safe_query,
+             "reason": reason,
+             "tools": tools_payload
+        }, ensure_ascii=False)
+
     for tool_name, tool_obj in runtime_tool_map.items():
         visibility = "fixed" if tool_name in fixed_tool_names else "lazy"
         setattr(tool_obj, _TOOL_VISIBILITY_ATTR, visibility)
-    setattr(activate_tool, _TOOL_VISIBILITY_ATTR, "fixed")
+    setattr(search_tools, _TOOL_VISIBILITY_ATTR, "fixed")
 
     all_tools = list(runtime_tools)
-    all_tools.append(activate_tool)
+    all_tools.append(search_tools)
 
     logger.info(
         "Agent tools prepared (progressive): discovered=%s fixed=%s lazy=%s registered=%s names=%s",

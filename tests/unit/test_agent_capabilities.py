@@ -12,7 +12,7 @@ def _tool_map(tools):
 
 
 def _activate(tool_map, tool_name: str):
-    raw = tool_map["activate_tool"].invoke({"tool_name": tool_name})
+    raw = tool_map["search_tools"].invoke({"query": tool_name})
     return json.loads(raw)
 
 
@@ -48,7 +48,7 @@ def test_build_agent_tools_exposes_structured_tools(monkeypatch):
     tools = capabilities.build_agent_tools(lambda query: f"doc:{query}")
     names = {tool.name for tool in tools}
     assert names == {
-        "activate_tool",
+        "search_tools",
         "ask_human",
         "bash",
         "edit_file",
@@ -68,7 +68,7 @@ def test_build_agent_tools_exposes_structured_tools(monkeypatch):
     tool_map = _tool_map(tools)
     assert tool_map["search_document"].invoke({"query": "q1"}) == "doc:q1"
     activation_payload = _activate(tool_map, "search_web")
-    assert activation_payload["tool_name"] == "search_web"
+    assert activation_payload.get("type") == "tool_search_result"
     assert _invoke_tool(tool_map, "search_web", {"query": "q2"}) == "web:q2"
     start_plan_payload = json.loads(
         _invoke_tool(tool_map, "start_plan", {"goal": "拆步骤", "reason": "multi-step"})
@@ -106,7 +106,7 @@ def test_progressive_tool_middleware_filters_unactivated_tools(monkeypatch):
     assert handler_calls
     first_names = set(handler_calls[0])
     assert "search_document" in first_names
-    assert "activate_tool" in first_names
+    assert "search_tools" in first_names
     assert "search_web" not in first_names
 
     request_activated = ModelRequest(
@@ -115,8 +115,8 @@ def test_progressive_tool_middleware_filters_unactivated_tools(monkeypatch):
             {"role": "user", "content": "hi"},
             {
                 "role": "tool",
-                "name": "activate_tool",
-                "content": '{"type":"tool_activate","tool_name":"search_web"}',
+                "name": "search_tools",
+                "content": '{"type":"tool_search_result","tools":[{"tool_name":"search_web"}]}',
             },
         ],
         tools=tools,
@@ -281,7 +281,7 @@ def test_build_agent_tools_respects_allowlist(monkeypatch):
         allowed_tools={"search_document", "search_papers"},
     )
     names = sorted(tool.name for tool in tools)
-    assert names == ["activate_tool", "search_document", "search_papers"]
+    assert names == ["search_document", "search_papers", "search_tools"]
 
 
 def test_search_web_provider_initializes_lazily(monkeypatch):
