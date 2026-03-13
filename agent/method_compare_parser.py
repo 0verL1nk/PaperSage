@@ -1,10 +1,24 @@
 import json
+import re
 from typing import Any
 
 
 def extract_json_string(text: str) -> str:
+    """Extract JSON from text, supporting both <mindmap> tags and raw JSON."""
     if not isinstance(text, str):
         raise ValueError("input must be string")
+
+    # Try <mindmap> tags first (higher priority)
+    mindmap_match = re.search(r"<mindmap>\s*(\{.*?\})\s*</mindmap>", text, re.DOTALL)
+    if mindmap_match:
+        return mindmap_match.group(1)
+
+    # Try <json> tags
+    json_match = re.search(r"<json>\s*(\{.*?\})\s*</json>", text, re.DOTALL)
+    if json_match:
+        return json_match.group(1)
+
+    # Fallback: find first { and last }
     start = text.find("{")
     end = text.rfind("}")
     if start < 0 or end <= start:

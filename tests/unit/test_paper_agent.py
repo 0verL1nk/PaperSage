@@ -3,6 +3,18 @@ from pydantic import BaseModel, Field
 from agent import paper_agent as paper_agent_module
 
 
+def test_build_system_prompt_does_not_raise():
+    result = paper_agent_module._build_system_prompt(
+        document_name="测试文档",
+        project_name="测试项目",
+        scope_summary="测试范围",
+    )
+    assert "你是专业论文问答 Agent" in result
+    assert "测试文档" in result
+    assert "测试项目" in result
+    assert "<mindmap>{" in result
+
+
 def test_create_paper_agent_session_uses_runtime_agent_builder(monkeypatch):
     captured = {}
 

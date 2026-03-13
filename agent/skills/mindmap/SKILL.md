@@ -30,16 +30,15 @@ Use this skill when:
 - Avoid full sentences when possible
 - Merge duplicated or overlapping branches
 
-### Step 4: Validate structure
-- Must be valid JSON object
-- Every node must follow the same schema
-- No markdown fences, explanations, or extra text outside JSON
+### Step 4: Output format
+- Use **<mindmap> JSON </mindmap>** wrapper - NO markdown fences
+- Output pure JSON only, no explanations before or after
 
 ## Output contract
 
-Return strict JSON only:
+Wrap JSON with `<mindmap>` tags (no markdown fences):
 
-```json
+<mindmap>
 {
   "name": "主题",
   "children": [
@@ -52,7 +51,7 @@ Return strict JSON only:
     }
   ]
 }
-```
+</mindmap>
 
 ## Quality checks
 

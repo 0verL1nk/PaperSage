@@ -21,8 +21,9 @@ PAPER_QA_SYSTEM_PROMPT = """你是专业论文问答 Agent。
 1) 优先调用 search_document 获取当前项目文档证据（结构化 JSON）。
 2) 若文档证据不足，再调用 search_papers；仍不足时才调用 search_web。
 3) 需要总结/批判性阅读/方法比较/翻译/思维导图时，可调用 use_skill。
-4) 生成思维导图时，先调用 use_skill("mindmap", task)，最终仅输出严格 JSON：
-   {{"name":"主题","children":[{{"name":"子主题","children":[...]}}]}}
+4) 生成思维导图时，先调用 use_skill("mindmap", task)，输出必须用 <mindmap> 标签包裹：
+   <mindmap>{{"name":"主题","children":[...]}}</mindmap>
+   禁止使用 markdown 代码块 ```json
 5) 若任务需要显式拆步骤，调用 start_plan(goal, reason) 请求规划运行时。
 6) 若任务需要并行分析、交叉验证或多角色协作，调用 start_team(goal, reason, roles_hint) 请求团队运行时。
 7) 固定工具可直接调用：search_document / read_document / use_skill / start_plan / start_team / ask_human。
@@ -64,7 +65,6 @@ class PaperAgentSession:
     thread_id: str
     tool_specs: list[dict[str, str]]
 
-
     @property
     def runtime_config(self) -> dict[str, dict[str, str]]:
         return {"configurable": {"thread_id": self.thread_id}}
@@ -103,9 +103,11 @@ def create_paper_agent_session(
     tool_specs: list[dict[str, str]] = []
     schema_level = _tool_schema_level()
     for tool_item in tools:
-        visibility = str(
-            getattr(tool_item, "_progressive_tool_visibility", "fixed") or "fixed"
-        ).strip().lower()
+        visibility = (
+            str(getattr(tool_item, "_progressive_tool_visibility", "fixed") or "fixed")
+            .strip()
+            .lower()
+        )
         if visibility == "lazy":
             continue
         name = str(getattr(tool_item, "name", "") or "").strip()
@@ -156,19 +158,11 @@ def _serialize_tool_args_schema(tool_item: Any, *, schema_level: str) -> str:
     properties = schema_obj.get("properties")
     field_names: list[str] = []
     if isinstance(properties, dict):
-        field_names = sorted(
-            str(key).strip()
-            for key in properties.keys()
-            if str(key).strip()
-        )
+        field_names = sorted(str(key).strip() for key in properties.keys() if str(key).strip())
     required = schema_obj.get("required")
     required_names: list[str] = []
     if isinstance(required, list):
-        required_names = sorted(
-            str(item).strip()
-            for item in required
-            if str(item).strip()
-        )
+        required_names = sorted(str(item).strip() for item in required if str(item).strip())
     compact_schema = {
         "type": str(schema_obj.get("type") or "object"),
         "fields": field_names,
