@@ -82,6 +82,26 @@ class SkillInput(BaseModel):
     )
 
 
+class StartPlanInput(BaseModel):
+    goal: str = Field(description="Planning goal or sub-goal that requires a structured step plan.")
+    reason: str = Field(
+        default="",
+        description="Optional short reason explaining why plan mode is needed.",
+    )
+
+
+class StartTeamInput(BaseModel):
+    goal: str = Field(description="Collaboration goal that should be delegated to a sub-agent team.")
+    reason: str = Field(
+        default="",
+        description="Optional short reason explaining why team collaboration is needed.",
+    )
+    roles_hint: str = Field(
+        default="",
+        description="Optional comma-separated role hints for the team.",
+    )
+
+
 class ActivateToolInput(BaseModel):
     tool_name: str = Field(description="Tool name to activate for progressive disclosure.")
     reason: str = Field(
@@ -113,6 +133,8 @@ _DEFAULT_FIXED_TOOL_NAMES = {
     "list_document",
     "read_document",
     "use_skill",
+    "start_plan",
+    "start_team",
     "ask_human",
 }
 _TOOL_VISIBILITY_ATTR = "_progressive_tool_visibility"
@@ -145,6 +167,14 @@ _TOOL_METADATA = (
     ToolMetadata(
         name="use_skill",
         description="Apply a named skill template to the current task and return operational guidance.",
+    ),
+    ToolMetadata(
+        name="start_plan",
+        description="Request structured planning runtime for a goal when a direct answer is insufficient.",
+    ),
+    ToolMetadata(
+        name="start_team",
+        description="Request sub-agent team runtime for parallel analysis or cross-checking.",
     ),
 )
 
@@ -975,6 +1005,58 @@ def build_agent_tools(
             return f"Unknown skill '{skill_name}'. Available skills: {options}."
 
         _register_tool(use_skill)
+
+    if "start_plan" in enabled_tool_names:
+        @tool(
+            "start_plan",
+            description="Request structured planning runtime for a goal when direct answering is insufficient.",
+            args_schema=StartPlanInput,
+        )
+        def start_plan(goal: str, reason: str = "") -> str:
+            normalized_goal = str(goal or "").strip()
+            if not normalized_goal:
+                return "goal is required to start plan mode."
+            payload = {
+                "type": "mode_activate",
+                "mode": "plan",
+                "goal": normalized_goal,
+                "reason": str(reason or "").strip(),
+            }
+            logger.info(
+                "tool.start_plan called: goal_len=%s reason=%s",
+                len(normalized_goal),
+                _preview(str(reason or "")),
+            )
+            return json.dumps(payload, ensure_ascii=False)
+
+        _register_tool(start_plan)
+
+    if "start_team" in enabled_tool_names:
+        @tool(
+            "start_team",
+            description="Request sub-agent team runtime for parallel analysis or cross-checking.",
+            args_schema=StartTeamInput,
+        )
+        def start_team(goal: str, reason: str = "", roles_hint: str = "") -> str:
+            normalized_goal = str(goal or "").strip()
+            if not normalized_goal:
+                return "goal is required to start team mode."
+            payload = {
+                "type": "mode_activate",
+                "mode": "team",
+                "goal": normalized_goal,
+                "reason": str(reason or "").strip(),
+                "roles_hint": str(roles_hint or "").strip(),
+            }
+            logger.info(
+                "tool.start_team called: goal_len=%s reason=%s roles_hint=%s",
+                len(normalized_goal),
+                _preview(str(reason or "")),
+                _preview(str(roles_hint or "")),
+            )
+            return json.dumps(payload, ensure_ascii=False)
+
+        _register_tool(start_team)
 
     progressive_enabled = _env_flag("AGENT_PROGRESSIVE_TOOL_DISCLOSURE", default=True)
     if not progressive_enabled:

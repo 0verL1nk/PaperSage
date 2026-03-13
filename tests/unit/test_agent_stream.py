@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from agent.stream import (
     extract_ask_human_requests_from_result,
+    extract_mode_activation_events_from_result,
     extract_result_text,
     extract_skill_activation_events_from_result,
     extract_stream_text,
@@ -237,3 +238,62 @@ def test_extract_tool_activation_events_from_result_collects_activate_tool_calls
     assert events
     assert any(item["performative"] == "tool_activate" for item in events)
     assert any(item["receiver"] == "tool:search_web" for item in events)
+
+
+def test_extract_mode_activation_events_from_result_collects_mode_tools():
+    result = {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "name": "start_plan",
+                        "args": {"goal": "拆步骤", "reason": "task is multi-step"},
+                    },
+                    {
+                        "name": "start_team",
+                        "args": {"goal": "交叉验证", "reason": "need reviewer"},
+                    },
+                ],
+            },
+            {
+                "role": "tool",
+                "name": "start_plan",
+                "content": '{"type":"mode_activate","mode":"plan","goal":"拆步骤"}',
+            },
+            {
+                "role": "tool",
+                "name": "start_team",
+                "content": '{"type":"mode_activate","mode":"team","goal":"交叉验证"}',
+            },
+        ]
+    }
+
+    events = extract_mode_activation_events_from_result(result)
+    assert len(events) == 2
+    assert any(item["receiver"] == "mode:plan" for item in events)
+    assert any(item["receiver"] == "mode:team" for item in events)
+
+
+def test_extract_mode_activation_events_from_result_requires_successful_tool_result():
+    result = {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "name": "start_plan",
+                        "args": {"goal": "", "reason": "bad input"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "name": "start_plan",
+                "content": "goal is required to start plan mode.",
+            },
+        ]
+    }
+
+    events = extract_mode_activation_events_from_result(result)
+    assert events == []

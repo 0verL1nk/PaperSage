@@ -5,11 +5,9 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from langchain.agents import create_agent
 from langchain_core.prompts import ChatPromptTemplate
-from langgraph.checkpoint.memory import InMemorySaver
 
-from .capabilities import build_agent_tools, build_progressive_tool_middleware
+from .runtime_agent import build_runtime_tools, create_runtime_agent
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +23,12 @@ PAPER_QA_SYSTEM_PROMPT = """你是专业论文问答 Agent。
 3) 需要总结/批判性阅读/方法比较/翻译/思维导图时，可调用 use_skill。
 4) 生成思维导图时，先调用 use_skill("mindmap", task)，最终仅输出严格 JSON：
    {{"name":"主题","children":[{{"name":"子主题","children":[...]}}]}}
-5) 固定工具可直接调用：search_document / read_document / use_skill / ask_human。
-6) 渐进工具调用规则：若工具未暴露，先调用 activate_tool(tool_name) 激活，再直接调用该工具。
+5) 若任务需要显式拆步骤，调用 start_plan(goal, reason) 请求规划运行时。
+6) 若任务需要并行分析、交叉验证或多角色协作，调用 start_team(goal, reason, roles_hint) 请求团队运行时。
+7) 固定工具可直接调用：search_document / read_document / use_skill / start_plan / start_team / ask_human。
+8) 渐进工具调用规则：若工具未暴露，先调用 activate_tool(tool_name) 激活，再直接调用该工具。
    渐进工具包括：search_web、search_papers、read_file、write_file、edit_file、update_file、bash、write_todo、edit_todo。
-7) 执行计划任务时，优先用 write_todo/edit_todo 跟踪步骤状态；高风险动作前先用 ask_human 询问确认。
+9) 执行计划任务时，优先用 write_todo/edit_todo 跟踪步骤状态；高风险动作前先用 ask_human 询问确认。
 
 [答案约束]
 1) 优先使用项目文档证据，避免无依据推断。
@@ -93,13 +93,12 @@ def create_paper_agent_session(
         scope_summary=scope_summary,
     )
 
-    tools = build_agent_tools(
+    tools = build_runtime_tools(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
         read_document_fn=read_document_fn,
         list_documents_fn=list_documents_fn,
     )
-    middleware = build_progressive_tool_middleware(tools)
 
     tool_specs: list[dict[str, str]] = []
     schema_level = _tool_schema_level()
@@ -124,15 +123,11 @@ def create_paper_agent_session(
         )
 
     thread_id = f"paper-qa-{uuid4().hex}"
-    create_kwargs: dict[str, Any] = {
-        "model": llm,
-        "tools": tools,
-        "system_prompt": final_system_prompt,
-        "checkpointer": InMemorySaver(),
-    }
-    if middleware:
-        create_kwargs["middleware"] = middleware
-    agent = create_agent(**create_kwargs)
+    agent = create_runtime_agent(
+        model=llm,
+        tools=tools,
+        system_prompt=final_system_prompt,
+    )
     logger.info("Created paper agent session: thread_id=%s tools=%s", thread_id, len(tools))
     return PaperAgentSession(agent=agent, thread_id=thread_id, tool_specs=tool_specs)
 

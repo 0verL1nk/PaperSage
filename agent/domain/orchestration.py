@@ -65,7 +65,7 @@ def is_valid_trace_route(sender: str, receiver: str, performative: str) -> bool:
         return src == "system" and dst in {"leader", "coordinator"}
     if act == "dispatch":
         return src in {"leader", "coordinator"} and dst not in {"user", src}
-    if act in {"draft", "review"}:
+    if act == "member_output":
         return src != "user" and dst != "user" and src != dst
     if act == "final":
         return src != "user" and dst == "user"

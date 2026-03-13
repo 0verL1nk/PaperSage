@@ -4,12 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from langchain.agents import create_agent
 from langchain_core.prompts import ChatPromptTemplate
-from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel, Field
 
-from ..capabilities import build_agent_tools, build_progressive_tool_middleware
 from ..domain.orchestration import (
     TeamExecution,
     TeamRole,
@@ -18,6 +15,7 @@ from ..domain.orchestration import (
     build_trace_event,
     create_trace_context,
 )
+from ..runtime_agent import SPAWN_TOOL_NAMES, build_runtime_tools, create_runtime_agent
 from ..stream import (
     extract_result_text,
     extract_skill_activation_events_from_result,
@@ -639,6 +637,87 @@ class TeamTaskAttemptResult:
     tool_activation_events: list[dict[str, str]]
 
 
+def _append_trace_event(
+    *,
+    trace_events: list[TraceEvent],
+    context: TraceContext,
+    sender: str,
+    receiver: str,
+    performative: str,
+    content: str,
+    parent_span_id: str,
+    metadata: dict[str, Any],
+    on_event: Callable[[TraceEvent], None] | None = None,
+) -> str:
+    event = build_trace_event(
+        context=context,
+        sender=sender,
+        receiver=receiver,
+        performative=performative,
+        content=content,
+        parent_span_id=parent_span_id,
+        metadata=metadata,
+    )
+    trace_events.append(event)
+    if on_event is not None:
+        on_event(event)
+    return str(event.get("span_id") or parent_span_id)
+
+
+def _emit_member_runtime_events(
+    *,
+    trace_events: list[TraceEvent],
+    context: TraceContext,
+    parent_span_id: str,
+    member_name: str,
+    attempt_result: TeamTaskAttemptResult,
+    metadata: dict[str, Any],
+    on_event: Callable[[TraceEvent], None] | None = None,
+) -> str:
+    current_parent_span = str(parent_span_id or "")
+    member_tool_events = _rewrite_member_runtime_events(
+        attempt_result.tool_trace_events,
+        member_name=member_name,
+    )
+    for item in member_tool_events:
+        current_parent_span = _append_trace_event(
+            trace_events=trace_events,
+            context=context,
+            sender=str(item.get("sender") or member_name),
+            receiver=str(item.get("receiver") or "tool"),
+            performative=str(item.get("performative") or "tool_call"),
+            content=str(item.get("content") or "(tool event)"),
+            parent_span_id=current_parent_span,
+            metadata=metadata,
+            on_event=on_event,
+        )
+    for item in attempt_result.skill_activation_events:
+        current_parent_span = _append_trace_event(
+            trace_events=trace_events,
+            context=context,
+            sender=member_name,
+            receiver=str(item.get("receiver") or "").strip() or "skill",
+            performative="skill_activate",
+            content=str(item.get("content") or "activate skill"),
+            parent_span_id=current_parent_span,
+            metadata=metadata,
+            on_event=on_event,
+        )
+    for item in attempt_result.tool_activation_events:
+        current_parent_span = _append_trace_event(
+            trace_events=trace_events,
+            context=context,
+            sender=member_name,
+            receiver=str(item.get("receiver") or "").strip() or "tool",
+            performative="tool_activate",
+            content=str(item.get("content") or "activate tool"),
+            parent_span_id=current_parent_span,
+            metadata=metadata,
+            on_event=on_event,
+        )
+    return current_parent_span
+
+
 def _extract_section_content(answer: str, section: str) -> str:
     text = str(answer or "")
     pattern = rf"\[{re.escape(section)}\](.*?)(?=\n\[[^\]]+\]|\Z)"
@@ -783,26 +862,23 @@ def _invoke_role_agent(
         f"{round_instruction}"
         "执行约束：\n"
         "1) 优先使用文档检索工具，结论必须尽量有证据支撑\n"
-        "2) 只输出面向队长的执行结果，不输出思考过程\n"
-        "3) 输出格式必须包含以下三段：\n"
+        "2) 你不能再次调用 start_plan/start_team，也不能委派新的子 agent\n"
+        "3) 只输出面向队长的执行结果，不输出思考过程\n"
+        "4) 输出格式必须包含以下三段：\n"
         "[结论]\n"
         "[证据]\n"
         "[待验证点]"
     )
-    tools = build_agent_tools(
+    tools = build_runtime_tools(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
+        blocked_tools=SPAWN_TOOL_NAMES,
     )
-    middleware = build_progressive_tool_middleware(tools)
-    create_kwargs: dict[str, Any] = {
-        "model": llm,
-        "tools": tools,
-        "system_prompt": system_prompt,
-        "checkpointer": InMemorySaver(),
-    }
-    if middleware:
-        create_kwargs["middleware"] = middleware
-    member_agent = create_agent(**create_kwargs)
+    member_agent = create_runtime_agent(
+        model=llm,
+        tools=tools,
+        system_prompt=system_prompt,
+    )
     task_prompt = (
         f"用户问题：{prompt}\n"
         f"本次具体任务（leader 分配）：\n{effective_task}\n"
@@ -1098,6 +1174,25 @@ def run_team_tasks(
                 "attempt": attempt,
                 "retry_count": max(0, attempt - 1),
             }
+            request_content = (
+                f"[round={round_idx}] task={task_details or role.goal}"
+                + (
+                    f"\nprior_output={prior_output[:200].replace(chr(10), ' ')}"
+                    if prior_output
+                    else ""
+                )
+            )
+            current_parent_span = _append_trace_event(
+                trace_events=trace_events,
+                context=effective_context,
+                sender="leader",
+                receiver=role.name,
+                performative="member_request",
+                content=request_content,
+                parent_span_id=current_parent_span,
+                metadata=attempt_meta,
+                on_event=on_event,
+            )
             try:
                 attempt_result = _normalize_task_attempt_result(
                     _invoke_role_agent(
@@ -1116,100 +1211,76 @@ def run_team_tasks(
             except Exception as exc:
                 current_task["status"] = "blocked"
                 current_task["updated_at"] = _now_iso()
+                block_reason = f"role agent invocation failed: {exc}"
                 _append_todo_history(
                     current_task,
                     action="blocked",
                     status="blocked",
-                    note=f"role agent invocation failed: {exc}",
+                    note=block_reason,
+                )
+                current_parent_span = _append_trace_event(
+                    trace_events=trace_events,
+                    context=effective_context,
+                    sender="leader",
+                    receiver=role.name,
+                    performative="leader_decision",
+                    content=block_reason,
+                    parent_span_id=current_parent_span,
+                    metadata={
+                        **attempt_meta,
+                        "decision": "block",
+                        "verification_status": "failed",
+                    },
+                    on_event=on_event,
                 )
                 break
             task_output = attempt_result.answer
-            result_event = build_trace_event(
+            current_parent_span = _emit_member_runtime_events(
+                trace_events=trace_events,
+                context=effective_context,
+                parent_span_id=current_parent_span,
+                member_name=role.name,
+                attempt_result=attempt_result,
+                metadata=attempt_meta,
+                on_event=on_event,
+            )
+            current_parent_span = _append_trace_event(
+                trace_events=trace_events,
                 context=effective_context,
                 sender=role.name,
                 receiver="leader",
-                performative="draft",
+                performative="member_output",
                 content=f"[round={round_idx}] {task_output}",
                 parent_span_id=current_parent_span,
                 metadata=attempt_meta,
+                on_event=on_event,
             )
-            trace_events.append(result_event)
-            current_parent_span = str(result_event.get("span_id") or current_parent_span)
-            if on_event is not None:
-                on_event(result_event)
 
             member_tool_events = _rewrite_member_runtime_events(
                 attempt_result.tool_trace_events,
                 member_name=role.name,
             )
-            for item in member_tool_events:
-                tool_event = build_trace_event(
-                    context=effective_context,
-                    sender=str(item.get("sender") or role.name),
-                    receiver=str(item.get("receiver") or "tool"),
-                    performative=str(item.get("performative") or "tool_call"),
-                    content=str(item.get("content") or "(tool event)"),
-                    parent_span_id=current_parent_span,
-                    metadata=attempt_meta,
-                )
-                trace_events.append(tool_event)
-                current_parent_span = str(tool_event.get("span_id") or current_parent_span)
-                if on_event is not None:
-                    on_event(tool_event)
-
-            for item in attempt_result.skill_activation_events:
-                skill_receiver = str(item.get("receiver") or "").strip() or "skill"
-                skill_event = build_trace_event(
-                    context=effective_context,
-                    sender=role.name,
-                    receiver=skill_receiver,
-                    performative="skill_activate",
-                    content=str(item.get("content") or "activate skill"),
-                    parent_span_id=current_parent_span,
-                    metadata=attempt_meta,
-                )
-                trace_events.append(skill_event)
-                current_parent_span = str(skill_event.get("span_id") or current_parent_span)
-                if on_event is not None:
-                    on_event(skill_event)
-
-            for item in attempt_result.tool_activation_events:
-                tool_receiver = str(item.get("receiver") or "").strip() or "tool"
-                activation_event = build_trace_event(
-                    context=effective_context,
-                    sender=role.name,
-                    receiver=tool_receiver,
-                    performative="tool_activate",
-                    content=str(item.get("content") or "activate tool"),
-                    parent_span_id=current_parent_span,
-                    metadata=attempt_meta,
-                )
-                trace_events.append(activation_event)
-                current_parent_span = str(activation_event.get("span_id") or current_parent_span)
-                if on_event is not None:
-                    on_event(activation_event)
-
             passed, verify_reason = _verify_team_task_output(
                 task_output,
                 tool_names=attempt_result.tool_names,
                 tool_trace_events=member_tool_events,
             )
-            verify_event = build_trace_event(
+            decision = "accept" if passed else ("retry" if attempt <= normalized_retries else "block")
+            current_parent_span = _append_trace_event(
+                trace_events=trace_events,
                 context=effective_context,
-                sender="verifier",
-                receiver="leader",
-                performative="task_verify",
+                sender="leader",
+                receiver=role.name,
+                performative="leader_decision",
                 content=verify_reason,
                 parent_span_id=current_parent_span,
                 metadata={
                     **attempt_meta,
+                    "decision": decision,
                     "verification_status": "passed" if passed else "failed",
                 },
+                on_event=on_event,
             )
-            trace_events.append(verify_event)
-            current_parent_span = str(verify_event.get("span_id") or current_parent_span)
-            if on_event is not None:
-                on_event(verify_event)
             if passed:
                 task_completed = True
                 current_task["status"] = "done"
@@ -1223,22 +1294,6 @@ def run_team_tasks(
                     status="done",
                     note="role completed task after verification",
                 )
-                review_event = build_trace_event(
-                    context=effective_context,
-                    sender=role.name,
-                    receiver="leader",
-                    performative="review",
-                    content=f"[round={round_idx}] {task_output}",
-                    parent_span_id=current_parent_span,
-                    metadata={
-                        **attempt_meta,
-                        "verification_status": "passed",
-                    },
-                )
-                trace_events.append(review_event)
-                current_parent_span = str(review_event.get("span_id") or current_parent_span)
-                if on_event is not None:
-                    on_event(review_event)
                 notes.append(f"{role.name}: {task_output}")
                 break
             current_task["updated_at"] = _now_iso()
@@ -1249,34 +1304,18 @@ def run_team_tasks(
                 status="in_progress",
                 note=verify_reason,
             )
-            if attempt <= normalized_retries:
-                retry_event = build_trace_event(
-                    context=effective_context,
-                    sender="leader",
-                    receiver=role.name,
-                    performative="task_retry",
-                    content=f"[round={round_idx}] {verify_reason}",
-                    parent_span_id=current_parent_span,
-                    metadata={
-                        **attempt_meta,
-                        "verification_status": "failed",
-                    },
-                )
-                trace_events.append(retry_event)
-                current_parent_span = str(retry_event.get("span_id") or current_parent_span)
-                if on_event is not None:
-                    on_event(retry_event)
         if task_completed:
             continue
         if str(current_task.get("status") or "").strip().lower() != "blocked":
             current_task["status"] = "blocked"
             current_task["output"] = task_output
             current_task["updated_at"] = _now_iso()
+            block_reason = "task verification failed after retries"
             _append_todo_history(
                 current_task,
                 action="blocked",
                 status="blocked",
-                note="task verification failed after retries",
+                note=block_reason,
             )
 
     unresolved_records = [

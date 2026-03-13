@@ -6,11 +6,10 @@ from typing import Any
 from uuid import uuid4
 
 from a2a.types import Message, Part, Role, TextPart
-from langchain.agents import create_agent
-from langgraph.checkpoint.memory import InMemorySaver
 
-from ..capabilities import build_agent_tools, build_progressive_tool_middleware
+from ..capabilities import build_agent_tools
 from ..contracts import normalize_plan_text, normalize_review_text
+from ..runtime_agent import create_runtime_agent
 from ..stream import extract_result_text
 from .replan_policy import (
     has_replan_budget,
@@ -600,8 +599,6 @@ def create_multi_agent_a2a_session(
         search_document_evidence_fn=search_document_evidence_fn,
         allowed_tools=RESEARCHER_ALLOWED_TOOLS,
     )
-    react_middleware = build_progressive_tool_middleware(react_tools)
-    researcher_middleware = build_progressive_tool_middleware(researcher_tools)
     session_id = f"a2a-{uuid4().hex}"
     normalized_hint = context_hint.strip()
     react_prompt = (
@@ -625,35 +622,25 @@ def create_multi_agent_a2a_session(
         else reviewer_system_prompt
     )
 
-    react_kwargs: dict[str, Any] = {
-        "model": llm,
-        "tools": react_tools,
-        "system_prompt": react_prompt,
-        "checkpointer": InMemorySaver(),
-    }
-    if react_middleware:
-        react_kwargs["middleware"] = react_middleware
-    react = create_agent(**react_kwargs)
-    planner = create_agent(
+    react = create_runtime_agent(
+        model=llm,
+        tools=react_tools,
+        system_prompt=react_prompt,
+    )
+    planner = create_runtime_agent(
         model=llm,
         tools=[],
         system_prompt=planner_prompt,
-        checkpointer=InMemorySaver(),
     )
-    researcher_kwargs: dict[str, Any] = {
-        "model": llm,
-        "tools": researcher_tools,
-        "system_prompt": researcher_prompt,
-        "checkpointer": InMemorySaver(),
-    }
-    if researcher_middleware:
-        researcher_kwargs["middleware"] = researcher_middleware
-    researcher = create_agent(**researcher_kwargs)
-    reviewer = create_agent(
+    researcher = create_runtime_agent(
+        model=llm,
+        tools=researcher_tools,
+        system_prompt=researcher_prompt,
+    )
+    reviewer = create_runtime_agent(
         model=llm,
         tools=[],
         system_prompt=reviewer_prompt,
-        checkpointer=InMemorySaver(),
     )
     coordinator = A2AMultiAgentCoordinator(
         react_agent=react,

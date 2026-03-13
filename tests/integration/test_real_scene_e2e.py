@@ -107,7 +107,7 @@ def test_real_scene_turn_engine_replaces_evidence_placeholders(project_retriever
                 ("policy_engine", "leader", "policy", "plan=True,team=True"),
                 ("planner", "leader", "plan", "step1,step2"),
                 ("leader", "researcher", "dispatch", "收集证据"),
-                ("researcher", "leader", "review", "返回证据摘要"),
+                ("researcher", "leader", "member_output", "返回证据摘要"),
                 ("leader", "user", "final", "结论 [文档证据]，对比 [证据]"),
             ):
                 on_event(

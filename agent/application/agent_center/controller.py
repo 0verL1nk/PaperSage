@@ -173,7 +173,7 @@ def _build_inventory_line(
 ) -> str:
     system_id = _collapse_inline_text(system_prompt_id, limit=32) or DEFAULT_SYSTEM_PROMPT_ID
     collab_id = _collapse_inline_text(collaborator_prompt_id, limit=32) or DEFAULT_COLLAB_PROMPT_ID
-    tools = _serialize_tool_names(tool_specs, max_chars=240) or "-"
+    tools = _serialize_tool_inventory(tool_specs, max_chars=320) or "-"
     skills = _serialize_skill_names(skill_names, max_chars=180) or "-"
     return f"{PROMPT_INVENTORY_TAG}:sys={system_id},col={collab_id},tools={tools},skills={skills}"
 
@@ -197,6 +197,33 @@ def _serialize_tool_names(
         return ""
     text = "|".join(names)
     return _collapse_inline_text(text, limit=max_chars)
+
+
+def _serialize_tool_inventory(
+    tool_specs: list[dict[str, Any]] | None,
+    *,
+    max_chars: int,
+) -> str:
+    if not isinstance(tool_specs, list):
+        return ""
+    records: list[str] = []
+    for item in tool_specs:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        description = " ".join(str(item.get("description") or "").split()).strip()
+        fields = " ".join(str(item.get("args_schema") or "").split()).strip()
+        pieces = [name]
+        if description:
+            pieces.append(description)
+        if fields and fields not in {"{}", "[]"}:
+            pieces.append(fields)
+        records.append(":".join(pieces))
+    if not records:
+        return ""
+    return _collapse_inline_text(" | ".join(sorted(records)), limit=max_chars)
 
 
 def _serialize_skill_names(

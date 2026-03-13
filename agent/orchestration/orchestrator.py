@@ -29,13 +29,13 @@ from ..output_cleaner import sanitize_public_answer
 from ..settings import load_agent_settings
 from ..stream import (
     extract_ask_human_requests_from_result,
+    extract_mode_activation_events_from_result,
     extract_result_text,
     extract_skill_activation_events_from_result,
     extract_tool_activation_events_from_result,
     extract_tool_names_from_result,
     extract_tool_trace_events_from_result,
 )
-from .async_policy import AsyncPolicyPredictor
 from .planning_service import build_execution_plan, revise_execution_plan
 from .policy_engine import intercept as intercept_policy
 from .team_runtime import run_team_tasks
@@ -61,6 +61,36 @@ class StepExecutionResult:
 class StepVerificationResult:
     passed: bool
     reason: str
+
+
+def _requested_modes_from_events(events: list[dict[str, str]]) -> set[str]:
+    requested: set[str] = set()
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        receiver = str(item.get("receiver") or "").strip().lower()
+        if receiver == "mode:plan":
+            requested.add("plan")
+        elif receiver == "mode:team":
+            requested.add("team")
+    return requested
+
+
+def _build_leader_first_default_decision(advisory_decision: PolicyDecision) -> PolicyDecision:
+    return PolicyDecision(
+        plan_enabled=False,
+        team_enabled=False,
+        reason=(
+            "leader-first default path"
+            + (
+                f" | advisory={advisory_decision.reason}"
+                if str(advisory_decision.reason or "").strip()
+                else ""
+            )
+        ),
+        confidence=advisory_decision.confidence,
+        source="leader_first",
+    )
 
 
 def _default_search_document_fn(
@@ -218,30 +248,6 @@ def _build_team_todo_summary(team_execution: TeamExecution) -> str:
     return "\n".join(lines)
 
 
-def _decision_mode(decision: PolicyDecision) -> tuple[bool, bool]:
-    return bool(decision.plan_enabled), bool(decision.team_enabled)
-
-
-def _decision_changed(current: PolicyDecision, candidate: PolicyDecision) -> bool:
-    return _decision_mode(current) != _decision_mode(candidate)
-
-
-def _async_decision_eligible(
-    decision: PolicyDecision,
-    *,
-    min_confidence: float,
-) -> bool:
-    source = str(decision.source or "").strip().lower()
-    if source == "manual":
-        return True
-    if source == "heuristic":
-        return False
-    confidence = decision.confidence
-    if not isinstance(confidence, (int, float)):
-        return False
-    return float(confidence) >= float(min_confidence)
-
-
 def _build_team_runtime_context(
     todo_records: list[dict[str, Any]],
     *,
@@ -396,6 +402,38 @@ def _build_completed_steps_summary(runtime_state: PlanRuntimeState | None) -> st
     if not completed_step_ids:
         return ""
     return ", ".join(str(item).strip() for item in completed_step_ids if str(item).strip())
+
+
+def _build_final_leader_prompt(
+    *,
+    hinted_prompt: str,
+    plan_text: str,
+    plan: ExecutionPlan | None,
+    runtime_state: PlanRuntimeState | None,
+    team_execution: TeamExecution,
+) -> str:
+    leader_prompt_parts = [hinted_prompt]
+    if plan_text:
+        leader_prompt_parts.append(f"[执行计划]\n{plan_text}")
+    if plan is not None and not team_execution.enabled:
+        completed_summary = _build_completed_steps_summary(runtime_state)
+        if completed_summary:
+            leader_prompt_parts.append(f"[已完成步骤]\n{completed_summary}")
+        artifact_summary = _build_artifact_summary(runtime_state)
+        if artifact_summary:
+            leader_prompt_parts.append(f"[步骤产物]\n{artifact_summary}")
+        if runtime_state is not None and runtime_state.errors:
+            leader_prompt_parts.append(
+                "[执行错误]\n"
+                + "\n".join(f"- {item}" for item in runtime_state.errors[-6:])
+            )
+        leader_prompt_parts.append("请基于以上已完成步骤产物生成最终回答。")
+    if team_execution.summary:
+        leader_prompt_parts.append(f"[团队结果]\n{team_execution.summary}")
+    team_todo_summary = _build_team_todo_summary(team_execution)
+    if team_todo_summary:
+        leader_prompt_parts.append(f"[团队Todo]\n{team_todo_summary}")
+    return "\n\n".join(part for part in leader_prompt_parts if part.strip())
 
 
 def _extract_step_evidence(
@@ -748,6 +786,139 @@ def _run_single_agent_plan_steps(
     )
 
 
+def _run_plan_runtime(
+    *,
+    prompt: str,
+    hinted_prompt: str,
+    plan: ExecutionPlan,
+    plan_text: str,
+    runtime_state: PlanRuntimeState,
+    leader_agent: Any,
+    leader_runtime_config: dict[str, Any] | None,
+    llm: Any | None,
+    trace_payload: TracePayload,
+    trace_context: TraceContext,
+    parent_span_id: str,
+    on_event: Callable[[TraceEvent], None] | None = None,
+) -> tuple[PlanRuntimeState, set[str], list[dict[str, str]], str, ExecutionPlan, str]:
+    current_parent_span = str(parent_span_id or "")
+    current_plan = plan
+    current_plan_text = plan_text
+    current_state = runtime_state
+    observed_leader_tool_names: set[str] = set()
+    aggregated_ask_human_requests: list[dict[str, str]] = []
+    plan_cycle_index = 0
+    while True:
+        (
+            current_state,
+            step_tool_names,
+            step_ask_human_requests,
+            current_parent_span,
+            step_failure,
+        ) = _run_single_agent_plan_steps(
+            prompt=prompt,
+            hinted_prompt=hinted_prompt,
+            plan=current_plan,
+            plan_text=current_plan_text,
+            runtime_state=current_state,
+            leader_agent=leader_agent,
+            leader_runtime_config=leader_runtime_config,
+            trace_payload=trace_payload,
+            trace_context=trace_context,
+            parent_span_id=current_parent_span,
+            on_event=on_event,
+        )
+        observed_leader_tool_names.update(step_tool_names)
+        aggregated_ask_human_requests.extend(step_ask_human_requests)
+        if step_failure is None:
+            break
+        failure_reason = str(step_failure.get("reason") or "").strip()
+        if not failure_needs_revision(failure_reason):
+            current_state = evolve_plan_runtime_state(
+                current_state,
+                error=f"replan_skipped:{failure_reason or 'unknown_failure'}",
+            )
+            skip_event = _emit_event(
+                trace_payload=trace_payload,
+                trace_context=trace_context,
+                sender="planner",
+                receiver="leader",
+                performative="fallback",
+                content=f"replan_skipped:{failure_reason or 'unknown_failure'}",
+                parent_span_id=current_parent_span,
+                metadata={
+                    "failed_step_id": str(step_failure.get("step_id") or "").strip(),
+                    "failure_reason": failure_reason,
+                },
+                on_event=on_event,
+            )
+            current_parent_span = str(skip_event.get("span_id") or current_parent_span)
+            break
+        plan_cycle_index += 1
+        if not _can_start_next_plan_cycle(
+            plan_cycle_index,
+            max_cycles=MAX_SINGLE_AGENT_PLAN_CYCLES,
+        ):
+            current_state = evolve_plan_runtime_state(
+                current_state,
+                error="plan_cycle_guard_triggered",
+            )
+            guard_event = _emit_event(
+                trace_payload=trace_payload,
+                trace_context=trace_context,
+                sender="planner",
+                receiver="leader",
+                performative="fallback",
+                content="plan_cycle_guard_triggered",
+                parent_span_id=current_parent_span,
+                metadata={
+                    "failed_step_id": str(step_failure.get("step_id") or "").strip(),
+                    "failure_reason": failure_reason,
+                },
+                on_event=on_event,
+            )
+            current_parent_span = str(guard_event.get("span_id") or current_parent_span)
+            break
+        revised_plan = revise_execution_plan(
+            prompt=prompt,
+            current_plan=current_plan,
+            failed_step_id=str(step_failure.get("step_id") or "").strip(),
+            failure_reason=failure_reason,
+            llm=llm,
+        )
+        current_plan = revised_plan
+        current_plan_text = render_execution_plan(revised_plan)
+        current_state = evolve_plan_runtime_state(
+            current_state,
+            current_plan=revised_plan,
+            current_step_id=None,
+            budget_usage_delta={"replan_calls": 1},
+        )
+        replan_event = _emit_event(
+            trace_payload=trace_payload,
+            trace_context=trace_context,
+            sender="planner",
+            receiver="leader",
+            performative="replan",
+            content=current_plan_text,
+            parent_span_id=current_parent_span,
+            metadata={
+                "failed_step_id": str(step_failure.get("step_id") or "").strip(),
+                "failure_reason": failure_reason,
+            },
+            on_event=on_event,
+        )
+        current_parent_span = str(replan_event.get("span_id") or current_parent_span)
+    return (
+        current_state,
+        observed_leader_tool_names,
+        aggregated_ask_human_requests,
+        current_parent_span,
+        current_plan,
+        current_plan_text,
+    )
+
+
 def execute_orchestrated_turn(
     *,
     prompt: str,
@@ -758,8 +929,6 @@ def execute_orchestrated_turn(
     policy_llm: Any | None = None,
     search_document_fn: Callable[[str], str] | None = None,
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
-    force_plan: bool | None = None,
-    force_team: bool | None = None,
     routing_context: str = "",
     max_team_members: int | None = None,
     max_team_rounds: int | None = None,
@@ -787,418 +956,79 @@ def execute_orchestrated_turn(
         1,
         min(resolved_team_rounds, max(1, settings.agent_team_rounds_hard_cap)),
     )
-    async_predictor: AsyncPolicyPredictor | None = None
+    trace_payload: TracePayload = []
+    trace_context = create_trace_context(channel="internal.orchestrator")
+    root_event = _emit_event(
+        trace_payload=trace_payload,
+        trace_context=trace_context,
+        sender="user",
+        receiver="leader",
+        performative="request",
+        content=prompt,
+        on_event=on_event,
+    )
+    current_parent_span = str(root_event.get("span_id") or "")
 
-    try:
-        trace_payload: TracePayload = []
-        trace_context = create_trace_context(channel="internal.orchestrator")
-        root_event = _emit_event(
-            trace_payload=trace_payload,
-            trace_context=trace_context,
-            sender="user",
-            receiver="leader",
-            performative="request",
-            content=prompt,
-            on_event=on_event,
-        )
-        current_parent_span = str(root_event.get("span_id") or "")
-
-        if settings.agent_policy_async_enabled and policy_router_llm is not None:
-            async_predictor = AsyncPolicyPredictor(
-                prompt=prompt,
-                llm=policy_router_llm,
-                context_digest=routing_context,
-                force_plan=force_plan,
-                force_team=force_team,
-                refresh_interval_sec=settings.agent_policy_async_refresh_seconds,
-            )
-            async_predictor.start()
-
-        def _maybe_apply_async_policy(
-            stage: str,
-            current_decision: PolicyDecision,
-            *,
-            context_digest: str,
-        ) -> PolicyDecision:
-            nonlocal current_parent_span
-            if async_predictor is None:
-                return current_decision
-            async_predictor.update_context_digest(context_digest)
-            snapshot = async_predictor.latest_snapshot(
-                max_staleness_seconds=settings.agent_policy_async_max_staleness_seconds,
-            )
-            if snapshot is None:
-                return current_decision
-            candidate = snapshot.decision
-            if not _async_decision_eligible(
-                candidate,
-                min_confidence=settings.agent_policy_async_min_confidence,
-            ):
-                return current_decision
-            if not _decision_changed(current_decision, candidate):
-                return current_decision
-            switch_event = _emit_event(
-                trace_payload=trace_payload,
-                trace_context=trace_context,
-                sender="policy_engine",
-                receiver="leader",
-                performative="policy_switch",
-                content=(
-                    f"async_switch@{stage}: plan={candidate.plan_enabled}, "
-                    f"team={candidate.team_enabled}, reason={candidate.reason}"
-                ),
-                parent_span_id=current_parent_span,
-                metadata={
-                    "stage": stage,
-                    "version": snapshot.version,
-                    "source": candidate.source,
-                    "confidence": candidate.confidence,
-                },
-                on_event=on_event,
-            )
-            current_parent_span = str(switch_event.get("span_id") or current_parent_span)
-            return candidate
-
-        policy_decision = intercept_policy(
-            RequestContext(
-                prompt=prompt,
-                context_digest=routing_context,
-            ),
-            llm=policy_router_llm,
-            force_plan=force_plan,
-            force_team=force_team,
-        )
-        policy_event = _emit_event(
-            trace_payload=trace_payload,
-            trace_context=trace_context,
-            sender="policy_engine",
-            receiver="leader",
-            performative="policy",
-            content=(
-                f"plan={policy_decision.plan_enabled}, "
-                f"team={policy_decision.team_enabled}, "
-                f"reason={policy_decision.reason}"
-            ),
-            parent_span_id=current_parent_span,
-            on_event=on_event,
-        )
-        current_parent_span = str(policy_event.get("span_id") or current_parent_span)
-        policy_decision = _maybe_apply_async_policy(
-            "pre_plan",
-            policy_decision,
+    advisory_decision = intercept_policy(
+        RequestContext(
+            prompt=prompt,
             context_digest=routing_context,
+        ),
+        llm=policy_router_llm,
+    )
+    policy_event = _emit_event(
+        trace_payload=trace_payload,
+        trace_context=trace_context,
+        sender="policy_engine",
+        receiver="leader",
+        performative="policy",
+        content=(
+            f"plan={advisory_decision.plan_enabled}, "
+            f"team={advisory_decision.team_enabled}, "
+            f"reason={advisory_decision.reason}"
+        ),
+        parent_span_id=current_parent_span,
+        metadata={"advisory_only": True},
+        on_event=on_event,
+    )
+    current_parent_span = str(policy_event.get("span_id") or current_parent_span)
+    policy_decision = _build_leader_first_default_decision(advisory_decision)
+
+    plan: ExecutionPlan | None = None
+    plan_text = ""
+    runtime_state: PlanRuntimeState | None = None
+
+    policy_context = routing_context
+    if runtime_state is None:
+        runtime_state = create_plan_runtime_state(
+            user_goal=prompt,
+            current_plan=plan,
+            context_summary=policy_context or routing_context,
         )
 
-        plan: ExecutionPlan | None = None
-        plan_text = ""
-        runtime_state: PlanRuntimeState | None = None
-        if policy_decision.plan_enabled:
-            plan = build_execution_plan(prompt, llm=llm)
-            plan_text = render_execution_plan(plan)
-            runtime_state = create_plan_runtime_state(
-                user_goal=prompt,
-                current_plan=plan,
-                context_summary=routing_context,
-            )
-            plan_event = _emit_event(
-                trace_payload=trace_payload,
-                trace_context=trace_context,
-                sender="planner",
-                receiver="leader",
-                performative="plan",
-                content=plan_text,
-                parent_span_id=current_parent_span,
-                on_event=on_event,
-            )
-            current_parent_span = str(plan_event.get("span_id") or current_parent_span)
-            runtime_state = evolve_plan_runtime_state(
-                runtime_state,
-                budget_usage_delta={"planner_calls": 1},
-            )
+    team_execution = TeamExecution(enabled=False)
 
-        policy_context = routing_context
-        if plan_text:
-            policy_context = (
-                f"{routing_context}\n\n[计划快照]\n"
-                f"{plan_text[:1200]}"
-            )
-        policy_decision = _maybe_apply_async_policy(
-            "post_plan",
-            policy_decision,
-            context_digest=policy_context,
-        )
-        if policy_decision.plan_enabled and not plan_text:
-            plan = build_execution_plan(prompt, llm=llm)
-            plan_text = render_execution_plan(plan)
-            runtime_state = create_plan_runtime_state(
-                user_goal=prompt,
-                current_plan=plan,
-                context_summary=routing_context,
-            )
-            plan_event = _emit_event(
-                trace_payload=trace_payload,
-                trace_context=trace_context,
-                sender="planner",
-                receiver="leader",
-                performative="plan",
-                content=plan_text,
-                parent_span_id=current_parent_span,
-                metadata={"stage": "late_plan"},
-                on_event=on_event,
-            )
-            current_parent_span = str(plan_event.get("span_id") or current_parent_span)
-            runtime_state = evolve_plan_runtime_state(
-                runtime_state,
-                budget_usage_delta={"planner_calls": 1},
-            )
-            policy_context = (
-                f"{routing_context}\n\n[计划快照]\n"
-                f"{plan_text[:1200]}"
-            )
-        if runtime_state is None:
-            runtime_state = create_plan_runtime_state(
-                user_goal=prompt,
-                current_plan=plan,
-                context_summary=policy_context or routing_context,
-            )
-
-        team_execution = TeamExecution(enabled=False)
-
-        def _team_policy_checkpoint(todo_records: list[dict[str, Any]]) -> tuple[bool, str | None]:
-            nonlocal policy_decision
-            if async_predictor is None:
-                return True, None
-            runtime_context = policy_context
-            team_runtime_context = _build_team_runtime_context(todo_records)
-            if team_runtime_context:
-                runtime_context = (
-                    f"{policy_context}\n\n[团队执行快照]\n"
-                    f"{team_runtime_context}"
-                )
-            refreshed = _maybe_apply_async_policy(
-                "team_loop",
-                policy_decision,
-                context_digest=runtime_context,
-            )
-            if _decision_changed(policy_decision, refreshed):
-                policy_decision = refreshed
-            if not policy_decision.team_enabled:
-                return False, "policy_switched_to_non_team"
-            return True, None
-
-        if policy_decision.team_enabled:
-            team_execution = run_team_tasks(
-                prompt=prompt,
-                plan_text=plan_text,
-                llm=llm,
-                search_document_fn=search_document_fn,
-                search_document_evidence_fn=search_document_evidence_fn,
-                max_members=resolved_team_members,
-                max_rounds=resolved_team_rounds,
-                trace_context=trace_context,
-                parent_span_id=current_parent_span,
-                on_event=lambda event: _record_existing_event(trace_payload, event, on_event),
-                policy_checkpoint_fn=_team_policy_checkpoint,
-            )
-            if team_execution.trace_events:
-                current_parent_span = str(
-                    team_execution.trace_events[-1].get("span_id") or current_parent_span
-                )
-            if team_execution.fallback_reason:
-                _emit_event(
-                    trace_payload=trace_payload,
-                    trace_context=trace_context,
-                    sender="team_runtime",
-                    receiver="leader",
-                    performative="fallback",
-                    content=team_execution.fallback_reason,
-                    parent_span_id=current_parent_span,
-                    on_event=on_event,
-                )
-            try:
-                synced_todo_path = _persist_team_todo_records(team_execution)
-                if synced_todo_path:
-                    logger.info("team todo synced: %s", synced_todo_path)
-            except Exception as exc:
-                logger.warning("team todo sync failed: %s", exc)
-
-        pre_final_context = policy_context
-        if team_execution.summary:
-            pre_final_context = (
-                f"{pre_final_context}\n\n[团队摘要]\n"
-                f"{team_execution.summary[:1200]}"
-            )
-        policy_decision = _maybe_apply_async_policy(
-            "pre_final",
-            policy_decision,
-            context_digest=pre_final_context,
+    pre_final_context = policy_context
+    if team_execution.summary:
+        pre_final_context = (
+            f"{pre_final_context}\n\n[团队摘要]\n"
+            f"{team_execution.summary[:1200]}"
         )
 
-        if policy_decision.team_enabled and not team_execution.enabled:
-            team_execution = run_team_tasks(
-                prompt=prompt,
-                plan_text=plan_text,
-                llm=llm,
-                search_document_fn=search_document_fn,
-                search_document_evidence_fn=search_document_evidence_fn,
-                max_members=resolved_team_members,
-                max_rounds=resolved_team_rounds,
-                trace_context=trace_context,
-                parent_span_id=current_parent_span,
-                on_event=lambda event: _record_existing_event(trace_payload, event, on_event),
-                policy_checkpoint_fn=_team_policy_checkpoint,
-            )
-            if team_execution.trace_events:
-                current_parent_span = str(
-                    team_execution.trace_events[-1].get("span_id") or current_parent_span
-                )
-            if team_execution.fallback_reason:
-                _emit_event(
-                    trace_payload=trace_payload,
-                    trace_context=trace_context,
-                    sender="team_runtime",
-                    receiver="leader",
-                    performative="fallback",
-                    content=team_execution.fallback_reason,
-                    parent_span_id=current_parent_span,
-                    on_event=on_event,
-                )
-            try:
-                synced_todo_path = _persist_team_todo_records(team_execution)
-                if synced_todo_path:
-                    logger.info("team todo synced: %s", synced_todo_path)
-            except Exception as exc:
-                logger.warning("team todo sync failed: %s", exc)
+    observed_leader_tool_names: set[str] = set()
+    aggregated_ask_human_requests: list[dict[str, str]] = []
 
-        observed_leader_tool_names: set[str] = set()
-        aggregated_ask_human_requests: list[dict[str, str]] = []
-        if plan is not None and not policy_decision.team_enabled:
-            plan_cycle_index = 0
-            while True:
-                (
-                    runtime_state,
-                    step_tool_names,
-                    step_ask_human_requests,
-                    current_parent_span,
-                    step_failure,
-                ) = _run_single_agent_plan_steps(
-                    prompt=prompt,
-                    hinted_prompt=hinted_prompt,
-                    plan=plan,
-                    plan_text=plan_text,
-                    runtime_state=runtime_state,
-                    leader_agent=leader_agent,
-                    leader_runtime_config=leader_runtime_config,
-                    trace_payload=trace_payload,
-                    trace_context=trace_context,
-                    parent_span_id=current_parent_span,
-                    on_event=on_event,
-                )
-                observed_leader_tool_names.update(step_tool_names)
-                aggregated_ask_human_requests.extend(step_ask_human_requests)
-                if step_failure is None:
-                    break
-                failure_reason = str(step_failure.get("reason") or "").strip()
-                if not failure_needs_revision(failure_reason):
-                    runtime_state = evolve_plan_runtime_state(
-                        runtime_state,
-                        error=f"replan_skipped:{failure_reason or 'unknown_failure'}",
-                    )
-                    skip_event = _emit_event(
-                        trace_payload=trace_payload,
-                        trace_context=trace_context,
-                        sender="planner",
-                        receiver="leader",
-                        performative="fallback",
-                        content=f"replan_skipped:{failure_reason or 'unknown_failure'}",
-                        parent_span_id=current_parent_span,
-                        metadata={
-                            "failed_step_id": str(step_failure.get("step_id") or "").strip(),
-                            "failure_reason": failure_reason,
-                        },
-                        on_event=on_event,
-                    )
-                    current_parent_span = str(skip_event.get("span_id") or current_parent_span)
-                    break
-                plan_cycle_index += 1
-                if not _can_start_next_plan_cycle(
-                    plan_cycle_index,
-                    max_cycles=MAX_SINGLE_AGENT_PLAN_CYCLES,
-                ):
-                    runtime_state = evolve_plan_runtime_state(
-                        runtime_state,
-                        error="plan_cycle_guard_triggered",
-                    )
-                    guard_event = _emit_event(
-                        trace_payload=trace_payload,
-                        trace_context=trace_context,
-                        sender="planner",
-                        receiver="leader",
-                        performative="fallback",
-                        content="plan_cycle_guard_triggered",
-                        parent_span_id=current_parent_span,
-                        metadata={
-                            "failed_step_id": str(step_failure.get("step_id") or "").strip(),
-                            "failure_reason": failure_reason,
-                        },
-                        on_event=on_event,
-                    )
-                    current_parent_span = str(guard_event.get("span_id") or current_parent_span)
-                    break
-                revised_plan = revise_execution_plan(
-                    prompt=prompt,
-                    current_plan=plan,
-                    failed_step_id=str(step_failure.get("step_id") or "").strip(),
-                    failure_reason=failure_reason,
-                    llm=llm,
-                )
-                plan = revised_plan
-                plan_text = render_execution_plan(revised_plan)
-                runtime_state = evolve_plan_runtime_state(
-                    runtime_state,
-                    current_plan=revised_plan,
-                    current_step_id=None,
-                    budget_usage_delta={"replan_calls": 1},
-                )
-                replan_event = _emit_event(
-                    trace_payload=trace_payload,
-                    trace_context=trace_context,
-                    sender="planner",
-                    receiver="leader",
-                    performative="replan",
-                    content=plan_text,
-                    parent_span_id=current_parent_span,
-                    metadata={
-                        "failed_step_id": str(step_failure.get("step_id") or "").strip(),
-                        "failure_reason": failure_reason,
-                    },
-                    on_event=on_event,
-                )
-                current_parent_span = str(replan_event.get("span_id") or current_parent_span)
-
-        leader_prompt_parts = [hinted_prompt]
-        if plan_text:
-            leader_prompt_parts.append(f"[执行计划]\n{plan_text}")
-        if plan is not None and not policy_decision.team_enabled:
-            completed_summary = _build_completed_steps_summary(runtime_state)
-            if completed_summary:
-                leader_prompt_parts.append(f"[已完成步骤]\n{completed_summary}")
-            artifact_summary = _build_artifact_summary(runtime_state)
-            if artifact_summary:
-                leader_prompt_parts.append(f"[步骤产物]\n{artifact_summary}")
-            if runtime_state.errors:
-                leader_prompt_parts.append(
-                    "[执行错误]\n"
-                    + "\n".join(f"- {item}" for item in runtime_state.errors[-6:])
-                )
-            leader_prompt_parts.append("请基于以上已完成步骤产物生成最终回答。")
-        if team_execution.summary:
-            leader_prompt_parts.append(f"[团队结果]\n{team_execution.summary}")
-        team_todo_summary = _build_team_todo_summary(team_execution)
-        if team_todo_summary:
-            leader_prompt_parts.append(f"[团队Todo]\n{team_todo_summary}")
-        leader_prompt = "\n\n".join(part for part in leader_prompt_parts if part.strip())
-
+    answer = ""
+    final_leader_passes = 0
+    while True:
+        final_leader_passes += 1
+        leader_prompt = _build_final_leader_prompt(
+            hinted_prompt=hinted_prompt,
+            plan_text=plan_text,
+            plan=plan,
+            runtime_state=runtime_state,
+            team_execution=team_execution,
+        )
         result = leader_agent.invoke(
             {"messages": [{"role": "user", "content": leader_prompt}]},
             config=leader_runtime_config or {},
@@ -1213,11 +1043,8 @@ def execute_orchestrated_turn(
         ) = _extract_leader_result_payload(result)
         observed_leader_tool_names.update(leader_tool_names)
         aggregated_ask_human_requests.extend(ask_human_requests)
-        runtime_state = evolve_plan_runtime_state(
-            runtime_state,
-            artifact={"type": "final_answer", "content": answer},
-            context_summary=pre_final_context,
-            budget_usage_delta={"leader_calls": 1},
+        mode_activation_events = (
+            extract_mode_activation_events_from_result(result) if isinstance(result, dict) else []
         )
         current_parent_span = _emit_leader_runtime_events(
             trace_payload=trace_payload,
@@ -1228,38 +1055,138 @@ def execute_orchestrated_turn(
             tool_activation_events=tool_activation_events,
             on_event=on_event,
         )
-
-        _emit_event(
-            trace_payload=trace_payload,
-            trace_context=trace_context,
-            sender="leader",
-            receiver="user",
-            performative="final",
-            content=answer,
-            parent_span_id=current_parent_span,
-            on_event=on_event,
+        for item in mode_activation_events:
+            mode_event = _emit_event(
+                trace_payload=trace_payload,
+                trace_context=trace_context,
+                sender=str(item.get("sender") or "leader"),
+                receiver=str(item.get("receiver") or "mode"),
+                performative="mode_activate",
+                content=str(item.get("content") or "activate mode"),
+                parent_span_id=current_parent_span,
+                on_event=on_event,
+            )
+            current_parent_span = str(mode_event.get("span_id") or current_parent_span)
+        requested_modes = _requested_modes_from_events(mode_activation_events)
+        should_run_plan = "plan" in requested_modes and plan is None
+        should_run_team = "team" in requested_modes and not team_execution.enabled
+        if not should_run_plan and not should_run_team:
+            break
+        if should_run_plan:
+            plan = build_execution_plan(prompt, llm=llm)
+            plan_text = render_execution_plan(plan)
+            runtime_state = create_plan_runtime_state(
+                user_goal=prompt,
+                current_plan=plan,
+                context_summary=routing_context,
+            )
+            plan_event = _emit_event(
+                trace_payload=trace_payload,
+                trace_context=trace_context,
+                sender="planner",
+                receiver="leader",
+                performative="plan",
+                content=plan_text,
+                parent_span_id=current_parent_span,
+                metadata={"stage": "leader_tool"},
+                on_event=on_event,
+            )
+            current_parent_span = str(plan_event.get("span_id") or current_parent_span)
+            runtime_state = evolve_plan_runtime_state(
+                runtime_state,
+                budget_usage_delta={"planner_calls": 1},
+            )
+            (
+                runtime_state,
+                plan_tool_names,
+                plan_ask_human_requests,
+                current_parent_span,
+                plan,
+                plan_text,
+            ) = _run_plan_runtime(
+                prompt=prompt,
+                hinted_prompt=hinted_prompt,
+                plan=plan,
+                plan_text=plan_text,
+                runtime_state=runtime_state,
+                leader_agent=leader_agent,
+                leader_runtime_config=leader_runtime_config,
+                llm=llm,
+                trace_payload=trace_payload,
+                trace_context=trace_context,
+                parent_span_id=current_parent_span,
+                on_event=on_event,
+            )
+            observed_leader_tool_names.update(plan_tool_names)
+            aggregated_ask_human_requests.extend(plan_ask_human_requests)
+        if should_run_team:
+            team_execution = run_team_tasks(
+                prompt=prompt,
+                plan_text=plan_text,
+                llm=llm,
+                search_document_fn=search_document_fn,
+                search_document_evidence_fn=search_document_evidence_fn,
+                max_members=resolved_team_members,
+                max_rounds=resolved_team_rounds,
+                trace_context=trace_context,
+                parent_span_id=current_parent_span,
+                on_event=lambda event: _record_existing_event(trace_payload, event, on_event),
+                policy_checkpoint_fn=None,
+            )
+            if team_execution.trace_events:
+                current_parent_span = str(
+                    team_execution.trace_events[-1].get("span_id") or current_parent_span
+                )
+            try:
+                synced_todo_path = _persist_team_todo_records(team_execution)
+                if synced_todo_path:
+                    logger.info("team todo synced: %s", synced_todo_path)
+            except Exception as exc:
+                logger.warning("team todo sync failed: %s", exc)
+        policy_decision = PolicyDecision(
+            plan_enabled=plan is not None,
+            team_enabled=team_execution.enabled,
+            reason="leader requested mode runtime via tool call",
+            confidence=policy_decision.confidence,
+            source="leader_tool",
         )
+        if final_leader_passes >= 2:
+            break
+    runtime_state = evolve_plan_runtime_state(
+        runtime_state,
+        artifact={"type": "final_answer", "content": answer},
+        context_summary=pre_final_context,
+        budget_usage_delta={"leader_calls": 1},
+    )
 
-        replan_rounds = sum(
-            1 for e in trace_payload
-            if isinstance(e, dict) and e.get("performative") == "replan"
-        )
-        _log_routing_decision(prompt, policy_decision, team_execution, replan_rounds)
+    _emit_event(
+        trace_payload=trace_payload,
+        trace_context=trace_context,
+        sender="leader",
+        receiver="user",
+        performative="final",
+        content=answer,
+        parent_span_id=current_parent_span,
+        on_event=on_event,
+    )
 
-        return OrchestratedTurn(
-            answer=answer,
-            policy_decision=policy_decision,
-            team_execution=team_execution,
-            trace_payload=trace_payload,
-            plan=plan,
-            plan_text=plan_text,
-            runtime_state=runtime_state,
-            leader_tool_names=sorted(observed_leader_tool_names),
-            ask_human_requests=aggregated_ask_human_requests,
-        )
-    finally:
-        if async_predictor is not None:
-            async_predictor.stop()
+    replan_rounds = sum(
+        1 for e in trace_payload
+        if isinstance(e, dict) and e.get("performative") == "replan"
+    )
+    _log_routing_decision(prompt, policy_decision, team_execution, replan_rounds)
+
+    return OrchestratedTurn(
+        answer=answer,
+        policy_decision=policy_decision,
+        team_execution=team_execution,
+        trace_payload=trace_payload,
+        plan=plan,
+        plan_text=plan_text,
+        runtime_state=runtime_state,
+        leader_tool_names=sorted(observed_leader_tool_names),
+        ask_human_requests=aggregated_ask_human_requests,
+    )
 
 
 def _log_routing_decision(

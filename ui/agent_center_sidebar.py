@@ -6,75 +6,6 @@ from typing import Any
 import streamlit as st
 
 
-def resolve_strategy_flags(
-    *,
-    strategy_mode: str,
-    force_plan_value: bool,
-    force_team_value: bool,
-) -> tuple[bool | None, bool | None]:
-    if strategy_mode == "手动":
-        return bool(force_plan_value), bool(force_team_value)
-    return None, None
-
-
-def render_strategy_controls(
-    *,
-    project_uid: str,
-    session_uid: str,
-    turn_in_progress: bool,
-) -> tuple[bool | None, bool | None]:
-    with st.expander("执行策略", expanded=False):
-        strategy_mode = st.radio(
-            "策略模式",
-            options=["自动", "手动"],
-            key=f"agent_strategy_mode_{project_uid}_{session_uid}",
-            disabled=turn_in_progress,
-            horizontal=True,
-        )
-        force_plan_value = False
-        force_team_value = False
-        if strategy_mode == "手动":
-            force_plan_value = st.toggle(
-                "启用 Plan",
-                value=False,
-                key=f"agent_force_plan_{project_uid}_{session_uid}",
-                disabled=turn_in_progress,
-            )
-            force_team_value = st.toggle(
-                "启用 Team",
-                value=False,
-                key=f"agent_force_team_{project_uid}_{session_uid}",
-                disabled=turn_in_progress,
-            )
-            st.caption("手动模式下将覆盖自动策略判定。")
-        else:
-            st.caption("自动模式：由策略路由器决定是否启用 Plan/Team。")
-    return resolve_strategy_flags(
-        strategy_mode=strategy_mode,
-        force_plan_value=force_plan_value,
-        force_team_value=force_team_value,
-    )
-
-
-def render_session_info_panel(
-    *,
-    selected_session_name: str,
-    selected_project_uid: str,
-    conversation_key: str,
-    turn_in_progress: bool,
-    render_output_archive_fn,
-    render_workflow_metrics_fn,
-    render_context_usage_fn,
-) -> None:
-    st.markdown("### 会话信息")
-    st.caption(f"当前会话：{selected_session_name}")
-    render_output_archive_fn(selected_project_uid, disable_interaction=turn_in_progress)
-    render_workflow_metrics_fn(conversation_key)
-    render_context_usage_fn(conversation_key)
-    if turn_in_progress:
-        st.info("正在生成回答，已临时锁定归档与文档切换，避免中断当前对话。")
-
-
 def build_session_timestamps_caption(selected: dict[str, Any]) -> str:
     return (
         "创建时间："
@@ -113,7 +44,9 @@ def _todo_status(record: dict[str, Any]) -> str:
     return str(record.get("status") or "todo").strip().lower()
 
 
-def _select_pinned_todo_records(all_records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+def _select_pinned_todo_records(
+    all_records: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
     """Pick records for pinned panel.
 
     Returns:
@@ -141,9 +74,7 @@ def _select_pinned_todo_records(all_records: list[dict[str, Any]]) -> tuple[list
             ]
         else:
             selected = [
-                item
-                for item in active_records
-                if not str(item.get("plan_id") or "").strip()
+                item for item in active_records if not str(item.get("plan_id") or "").strip()
             ]
         return selected, False
 
@@ -170,26 +101,20 @@ def render_pinned_todo_panel(
     all_records = _load_todo_records(path)
     records, history_only = _select_pinned_todo_records(all_records)
 
-    # ── 计算完成情况 ────────────────────────────────────────────────────────
     terminal_statuses = {"done", "canceled"}
-    all_terminal = bool(records) and all(
-        _todo_status(r) in terminal_statuses
-        for r in records
-    )
-    done_count = sum(
-        1 for r in records
-        if _todo_status(r) in terminal_statuses
-    )
+    all_terminal = bool(records) and all(_todo_status(r) in terminal_statuses for r in records)
+    done_count = sum(1 for r in records if _todo_status(r) in terminal_statuses)
 
     if not records:
         with st.expander("📌 Todo（Pinned）", expanded=expanded):
             st.caption("暂无任务。可通过 write_todo 工具创建。")
         return
 
-    if all_terminal:
-        header = f"📌 Todo（已结束 · {done_count}/{len(records)} 完成）"
-    else:
-        header = f"📌 Todo（{done_count}/{len(records)} 完成）"
+    header = (
+        f"📌 Todo（已结束 · {done_count}/{len(records)} 完成）"
+        if all_terminal
+        else f"📌 Todo（{done_count}/{len(records)} 完成）"
+    )
 
     with st.expander(header, expanded=expanded and not all_terminal):
         if all_terminal and history_only:
@@ -225,7 +150,6 @@ def render_pinned_todo_panel(
                 status_order.get(str(item.get("status") or "todo"), 99),
                 str(item.get("updated_at") or ""),
             ),
-            reverse=False,
         )
         for item in items[:20]:
             todo_id = str(item.get("id") or "-")
@@ -282,13 +206,7 @@ def render_pinned_human_requests_panel(
             if key in seen:
                 continue
             seen.add(key)
-            requests.append(
-                {
-                    "question": question,
-                    "context": context,
-                    "urgency": urgency,
-                }
-            )
+            requests.append({"question": question, "context": context, "urgency": urgency})
     if not requests:
         return
     with st.expander("🧑 人工确认（Pinned）", expanded=expanded):

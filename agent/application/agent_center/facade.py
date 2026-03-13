@@ -10,8 +10,6 @@ from ..turn_engine import execute_turn_core
 class AgentCenterTurnRequest:
     prompt: str
     hinted_prompt: str
-    force_plan: bool | None = None
-    force_team: bool | None = None
     routing_context: str = ""
     emit_tool_load_event: bool = True
 
@@ -42,8 +40,6 @@ def execute_agent_center_turn(
         search_document_evidence_fn=deps.search_document_evidence_fn,
         leader_tool_specs=deps.leader_tool_specs,
         emit_tool_load_event=request.emit_tool_load_event,
-        force_plan=request.force_plan,
-        force_team=request.force_team,
         routing_context=request.routing_context,
         on_event=on_event,
     )

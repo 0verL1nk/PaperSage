@@ -21,7 +21,6 @@ def test_execute_agent_center_turn_delegates_to_turn_engine(monkeypatch):
         request=AgentCenterTurnRequest(
             prompt="p",
             hinted_prompt="hp",
-            force_plan=True,
             routing_context="ctx",
         ),
         deps=AgentCenterRuntimeDeps(
@@ -39,7 +38,5 @@ def test_execute_agent_center_turn_delegates_to_turn_engine(monkeypatch):
     assert captured["leader_agent"] == "agent"
     assert captured["leader_runtime_config"]["configurable"]["thread_id"] == "t1"
     assert captured["policy_llm"] == "policy-llm"
-    assert captured["force_plan"] is True
     assert captured["routing_context"] == "ctx"
     assert captured["leader_tool_specs"] == [{"name": "search_document"}]
-

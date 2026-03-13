@@ -269,35 +269,8 @@ def render_strategy_sidebar(
     render_context_usage_fn: Callable[[str], None],
     render_pinned_todo_panel_fn: Callable[..., None],
     render_pinned_human_requests_panel_fn: Callable[..., None],
-) -> tuple[bool | None, bool | None]:
-    force_plan: bool | None = None
-    force_team: bool | None = None
+) -> None:
     with st.sidebar:
-        with st.expander("执行策略", expanded=False):
-            strategy_mode = st.radio(
-                "策略模式",
-                options=["自动", "手动"],
-                key=f"agent_strategy_mode_{selected_project_uid}_{selected_session_uid}",
-                disabled=turn_in_progress,
-                horizontal=True,
-            )
-            if strategy_mode == "手动":
-                force_plan = st.toggle(
-                    "启用 Plan",
-                    value=False,
-                    key=f"agent_force_plan_{selected_project_uid}_{selected_session_uid}",
-                    disabled=turn_in_progress,
-                )
-                force_team = st.toggle(
-                    "启用 Team",
-                    value=False,
-                    key=f"agent_force_team_{selected_project_uid}_{selected_session_uid}",
-                    disabled=turn_in_progress,
-                )
-                st.caption("手动模式下将覆盖自动策略判定。")
-            else:
-                st.caption("自动模式：由策略路由器决定是否启用 Plan/Team。")
-
         st.markdown("### 会话信息")
         st.caption(f"当前会话：{selected_session_name}")
         render_output_archive_fn(selected_project_uid, disable_interaction=turn_in_progress)
@@ -311,7 +284,6 @@ def render_strategy_sidebar(
         )
         if turn_in_progress:
             st.info("正在生成回答，已临时锁定归档与文档切换，避免中断当前对话。")
-    return force_plan, force_team
 
 
 def render_chat_history_panel(

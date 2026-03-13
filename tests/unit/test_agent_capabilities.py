@@ -57,6 +57,8 @@ def test_build_agent_tools_exposes_structured_tools(monkeypatch):
         "search_document",
         "search_papers",
         "search_web",
+        "start_plan",
+        "start_team",
         "update_file",
         "use_skill",
         "write_file",
@@ -68,6 +70,15 @@ def test_build_agent_tools_exposes_structured_tools(monkeypatch):
     activation_payload = _activate(tool_map, "search_web")
     assert activation_payload["tool_name"] == "search_web"
     assert _invoke_tool(tool_map, "search_web", {"query": "q2"}) == "web:q2"
+    start_plan_payload = json.loads(
+        _invoke_tool(tool_map, "start_plan", {"goal": "拆步骤", "reason": "multi-step"})
+    )
+    assert start_plan_payload["type"] == "mode_activate"
+    assert start_plan_payload["mode"] == "plan"
+    start_team_payload = json.loads(
+        _invoke_tool(tool_map, "start_team", {"goal": "交叉验证", "reason": "need team"})
+    )
+    assert start_team_payload["mode"] == "team"
     _activate(tool_map, "search_papers")
     assert "paper:q3" in _invoke_tool(tool_map, "search_papers", {"query": "q3", "limit": 3})
 
