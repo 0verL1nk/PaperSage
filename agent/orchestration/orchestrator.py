@@ -433,6 +433,14 @@ def _build_final_leader_prompt(
     team_todo_summary = _build_team_todo_summary(team_execution)
     if team_todo_summary:
         leader_prompt_parts.append(f"[团队Todo]\n{team_todo_summary}")
+    if team_execution.enabled:
+        leader_prompt_parts.append(
+            "请直接将上述[团队结果]的核心结论作为你的最终回答展示给用户，不要丢失关键数据。\n"
+            "如果有大段的结构化分析、报告内容或长篇大论，请务必将其包裹在 <report></report> 标签内输出，\n"
+            "例如:\n"
+            "<report>\n# 分析报告标题\n...正文...\n</report>\n"
+            "这样前端可以将其渲染为专属的报告框展示给用户。请不要输出多余的口语化引导语。"
+        )
     return "\n\n".join(part for part in leader_prompt_parts if part.strip())
 
 

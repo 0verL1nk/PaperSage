@@ -51,12 +51,24 @@ def render_turn_result(
     mindmap_html: str | None = None,
     mindmap_render_error: str | None = None,
 ) -> None:
+    # Extract report if exists
+    report_match = re.search(r"<report>(.*?)</report>", str(answer or ""), flags=re.DOTALL | re.IGNORECASE)
+    report_content = report_match.group(1).strip() if report_match else None
+
+    # Remove tags for summary text
     summary_text = re.sub(
         r"<mindmap>\s*\{.*?\}\s*</mindmap>",
         "",
         str(answer or ""),
         flags=re.DOTALL | re.IGNORECASE,
+    )
+    summary_text = re.sub(
+        r"<report>.*?</report>",
+        "",
+        summary_text,
+        flags=re.DOTALL | re.IGNORECASE,
     ).strip()
+
     st.markdown(
         (
             "<div class='llm-chip-row'>"
@@ -82,7 +94,44 @@ def render_turn_result(
         with st.expander("查看思维导图 JSON", expanded=False):
             st.code(json.dumps(mindmap_data, ensure_ascii=False, indent=2), language="json")
     else:
-        st.write(answer)
+        if report_content:
+            if summary_text:
+                st.write(summary_text)
+            
+            st.markdown(f"""
+            <div style="
+                border: 1px solid var(--line-soft);
+                border-top: 4px solid var(--ink-500);
+                border-radius: 8px;
+                padding: 0;
+                margin-top: 16px;
+                background-color: var(--paper);
+                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+            ">
+                <div style="
+                    background-color: var(--sky-50);
+                    padding: 12px 20px;
+                    border-bottom: 1px solid var(--line-soft);
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                    display: flex;
+                    align-items: center;
+                ">
+                    <span style="font-size: 18px; margin-right: 8px;">📑</span>
+                    <span style="font-weight: 600; color: var(--ink-900);">综合研究报告</span>
+                    <span style="margin-left: auto; font-size: 12px; color: var(--ink-500); background: var(--sky-100); padding: 2px 8px; border-radius: 12px; font-weight: 500;">
+                        {"Team Output" if policy_decision.get("team_enabled") else "Agent Output"}
+                    </span>
+                </div>
+                <div style="padding: 24px; color: var(--ink-900);">
+            """, unsafe_allow_html=True)
+            
+            st.markdown(report_content)
+            
+            st.markdown("</div></div>", unsafe_allow_html=True)
+            
+        else:
+            st.write(answer)
 
     if phase_path and phase_path != "无":
         st.caption(f"执行阶段：{phase_path}")
