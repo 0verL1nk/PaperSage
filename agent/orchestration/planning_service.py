@@ -173,10 +173,6 @@ def build_execution_plan(prompt: str, llm: Any | None = None) -> ExecutionPlan:
         )
 
 
-def build_execution_plan_text(prompt: str, llm: Any | None = None) -> str:
-    return render_execution_plan(build_execution_plan(prompt, llm=llm))
-
-
 def revise_execution_plan(
     *,
     prompt: str,

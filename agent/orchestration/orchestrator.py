@@ -248,30 +248,6 @@ def _build_team_todo_summary(team_execution: TeamExecution) -> str:
     return "\n".join(lines)
 
 
-def _build_team_runtime_context(
-    todo_records: list[dict[str, Any]],
-    *,
-    preview_limit: int = 6,
-) -> str:
-    if not isinstance(todo_records, list) or not todo_records:
-        return ""
-    lines: list[str] = []
-    for item in todo_records[: max(1, int(preview_limit))]:
-        if not isinstance(item, dict):
-            continue
-        role = str(item.get("assignee") or "n/a").strip()
-        status = str(item.get("status") or "todo").strip().lower()
-        title = str(item.get("title") or item.get("id") or "task").strip()
-        output = str(item.get("output") or "").strip().replace("\n", " ")
-        if len(output) > 120:
-            output = f"{output[:120]}..."
-        line = f"- {title} | role={role} | status={status}"
-        if output:
-            line = f"{line} | output={output}"
-        lines.append(line)
-    return "\n".join(lines)
-
-
 def _extract_leader_result_payload(
     result: Any,
 ) -> tuple[
