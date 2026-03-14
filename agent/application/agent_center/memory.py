@@ -1,6 +1,7 @@
 from typing import Any
 
 from agent.adapters.openviking_runtime import get_openviking_adapter
+from agent.adapters.viking_adapter import VikingAdapterError
 from agent.domain.openviking_contracts import OpenVikingSearchRequest
 from agent.memory.policy import classify_turn_memory_type, ttl_for_memory_type
 
@@ -47,7 +48,7 @@ def persist_turn_memory(
             content=memory_content,
             metadata=metadata,
         )
-    except Exception as exc:
+    except (ImportError, ModuleNotFoundError, OSError, VikingAdapterError) as exc:
         raise RuntimeError(
             f"failed to persist OpenViking memory for project {project_uid}"
         ) from exc
