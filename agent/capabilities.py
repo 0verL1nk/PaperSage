@@ -1111,12 +1111,6 @@ def build_agent_tools(
         if "use_skill" in runtime_tool_map:
             runtime_tool_map["use_skill"].description = metadata_by_name["use_skill"]
 
-        # 同时修改 runtime_tool_map 里的 description，让 registry 能够收到
-        if "use_skill" in runtime_tool_map:
-            runtime_tool_map["use_skill"].description += "\nAvailable skills to use:\n" + "\n".join(
-                skill_docs
-            )
-
     from .tools.registry import ToolRegistry
 
     registry = ToolRegistry()

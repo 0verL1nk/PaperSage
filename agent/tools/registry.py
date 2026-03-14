@@ -7,14 +7,24 @@ from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 
 logger = logging.getLogger(__name__)
 
+# Scoring weights for hybrid search
+SCORE_EXACT_MATCH_BONUS = 5.0
+SCORE_NAME_EXACT_MATCH_BONUS = 10.0
+SCORE_BM25_WEIGHT = 2.0
+SCORE_DENSE_WEIGHT = 15.0
+
+COLLECTION_PREFIX = "tool_registry"
+
+
 class ToolRegistry:
     def __init__(self):
         self._tools: Dict[str, Any] = {}
         self._bm25 = None
         self._tool_names: List[str] = []
         self._is_index_dirty = True
-
         self._dense_retriever = None
+        # Stable instance ID for vectorstore collection key (reduces resource leak risk)
+        self._instance_id = uuid.uuid4().hex[:8]
 
     def register(self, tool_name: str, tool_obj: Any) -> None:
         self._tools[tool_name] = tool_obj
@@ -53,12 +63,15 @@ class ToolRegistry:
                 self._bm25 = None
         except ImportError:
             self._bm25 = None
-            logger.debug("rank_bm25 or jieba not available. Falling back to regex search for tools.")
+            logger.debug(
+                "rank_bm25 or jieba not available. Falling back to regex search for tools."
+            )
 
         # 2. Build Dense Index
         try:
             from agent.rag.vector_store import build_vectorstore
             from agent.settings import load_agent_settings
+
             settings = load_agent_settings()
 
             embeddings = FastEmbedEmbeddings(
@@ -81,8 +94,8 @@ class ToolRegistry:
                     texts=texts,
                     embedding=embeddings,
                     metadatas=metadatas,
-                    collection_prefix="tool_registry",
-                    collection_key=f"tool_search_{uuid.uuid4().hex[:8]}"
+                    collection_prefix=COLLECTION_PREFIX,
+                    collection_key=f"tool_search_{self._instance_id}",
                 )
             else:
                 self._dense_retriever = None
@@ -116,18 +129,19 @@ class ToolRegistry:
 
             # Exact match bonuses
             if query_lower in text_to_search:
-                scores[name] += 5.0
+                scores[name] += SCORE_EXACT_MATCH_BONUS
             if query_lower == name.lower():
-                scores[name] += 10.0
+                scores[name] += SCORE_NAME_EXACT_MATCH_BONUS
 
         # 2. BM25 Search
         if self._bm25 is not None:
             try:
                 import jieba
+
                 tokenized_query = list(jieba.cut(query_lower))
                 bm25_scores = self._bm25.get_scores(tokenized_query)
                 for idx, score in enumerate(bm25_scores):
-                    scores[self._tool_names[idx]] += float(score) * 2.0  # Weight BM25
+                    scores[self._tool_names[idx]] += float(score) * SCORE_BM25_WEIGHT
             except Exception as e:
                 logger.warning(f"BM25 tool search failed: {e}")
 
@@ -135,11 +149,13 @@ class ToolRegistry:
         if self._dense_retriever is not None:
             try:
                 # Get more candidates than top_k to blend
-                dense_results = self._dense_retriever.similarity_search_with_relevance_scores(query, k=top_k * 2)
+                dense_results = self._dense_retriever.similarity_search_with_relevance_scores(
+                    query, k=top_k * 2
+                )
                 for doc, relevance in dense_results:
                     name = doc.metadata.get("tool_name")
                     if name in scores:
-                        scores[name] += float(relevance) * 15.0  # High weight for dense semantic match
+                        scores[name] += float(relevance) * SCORE_DENSE_WEIGHT
             except Exception as e:
                 logger.warning(f"Dense tool search failed: {e}")
 
