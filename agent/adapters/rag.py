@@ -2,7 +2,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from agent.domain.openviking_contracts import OpenVikingSearchRequest
+from agent.domain.openviking_contracts import OpenVikingAdapter, OpenVikingSearchRequest
 from agent.settings import load_agent_settings
 
 from .openviking_runtime import get_openviking_adapter
@@ -68,7 +68,7 @@ def create_project_evidence_retriever(
 
 
 def _ingest_project_documents(
-    *, documents: list[dict[str, str]], project_uid: str, adapter: Any
+    *, documents: list[dict[str, str]], project_uid: str, adapter: OpenVikingAdapter
 ) -> None:
     for document in documents:
         text = str(document.get("text") or "").strip()

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.domain.openviking_contracts import (
+    OpenVikingAdapter,
     OpenVikingReadRequest,
     OpenVikingSearchRequest,
 )
@@ -26,7 +27,7 @@ _SKILLS_PROJECT_UID = "skills"
 _REFERENCE_INGEST_MAX_CHARS = 200000
 
 
-def get_openviking_adapter() -> Any:
+def get_openviking_adapter() -> OpenVikingAdapter:
     from agent.adapters.openviking_runtime import (
         get_openviking_adapter as _get_openviking_adapter,
     )
@@ -302,7 +303,7 @@ def _load_skill_references_from_openviking(
 
 def _ingest_skill_references(
     *,
-    adapter: Any,
+    adapter: OpenVikingAdapter,
     skill: Skill,
     reference_char_limit: int,
 ) -> None:
