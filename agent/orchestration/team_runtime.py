@@ -23,6 +23,7 @@ from ..stream import (
     extract_tool_names_from_result,
     extract_tool_trace_events_from_result,
 )
+from .langgraph_team_dag import build_ready_task_dispatches
 
 ROLE_ROUTER_INSTRUCTION = """
 你是团队角色规划器。请为当前任务设计若干互补角色，避免职责重复。
@@ -367,7 +368,7 @@ def _leader_plan_todo(
                 f"可用角色：\n{roles_text}\n\n"
                 f"允许最大轮次：{actual_rounds}\n\n"
                 + (f"{cycle_hint_text}\n\n" if cycle_hint_text else "")
-                + "请以 JSON 格式输出 {\"todos\":[...]} 结构。"
+                + '请以 JSON 格式输出 {"todos":[...]} 结构。'
             )
             text = _llm_content_to_text(getattr(result, "content", result))
             # 找最外层 { }
@@ -780,12 +781,12 @@ def _normalize_task_attempt_result(payload: Any) -> TeamTaskAttemptResult:
         return TeamTaskAttemptResult(
             answer=str(payload.get("answer") or payload.get("content") or ""),
             tool_names=[
-                str(item).strip()
-                for item in payload.get("tool_names", [])
-                if str(item).strip()
+                str(item).strip() for item in payload.get("tool_names", []) if str(item).strip()
             ],
             tool_trace_events=[
-                dict(item) for item in payload.get("tool_trace_events", []) if isinstance(item, dict)
+                dict(item)
+                for item in payload.get("tool_trace_events", [])
+                if isinstance(item, dict)
             ],
             skill_activation_events=[
                 dict(item)
@@ -846,13 +847,10 @@ def _invoke_role_agent(
     prior_output: str = "",
     task_details: str = "",
 ) -> TeamTaskAttemptResult:
-    round_instruction = (
-        f"当前为第 {round_idx} 轮协作。\n"
-        + (
-            f"你在上一轮的输出如下，请在此基础上深化、修正或补充：\n{prior_output}\n\n"
-            if round_idx > 1 and prior_output
-            else "这是首轮执行，请完成初始分析。\n\n"
-        )
+    round_instruction = f"当前为第 {round_idx} 轮协作。\n" + (
+        f"你在上一轮的输出如下，请在此基础上深化、修正或补充：\n{prior_output}\n\n"
+        if round_idx > 1 and prior_output
+        else "这是首轮执行，请完成初始分析。\n\n"
     )
     # leader 规划的具体任务描述优先于通用角色目标
     effective_task = task_details.strip() if task_details.strip() else role.goal
@@ -954,7 +952,7 @@ def run_team_tasks(
     plan_id = f"team:{effective_context.run_id}"
     max_todo_plan_retries = 3
     todo_plan_retry = 0
-    cycle_hint: str = ""           # 精准的环内节点信息，逐次传给 leader
+    cycle_hint: str = ""  # 精准的环内节点信息，逐次传给 leader
     while True:
         todo_records = _leader_plan_todo(
             prompt=prompt,
@@ -972,7 +970,7 @@ def run_team_tasks(
             todo_summary_lines.append(
                 f"  [{rec['id']}] {rec['title']} | assignee={rec['assignee']}"
                 f" | round={rec['round']} | deps={deps_str}"
-                f" | {rec['details'][:60]}{'...' if len(rec.get('details',''))>60 else ''}"
+                f" | {rec['details'][:60]}{'...' if len(rec.get('details', '')) > 60 else ''}"
             )
         todo_plan_event = build_trace_event(
             context=effective_context,
@@ -1074,23 +1072,19 @@ def run_team_tasks(
                 )
                 break
 
-        ready_records = [
-            item
-            for item in todo_records
-            if str(item.get("status") or "").strip().lower() == "todo"
-            and _todo_dependencies_done(item, records_by_id=records_by_id)
-        ]
-        if not ready_records:
-            break
-        ready_records.sort(
-            key=lambda item: (
-                int(item.get("round") or 0),
-                role_index.get(str(item.get("assignee") or ""), 999),
-                str(item.get("id") or ""),
-            )
+        ready_dispatches = build_ready_task_dispatches(
+            todo_records,
+            role_order=role_index,
         )
-        current_task = ready_records[0]
-        todo_id = str(current_task.get("id") or "").strip()
+        if not ready_dispatches:
+            break
+        current_dispatch = ready_dispatches[0]
+        dispatch_arg = current_dispatch.arg if isinstance(current_dispatch.arg, dict) else {}
+        todo_id = str(dispatch_arg.get("todo_id") or "").strip()
+        current_task = records_by_id.get(todo_id)
+        if not isinstance(current_task, dict):
+            fallback_reason = "todo_dispatch_target_missing"
+            break
         round_idx = int(current_task.get("round") or 0)
         role_name = str(current_task.get("assignee") or "").strip()
         role = role_map.get(role_name)
@@ -1174,13 +1168,8 @@ def run_team_tasks(
                 "attempt": attempt,
                 "retry_count": max(0, attempt - 1),
             }
-            request_content = (
-                f"[round={round_idx}] task={task_details or role.goal}"
-                + (
-                    f"\nprior_output={prior_output[:200].replace(chr(10), ' ')}"
-                    if prior_output
-                    else ""
-                )
+            request_content = f"[round={round_idx}] task={task_details or role.goal}" + (
+                f"\nprior_output={prior_output[:200].replace(chr(10), ' ')}" if prior_output else ""
             )
             current_parent_span = _append_trace_event(
                 trace_events=trace_events,
@@ -1265,7 +1254,9 @@ def run_team_tasks(
                 tool_names=attempt_result.tool_names,
                 tool_trace_events=member_tool_events,
             )
-            decision = "accept" if passed else ("retry" if attempt <= normalized_retries else "block")
+            decision = (
+                "accept" if passed else ("retry" if attempt <= normalized_retries else "block")
+            )
             current_parent_span = _append_trace_event(
                 trace_events=trace_events,
                 context=effective_context,
