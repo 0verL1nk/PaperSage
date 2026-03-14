@@ -13,8 +13,8 @@ from utils.utils import extract_json_string
 
 from .archive import list_agent_outputs
 from .domain.trace import phase_label_from_performative, phase_summary
-from .mindmap_renderer import render_mindmap_html_with_cli
 from .metrics import create_session_metrics, summarize_session_metrics
+from .mindmap_renderer import render_mindmap_html_with_cli
 
 LEGACY_WORKFLOW_LABELS = {
     "react": "ReAct（Tool+Memory）",

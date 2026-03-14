@@ -97,7 +97,7 @@ def render_turn_result(
         if report_content:
             if summary_text:
                 st.write(summary_text)
-            
+
             st.markdown(f"""
             <div style="
                 border: 1px solid var(--line-soft);
@@ -125,11 +125,11 @@ def render_turn_result(
                 </div>
                 <div style="padding: 24px; color: var(--ink-900);">
             """, unsafe_allow_html=True)
-            
+
             st.markdown(report_content)
-            
+
             st.markdown("</div></div>", unsafe_allow_html=True)
-            
+
         else:
             st.write(answer)
 
