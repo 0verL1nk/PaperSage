@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from langgraph.types import Send
 
+from agent.a2a import A2AMessage, A2AMultiAgentSession
+
+from .a2a_bridge import A2ABridge
 from .role_dispatcher import RoleDispatchPlan
 
 TODO_STATUS = "todo"
@@ -125,3 +128,18 @@ def build_ready_role_dispatches(
             )
         )
     return role_dispatches
+
+
+def execute_team_task_via_a2a_bridge(
+    orchestration_input: Mapping[str, Any],
+    *,
+    session: A2AMultiAgentSession,
+    bridge: A2ABridge | None = None,
+    on_event: Callable[[A2AMessage], None] | None = None,
+) -> dict[str, Any]:
+    active_bridge = bridge or A2ABridge()
+    return active_bridge.run_with_session(
+        session,
+        orchestration_input,
+        on_event=on_event,
+    )
