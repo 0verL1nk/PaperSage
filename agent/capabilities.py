@@ -91,7 +91,9 @@ class StartPlanInput(BaseModel):
 
 
 class StartTeamInput(BaseModel):
-    goal: str = Field(description="Collaboration goal that should be delegated to a sub-agent team.")
+    goal: str = Field(
+        description="Collaboration goal that should be delegated to a sub-agent team."
+    )
     reason: str = Field(
         default="",
         description="Optional short reason explaining why team collaboration is needed.",
@@ -103,7 +105,9 @@ class StartTeamInput(BaseModel):
 
 
 class SearchToolsInput(BaseModel):
-    query: str = Field(description="Search query describing the needed capability (e.g., 'read pdf', 'web search').")
+    query: str = Field(
+        description="Search query describing the needed capability (e.g., 'read pdf', 'web search')."
+    )
     reason: str = Field(
         default="",
         description="Optional short reason for activation.",
@@ -276,9 +280,7 @@ def _schema_manifest_for_tool(tool_obj: Any) -> dict[str, Any]:
     required = schema_obj.get("required")
     required_fields: list[str] = []
     if isinstance(required, list):
-        required_fields = sorted(
-            str(item).strip() for item in required if str(item).strip()
-        )
+        required_fields = sorted(str(item).strip() for item in required if str(item).strip())
     return {
         "type": str(schema_obj.get("type") or "object"),
         "fields": fields,
@@ -314,7 +316,11 @@ def _extract_tool_names_from_search_result(content: str) -> list[str]:
     try:
         data = json.loads(content)
         if isinstance(data, dict) and data.get("type") == "tool_search_result":
-            return [t.get("tool_name") for t in data.get("tools", []) if isinstance(t, dict) and "tool_name" in t]
+            return [
+                t["tool_name"]
+                for t in data.get("tools", [])
+                if isinstance(t, dict) and "tool_name" in t
+            ]
     except Exception:
         pass
     return []
@@ -327,12 +333,11 @@ def _extract_activated_tool_names(messages: list[Any]) -> set[str]:
         if isinstance(tool_calls, list):
             for call in tool_calls:
                 if isinstance(call, dict):
-                    call_name = str(call.get("name") or "").strip()
-                    args = call.get("args", {})
+                    _call_name = str(call.get("name") or "").strip()
+                    _args = call.get("args", {})
                 else:
-                    call_name = str(getattr(call, "name", "") or "").strip()
-                    args = getattr(call, "args", {})
-                pass
+                    _call_name = str(getattr(call, "name", "") or "").strip()
+                    _args = getattr(call, "args", {})
 
         msg_type = str(_message_attr(message, "type", "") or "").lower()
         role = str(_message_attr(message, "role", "") or "").lower()
@@ -367,9 +372,7 @@ class ProgressiveToolDisclosureMiddleware(AgentMiddleware):
             return handler(request)
         activated_names = _extract_activated_tool_names(list(request.messages or []))
         visible_names = (
-            set(self.fixed_tool_names)
-            | {"search_tools"}
-            | (activated_names & self.lazy_tool_names)
+            set(self.fixed_tool_names) | {"search_tools"} | (activated_names & self.lazy_tool_names)
         )
         filtered_tools: list[Any] = []
         for item in all_tools:
@@ -455,7 +458,9 @@ def _build_native_web_search_client():
         def run(self, query: str) -> str:
             with DDGS(timeout=int(DEFAULT_WEB_TIMEOUT_SECONDS)) as client:
                 results = client.text(query, max_results=DEFAULT_WEB_MAX_RESULTS)
-            return _format_web_results(results, title_key="title", url_key="href", snippet_key="body")
+            return _format_web_results(
+                results, title_key="title", url_key="href", snippet_key="body"
+            )
 
     return _NativeDuckDuckGoSearch()
 
@@ -695,12 +700,16 @@ def build_agent_tools(
                 fallback_client = _build_native_web_search_client()
                 if fallback_client is not None:
                     clients.append(("native_duckduckgo_search", fallback_client))
-                    logger.info("tool.search_web provider fallback initialized: native_duckduckgo_search")
+                    logger.info(
+                        "tool.search_web provider fallback initialized: native_duckduckgo_search"
+                    )
                 else:
                     try:
                         fallback_client = DuckDuckGoSearchRun(name="search_web")
                         clients.append(("langchain_duckduckgo", fallback_client))
-                        logger.info("tool.search_web provider fallback initialized: langchain_duckduckgo")
+                        logger.info(
+                            "tool.search_web provider fallback initialized: langchain_duckduckgo"
+                        )
                     except Exception as exc:
                         logger.warning("tool.search_web ddg fallback unavailable: %s", exc)
             else:
@@ -737,7 +746,9 @@ def build_agent_tools(
                 logger.info("tool.search_web provider failed: %s (%s)", provider_name, exc)
         return None, None, f"Web search failed: {' | '.join(errors)}"
 
-    def _run_paper_search_internal(query: str, limit: int) -> tuple[list[dict[str, Any]], str | None]:
+    def _run_paper_search_internal(
+        query: str, limit: int
+    ) -> tuple[list[dict[str, Any]], str | None]:
         try:
             papers = search_semantic_scholar(query=query, limit=limit)
         except ScholarlySearchError as exc:
@@ -756,6 +767,7 @@ def build_agent_tools(
         runtime_tool_map[tool_name] = tool_obj
 
     if "search_document" in enabled_tool_names:
+
         @tool(
             "search_document",
             description="Search uploaded paper content for relevant evidence snippets using RAG.",
@@ -782,7 +794,10 @@ def build_agent_tools(
                         if isinstance(evidence_payload, dict)
                         else 0
                     )
-                    logger.info("tool.search_document success: mode=evidence_json evidences=%s", evidence_count)
+                    logger.info(
+                        "tool.search_document success: mode=evidence_json evidences=%s",
+                        evidence_count,
+                    )
                     return json.dumps(evidence_payload, ensure_ascii=False)
                 except Exception:
                     logger.exception("tool.search_document evidence function failed, fallback=text")
@@ -794,6 +809,7 @@ def build_agent_tools(
         _register_tool(search_document)
 
     if "list_document" in enabled_tool_names and list_documents_fn is not None:
+
         @tool(
             "list_document",
             description="List all documents loaded in the current project scope with their names and identifiers.",
@@ -830,6 +846,7 @@ def build_agent_tools(
         _register_tool(local_tool)
 
     if "read_document" in enabled_tool_names and read_document_fn is not None:
+
         @tool(
             "read_document",
             description="Read a specific portion of the uploaded paper with pagination. "
@@ -860,12 +877,15 @@ def build_agent_tools(
             if rag_context:
                 result += f"=== 相关上下文 (RAG) ===\n{rag_context}\n\n"
             result += f"=== 内容 ===\n{content}"
-            logger.info("tool.read_document success: chunk_len=%s total_len=%s", len(content), total)
+            logger.info(
+                "tool.read_document success: chunk_len=%s total_len=%s", len(content), total
+            )
             return result
 
         _register_tool(read_document)
 
     if "search_web" in enabled_tool_names:
+
         @tool(
             "search_web",
             description="Search public web content for supplemental context.",
@@ -898,6 +918,7 @@ def build_agent_tools(
         _register_tool(search_web)
 
     if "search_papers" in enabled_tool_names:
+
         @tool(
             "search_papers",
             description="Search academic papers from scholarly providers when document evidence is insufficient.",
@@ -926,6 +947,7 @@ def build_agent_tools(
         _register_tool(search_papers)
 
     if "use_skill" in enabled_tool_names:
+
         @tool(
             "use_skill",
             description="Apply a named skill template to the current task and return operational guidance.",
@@ -970,9 +992,7 @@ def build_agent_tools(
                 scripts = runtime_payload.get("scripts", [])
                 if isinstance(scripts, list) and scripts:
                     parts.extend(["", "Available scripts:"])
-                    parts.extend(
-                        f"- {str(item)}" for item in scripts if str(item).strip()
-                    )
+                    parts.extend(f"- {str(item)}" for item in scripts if str(item).strip())
 
                 agent_metadata = runtime_payload.get("agent_metadata")
                 if isinstance(agent_metadata, str) and agent_metadata.strip():
@@ -989,6 +1009,7 @@ def build_agent_tools(
         _register_tool(use_skill)
 
     if "start_plan" in enabled_tool_names:
+
         @tool(
             "start_plan",
             description="Request structured planning runtime for a goal when direct answering is insufficient.",
@@ -1014,6 +1035,7 @@ def build_agent_tools(
         _register_tool(start_plan)
 
     if "start_team" in enabled_tool_names:
+
         @tool(
             "start_team",
             description="Request sub-agent team runtime for parallel analysis or cross-checking.",
@@ -1070,29 +1092,33 @@ def build_agent_tools(
         return exposed
 
     metadata_by_name = {item.name: item.description for item in discovered_tools}
-    
+
     # 将 Skill 也直接作为伪工具元数据注入到 Registry（这样模型直接查 "翻译"，就能找到 use_skill，且知道传入啥 skill）
     # 或者直接把 skill 的 keyword 附加给 use_skill 的 description 中
     skills = discover_available_skills()
     if skills:
         skill_docs = []
         for s in skills:
-            skill_docs.append(f"[{s.name}]: {s.description} (keywords: {getattr(s, 'keywords', '')})")
-        
+            skill_docs.append(
+                f"[{s.name}]: {s.description} (keywords: {getattr(s, 'keywords', '')})"
+            )
+
         # 增强 use_skill 的可搜索性
         if "use_skill" in metadata_by_name:
             metadata_by_name["use_skill"] += "\nAvailable skills to use:\n" + "\n".join(skill_docs)
-            
+
         # Also update the tool object description so ToolRegistry can index it
         if "use_skill" in runtime_tool_map:
             runtime_tool_map["use_skill"].description = metadata_by_name["use_skill"]
-            
+
         # 同时修改 runtime_tool_map 里的 description，让 registry 能够收到
         if "use_skill" in runtime_tool_map:
-            runtime_tool_map["use_skill"].description += "\nAvailable skills to use:\n" + "\n".join(skill_docs)
-
+            runtime_tool_map["use_skill"].description += "\nAvailable skills to use:\n" + "\n".join(
+                skill_docs
+            )
 
     from .tools.registry import ToolRegistry
+
     registry = ToolRegistry()
     for name, obj in runtime_tool_map.items():
         if name in lazy_tool_names:
@@ -1107,26 +1133,31 @@ def build_agent_tools(
         safe_query = str(query or "").strip()
         if not safe_query:
             return "query is required."
-            
+
         results = registry.search(safe_query, top_k=3)
         if not results:
-             return json.dumps({"type": "tool_search_result", "query": safe_query, "tools": []})
-             
+            return json.dumps({"type": "tool_search_result", "query": safe_query, "tools": []})
+
         tools_payload = []
         for t in results:
             name = str(getattr(t, "name", ""))
-            tools_payload.append({
-                "tool_name": name,
-                "description": metadata_by_name.get(name, ""),
-                "manifest": _schema_manifest_for_tool(t),
-            })
-            
-        return json.dumps({
-             "type": "tool_search_result",
-             "query": safe_query,
-             "reason": reason,
-             "tools": tools_payload
-        }, ensure_ascii=False)
+            tools_payload.append(
+                {
+                    "tool_name": name,
+                    "description": metadata_by_name.get(name, ""),
+                    "manifest": _schema_manifest_for_tool(t),
+                }
+            )
+
+        return json.dumps(
+            {
+                "type": "tool_search_result",
+                "query": safe_query,
+                "reason": reason,
+                "tools": tools_payload,
+            },
+            ensure_ascii=False,
+        )
 
     for tool_name, tool_obj in runtime_tool_map.items():
         visibility = "fixed" if tool_name in fixed_tool_names else "lazy"
