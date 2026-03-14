@@ -36,6 +36,7 @@ from ..stream import (
     extract_tool_names_from_result,
     extract_tool_trace_events_from_result,
 )
+from .langgraph_route_node import run_policy_route_node
 from .planning_service import build_execution_plan, revise_execution_plan
 from .policy_engine import intercept as intercept_policy
 from .team_runtime import run_team_tasks
@@ -207,8 +208,7 @@ def _persist_team_todo_records(team_execution: TeamExecution) -> str:
     # 删除与本次 plan_id 相同的旧记录（同一次规划，全量替换）
     if current_plan_id:
         existing = [
-            item for item in existing
-            if str(item.get("plan_id") or "").strip() != current_plan_id
+            item for item in existing if str(item.get("plan_id") or "").strip() != current_plan_id
         ]
 
     # 追加本次规划的所有记录
@@ -424,8 +424,7 @@ def _build_final_leader_prompt(
             leader_prompt_parts.append(f"[步骤产物]\n{artifact_summary}")
         if runtime_state is not None and runtime_state.errors:
             leader_prompt_parts.append(
-                "[执行错误]\n"
-                + "\n".join(f"- {item}" for item in runtime_state.errors[-6:])
+                "[执行错误]\n" + "\n".join(f"- {item}" for item in runtime_state.errors[-6:])
             )
         leader_prompt_parts.append("请基于以上已完成步骤产物生成最终回答。")
     if team_execution.summary:
@@ -508,10 +507,7 @@ def _verify_step_answer(
     verification_text = f"{step_title}\n{step_done_when}".strip()
     evidence_items = _extract_step_evidence(normalized, tool_trace_events)
     if "证据" in verification_text:
-        has_evidence_hint = (
-            bool(evidence_items)
-            or "search_document" in normalized_tools
-        )
+        has_evidence_hint = bool(evidence_items) or "search_document" in normalized_tools
         if not has_evidence_hint:
             return False, "missing_evidence"
     return True, "passed"
@@ -742,7 +738,9 @@ def _run_single_agent_plan_steps(
                         "title": step_title,
                         "content": step_result.answer,
                     },
-                    evidence_item=step_result.evidence_items[0] if step_result.evidence_items else None,
+                    evidence_item=step_result.evidence_items[0]
+                    if step_result.evidence_items
+                    else None,
                     budget_usage_delta={"step_calls": 1},
                 )
                 complete_event = _emit_event(
@@ -947,14 +945,10 @@ def execute_orchestrated_turn(
     settings = load_agent_settings()
     policy_router_llm = policy_llm if policy_llm is not None else llm
     resolved_team_members = (
-        settings.agent_team_max_members
-        if max_team_members is None
-        else int(max_team_members)
+        settings.agent_team_max_members if max_team_members is None else int(max_team_members)
     )
     resolved_team_rounds = (
-        settings.agent_team_max_rounds
-        if max_team_rounds is None
-        else int(max_team_rounds)
+        settings.agent_team_max_rounds if max_team_rounds is None else int(max_team_rounds)
     )
     resolved_team_members = max(
         1,
@@ -1001,6 +995,9 @@ def execute_orchestrated_turn(
     )
     current_parent_span = str(policy_event.get("span_id") or current_parent_span)
     policy_decision = _build_leader_first_default_decision(advisory_decision)
+    workflow_mode = run_policy_route_node(advisory_decision)
+    pending_plan_from_policy = workflow_mode == "plan_act"
+    pending_team_from_policy = advisory_decision.team_enabled
 
     plan: ExecutionPlan | None = None
     plan_text = ""
@@ -1018,10 +1015,7 @@ def execute_orchestrated_turn(
 
     pre_final_context = policy_context
     if team_execution.summary:
-        pre_final_context = (
-            f"{pre_final_context}\n\n[团队摘要]\n"
-            f"{team_execution.summary[:1200]}"
-        )
+        pre_final_context = f"{pre_final_context}\n\n[团队摘要]\n{team_execution.summary[:1200]}"
 
     observed_leader_tool_names: set[str] = set()
     aggregated_ask_human_requests: list[dict[str, str]] = []
@@ -1076,8 +1070,12 @@ def execute_orchestrated_turn(
             )
             current_parent_span = str(mode_event.get("span_id") or current_parent_span)
         requested_modes = _requested_modes_from_events(mode_activation_events)
-        should_run_plan = "plan" in requested_modes and plan is None
-        should_run_team = "team" in requested_modes and not team_execution.enabled
+        requested_plan = "plan" in requested_modes and plan is None
+        requested_team = "team" in requested_modes and not team_execution.enabled
+        should_run_plan = pending_plan_from_policy or requested_plan
+        should_run_team = pending_team_from_policy or requested_team
+        pending_plan_from_policy = False
+        pending_team_from_policy = False
         if not should_run_plan and not should_run_team:
             break
         if should_run_plan:
@@ -1096,7 +1094,7 @@ def execute_orchestrated_turn(
                 performative="plan",
                 content=plan_text,
                 parent_span_id=current_parent_span,
-                metadata={"stage": "leader_tool"},
+                metadata={"stage": "policy_route_node" if not requested_plan else "leader_tool"},
                 on_event=on_event,
             )
             current_parent_span = str(plan_event.get("span_id") or current_parent_span)
@@ -1151,13 +1149,14 @@ def execute_orchestrated_turn(
                     logger.info("team todo synced: %s", synced_todo_path)
             except Exception as exc:
                 logger.warning("team todo sync failed: %s", exc)
-        policy_decision = PolicyDecision(
-            plan_enabled=plan is not None,
-            team_enabled=team_execution.enabled,
-            reason="leader requested mode runtime via tool call",
-            confidence=policy_decision.confidence,
-            source="leader_tool",
-        )
+        if requested_plan or requested_team:
+            policy_decision = PolicyDecision(
+                plan_enabled=plan is not None,
+                team_enabled=team_execution.enabled,
+                reason="leader requested mode runtime via tool call",
+                confidence=policy_decision.confidence,
+                source="leader_tool",
+            )
         if final_leader_passes >= 2:
             break
     runtime_state = evolve_plan_runtime_state(
@@ -1179,8 +1178,7 @@ def execute_orchestrated_turn(
     )
 
     replan_rounds = sum(
-        1 for e in trace_payload
-        if isinstance(e, dict) and e.get("performative") == "replan"
+        1 for e in trace_payload if isinstance(e, dict) and e.get("performative") == "replan"
     )
     _log_routing_decision(prompt, policy_decision, team_execution, replan_rounds)
 

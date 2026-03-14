@@ -30,10 +30,8 @@ ROUTER_INSTRUCTION = """
 
 
 def _policy_to_workflow_mode(plan_enabled: bool, team_enabled: bool) -> str:
-    """将 PolicyDecision 的 plan/team 标志映射回三档工作流模式。"""
-    if team_enabled:
-        return WORKFLOW_PLAN_ACT_REPLAN
-    if plan_enabled:
+    """将 PolicyDecision 的 plan/team 标志映射回 `react|plan_act`。"""
+    if plan_enabled or team_enabled:
         return WORKFLOW_PLAN_ACT
     return WORKFLOW_REACT
 
