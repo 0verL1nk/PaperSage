@@ -3,36 +3,36 @@ from typing import Any
 
 from ..domain.request_context import RequestContext
 from ..orchestration.policy_engine import intercept
-from .coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
+from .coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_REACT, WORKFLOW_TEAM
 
 logger = logging.getLogger(__name__)
 
 WORKFLOW_LABELS = {
     WORKFLOW_REACT: "ReAct（Tool+Memory）",
     WORKFLOW_PLAN_ACT: "Plan-Act（A2A协调）",
-    WORKFLOW_PLAN_ACT_REPLAN: "Plan-Act-RePlan（A2A协调）",
+    WORKFLOW_TEAM: "Team（多智能体协作）",
 }
 
 
 ROUTER_INSTRUCTION = """
 你是工作流路由器。请在以下模式中选择最合适的一种：
 - react: 简单问答、单跳检索、快速事实确认
-- plan_act: 中等复杂任务，需要先规划再执行
-- plan_act_replan: 高复杂度任务，需要规划-执行-复核-重规划
+- plan_act: 单智能体规划执行任务
+- team: 多智能体协作任务（可依赖 plan/todo 派发）
 
 判定要求：
 1) 只基于任务结构复杂度、目标数量、约束冲突程度做判断
 2) 不要依赖词面匹配，不要把"专业术语多"误判为高复杂任务
 
 仅返回严格 JSON，不要额外文本：
-{"mode":"react|plan_act|plan_act_replan","reason":"简短原因","confidence":0.0}
+{"mode":"react|plan_act|team","reason":"简短原因","confidence":0.0}
 """
 
 
 def _policy_to_workflow_mode(plan_enabled: bool, team_enabled: bool) -> str:
-    """将 PolicyDecision 的 plan/team 标志映射回三档工作流模式。"""
+    """将 PolicyDecision 的 plan/team 标志映射回 `react|plan_act|team`。"""
     if team_enabled:
-        return WORKFLOW_PLAN_ACT_REPLAN
+        return WORKFLOW_TEAM
     if plan_enabled:
         return WORKFLOW_PLAN_ACT
     return WORKFLOW_REACT

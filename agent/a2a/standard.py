@@ -35,7 +35,11 @@ from a2a.types import (
     UnsupportedOperationError,
 )
 
-from .coordinator import WORKFLOW_PLAN_ACT_REPLAN, A2AMultiAgentCoordinator
+from .coordinator import (
+    WORKFLOW_TEAM,
+    A2AMultiAgentCoordinator,
+    canonicalize_workflow_mode,
+)
 
 JSONRPC_VERSION = "2.0"
 METHOD_MESSAGE_SEND = "message/send"
@@ -188,7 +192,9 @@ def _text_part(text: str) -> dict[str, Any]:
     return _sdk_dump(Part(root=TextPart(text=text)))
 
 
-def _message(role: str, text: str, *, task_id: str | None = None, context_id: str | None = None) -> dict[str, Any]:
+def _message(
+    role: str, text: str, *, task_id: str | None = None, context_id: str | None = None
+) -> dict[str, Any]:
     normalized_role = Role.user if str(role).strip().lower() == "user" else Role.agent
     model = Message(
         role=normalized_role,
@@ -200,7 +206,13 @@ def _message(role: str, text: str, *, task_id: str | None = None, context_id: st
     return _sdk_dump(model)
 
 
-def _task_status(state: str, status_message: str | None = None, *, task_id: str | None = None, context_id: str | None = None) -> dict[str, Any]:
+def _task_status(
+    state: str,
+    status_message: str | None = None,
+    *,
+    task_id: str | None = None,
+    context_id: str | None = None,
+) -> dict[str, Any]:
     model = TaskStatus(
         state=_coerce_task_state(state),
         timestamp=_now_iso(),
@@ -285,9 +297,7 @@ class A2AInMemoryServer:
                     or A2A_VERSION_V03
                 )
                 a2a_version = str(
-                    agent_card.get("a2a_version")
-                    or agent_card.get("a2aVersion")
-                    or A2A_VERSION_V1
+                    agent_card.get("a2a_version") or agent_card.get("a2aVersion") or A2A_VERSION_V1
                 )
                 resolved_versions = _normalize_supported_versions([protocol_version, a2a_version])
         self.supported_versions = resolved_versions
@@ -364,7 +374,9 @@ class A2AInMemoryServer:
         )
         if not isinstance(method, str) or not method.strip():
             return self._jsonrpc_error(request_id, ERR_INVALID_REQUEST, "method must be a string")
-        negotiated_version = self._resolve_a2a_version(request=request, method=method, params=params)
+        negotiated_version = self._resolve_a2a_version(
+            request=request, method=method, params=params
+        )
         if negotiated_version not in self.supported_versions:
             return self._jsonrpc_error(
                 request_id,
@@ -374,7 +386,9 @@ class A2AInMemoryServer:
             )
         canonical_method = self._canonical_method_name(method)
         if canonical_method is None:
-            return self._jsonrpc_error(request_id, ERR_METHOD_NOT_FOUND, f"Unknown method: {method}")
+            return self._jsonrpc_error(
+                request_id, ERR_METHOD_NOT_FOUND, f"Unknown method: {method}"
+            )
 
         try:
             result: Any
@@ -440,7 +454,9 @@ class A2AInMemoryServer:
         if not isinstance(method, str) or not method.strip():
             yield self._jsonrpc_error(request_id, ERR_INVALID_REQUEST, "method must be a string")
             return
-        negotiated_version = self._resolve_a2a_version(request=request, method=method, params=params)
+        negotiated_version = self._resolve_a2a_version(
+            request=request, method=method, params=params
+        )
         if negotiated_version not in self.supported_versions:
             yield self._jsonrpc_error(
                 request_id,
@@ -552,7 +568,9 @@ class A2AInMemoryServer:
         return mapping.get(normalized)
 
     @staticmethod
-    def _jsonrpc_error(request_id: Any, code: int, message: str, data: Any = None) -> dict[str, Any]:
+    def _jsonrpc_error(
+        request_id: Any, code: int, message: str, data: Any = None
+    ) -> dict[str, Any]:
         error = JSONRPCError(code=code, message=message, data=data)
         payload = JSONRPCErrorResponse(id=request_id, error=error)
         return _sdk_dump(payload)
@@ -612,7 +630,11 @@ class A2AInMemoryServer:
             if existing and existing.status.get("state") in TERMINAL_STATES:
                 raise RuntimeError(f"task '{provided_task_id}' is terminal and cannot be restarted")
 
-        task_id = provided_task_id if isinstance(provided_task_id, str) and provided_task_id else str(uuid4())
+        task_id = (
+            provided_task_id
+            if isinstance(provided_task_id, str) and provided_task_id
+            else str(uuid4())
+        )
         context_id = message.context_id
         if not isinstance(context_id, str) or not context_id:
             context_id = str(uuid4())
@@ -623,7 +645,9 @@ class A2AInMemoryServer:
         task = A2ATask(
             id=task_id,
             context_id=context_id,
-            status=_task_status(TASK_STATE_SUBMITTED, "Task submitted", task_id=task_id, context_id=context_id),
+            status=_task_status(
+                TASK_STATE_SUBMITTED, "Task submitted", task_id=task_id, context_id=context_id
+            ),
             history=[user_msg],
             artifacts=[],
             metadata=metadata,
@@ -658,7 +682,9 @@ class A2AInMemoryServer:
 
     def _handle_message_send(self, params: dict[str, Any]) -> dict[str, Any]:
         task, user_text = self._build_or_reuse_task(params)
-        task.status = _task_status(TASK_STATE_WORKING, "Task is running", task_id=task.id, context_id=task.context_id)
+        task.status = _task_status(
+            TASK_STATE_WORKING, "Task is running", task_id=task.id, context_id=task.context_id
+        )
         answer = self.execute_message_fn(user_text)
         return self._finalize_task_with_answer(task, str(answer or ""))
 
@@ -706,7 +732,12 @@ class A2AInMemoryServer:
             raise KeyError(f"task '{task_id}' not found")
         if task.status.get("state") in TERMINAL_STATES:
             return task.to_dict()
-        task.status = _task_status(TASK_STATE_CANCELED, "Task canceled by client", task_id=task_id, context_id=task.context_id)
+        task.status = _task_status(
+            TASK_STATE_CANCELED,
+            "Task canceled by client",
+            task_id=task_id,
+            context_id=task.context_id,
+        )
         return task.to_dict()
 
     def _handle_tasks_resubscribe(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -741,9 +772,7 @@ class A2AInMemoryServer:
                 }
             )
         except Exception as exc:
-            raise ValueError(
-                f"params invalid for tasks/pushNotificationConfig/set: {exc}"
-            ) from exc
+            raise ValueError(f"params invalid for tasks/pushNotificationConfig/set: {exc}") from exc
         task_id = validated.params.task_id
         task = self.tasks.get(task_id)
         if task is None:
@@ -776,9 +805,7 @@ class A2AInMemoryServer:
                 }
             )
         except Exception as exc:
-            raise ValueError(
-                f"params invalid for tasks/pushNotificationConfig/get: {exc}"
-            ) from exc
+            raise ValueError(f"params invalid for tasks/pushNotificationConfig/get: {exc}") from exc
         task_id = validated.params.id
         task = self.tasks.get(task_id)
         if task is None:
@@ -865,7 +892,9 @@ class A2AInMemoryServer:
     def _iter_answer_chunks(self, user_text: str) -> Iterator[str]:
         if callable(self.execute_message_stream_fn):
             try:
-                yield from self._iter_nonempty_text_chunks(self.execute_message_stream_fn(user_text))
+                yield from self._iter_nonempty_text_chunks(
+                    self.execute_message_stream_fn(user_text)
+                )
                 return
             except Exception:
                 pass
@@ -1032,10 +1061,13 @@ class A2AInMemoryServer:
 def build_coordinator_executor(
     coordinator: A2AMultiAgentCoordinator,
     *,
-    workflow_mode: str = WORKFLOW_PLAN_ACT_REPLAN,
+    workflow_mode: str = WORKFLOW_TEAM,
 ) -> Callable[[str], str]:
     def _executor(user_text: str) -> str:
-        answer, _trace = coordinator.run(user_text, workflow_mode=workflow_mode)
+        answer, _trace = coordinator.run(
+            user_text,
+            workflow_mode=canonicalize_workflow_mode(workflow_mode),
+        )
         return answer
 
     return _executor

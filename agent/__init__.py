@@ -17,8 +17,8 @@ from .a2a import (
 )
 from .a2a.coordinator import (
     WORKFLOW_PLAN_ACT,
-    WORKFLOW_PLAN_ACT_REPLAN,
     WORKFLOW_REACT,
+    WORKFLOW_TEAM,
     create_multi_agent_a2a_session,
 )
 from .a2a.router import WORKFLOW_LABELS, auto_select_workflow_mode
@@ -58,7 +58,7 @@ __all__ = [
     "save_agent_output",
     "WORKFLOW_REACT",
     "WORKFLOW_PLAN_ACT",
-    "WORKFLOW_PLAN_ACT_REPLAN",
+    "WORKFLOW_TEAM",
     "WORKFLOW_LABELS",
     "auto_select_workflow_mode",
     "multi_agent_a2a",

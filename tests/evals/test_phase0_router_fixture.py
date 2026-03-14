@@ -2,11 +2,12 @@ import json
 import os
 from pathlib import Path
 
-from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
+from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_REACT
 from agent.a2a.router import auto_select_workflow_mode
 
 FIXTURE_PATH = Path("tests/evals/fixtures/multi_agent_eval_set_v1.jsonl")
-VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
+LEGACY_WORKFLOW_MODE = "plan_act_replan"
+VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, LEGACY_WORKFLOW_MODE}
 
 
 def _load_fixture() -> list[dict]:

@@ -36,15 +36,16 @@ def test_run_react_mode_returns_direct_answer():
     assert [item.performative for item in trace] == ["request", "final"]
     assert isinstance(trace[0].sdk_message, dict)
     assert trace[0].sdk_message["metadata"]["performative"] == "request"
+    assert isinstance(trace[1].sdk_message, dict)
     assert trace[1].sdk_message["metadata"]["performative"] == "final"
     assert react.calls[0][1]["configurable"]["thread_id"] == "s1:react"
 
 
-def test_run_plan_act_mode_skips_review():
+def test_run_plan_act_mode_runs_review():
     react = _FakeAgent([])
     planner = _FakeAgent(["plan-1"])
     researcher = _FakeAgent(["draft-1"])
-    reviewer = _FakeAgent([])
+    reviewer = _FakeAgent(["Decision: PASS\nFeedback: good"])
     coordinator = module.A2AMultiAgentCoordinator(
         react_agent=react,
         planner_agent=planner,
@@ -56,11 +57,11 @@ def test_run_plan_act_mode_skips_review():
     answer, trace = coordinator.run("q", workflow_mode=module.WORKFLOW_PLAN_ACT)
 
     assert answer == "draft-1"
-    assert [item.performative for item in trace] == ["request", "plan", "final"]
-    assert len(reviewer.calls) == 0
+    assert [item.performative for item in trace] == ["request", "plan", "draft", "review", "final"]
+    assert len(reviewer.calls) == 1
 
 
-def test_run_plan_act_replan_with_revision():
+def test_run_plan_act_with_revision():
     react = _FakeAgent([])
     planner = _FakeAgent(["plan-1", "plan-2"])
     researcher = _FakeAgent(["draft-1", "draft-2"])
@@ -73,7 +74,7 @@ def test_run_plan_act_replan_with_revision():
         session_id="s3",
     )
 
-    answer, trace = coordinator.run("q", workflow_mode=module.WORKFLOW_PLAN_ACT_REPLAN)
+    answer, trace = coordinator.run("q", workflow_mode=module.WORKFLOW_PLAN_ACT)
 
     assert answer == "draft-2"
     performatives = [item.performative for item in trace]
@@ -83,7 +84,7 @@ def test_run_plan_act_replan_with_revision():
     assert performatives.count("review") >= 2
 
 
-def test_run_plan_act_replan_passes_without_replan():
+def test_run_plan_act_passes_without_replan():
     react = _FakeAgent([])
     planner = _FakeAgent(["plan-1"])
     researcher = _FakeAgent(["draft-1"])
@@ -96,7 +97,7 @@ def test_run_plan_act_replan_passes_without_replan():
         session_id="s4",
     )
 
-    answer, trace = coordinator.run("q", workflow_mode=module.WORKFLOW_PLAN_ACT_REPLAN)
+    answer, trace = coordinator.run("q", workflow_mode=module.WORKFLOW_PLAN_ACT)
 
     assert answer == "draft-1"
     assert [item.performative for item in trace] == [
@@ -121,7 +122,7 @@ def test_run_accepts_structured_plan_and_review_json():
         session_id="s4-json",
     )
 
-    answer, trace = coordinator.run("q", workflow_mode=module.WORKFLOW_PLAN_ACT_REPLAN)
+    answer, trace = coordinator.run("q", workflow_mode=module.WORKFLOW_PLAN_ACT)
 
     assert answer == "draft-1"
     assert trace[1].performative == "plan"
@@ -143,7 +144,7 @@ def test_run_defaults_to_revise_when_reviewer_output_is_unstructured():
         session_id="s4-unsafe",
     )
 
-    answer, trace = coordinator.run("q", workflow_mode=module.WORKFLOW_PLAN_ACT_REPLAN)
+    answer, trace = coordinator.run("q", workflow_mode=module.WORKFLOW_PLAN_ACT)
 
     assert answer == "draft-2"
     performatives = [item.performative for item in trace]
@@ -154,7 +155,7 @@ def test_run_uses_default_plan_when_planner_returns_invalid_json():
     react = _FakeAgent([])
     planner = _FakeAgent(['{"steps":["only one"]}'])
     researcher = _FakeAgent(["draft-1"])
-    reviewer = _FakeAgent([])
+    reviewer = _FakeAgent(["Decision: PASS\nFeedback: good"])
     coordinator = module.A2AMultiAgentCoordinator(
         react_agent=react,
         planner_agent=planner,
@@ -186,7 +187,7 @@ def test_run_emits_dispatch_events_via_callback():
 
     coordinator.run(
         "q",
-        workflow_mode=module.WORKFLOW_PLAN_ACT_REPLAN,
+        workflow_mode=module.WORKFLOW_PLAN_ACT,
         on_event=lambda item: callbacks.append(item.performative),
     )
 

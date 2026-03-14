@@ -7,8 +7,8 @@ import pytest
 
 from agent.a2a.coordinator import (
     WORKFLOW_PLAN_ACT,
-    WORKFLOW_PLAN_ACT_REPLAN,
     WORKFLOW_REACT,
+    WORKFLOW_TEAM,
     create_multi_agent_a2a_session,
 )
 from agent.a2a.router import auto_select_workflow_mode
@@ -17,6 +17,8 @@ from agent.llm_provider import build_openai_compatible_chat_model
 from agent.paper_agent import create_paper_agent_session
 from agent.stream import iter_agent_response_deltas
 from utils.utils import extract_json_string
+
+LEGACY_WORKFLOW_MODE = "plan_act_replan"
 
 
 def _load_env_file(env_path: Path) -> None:
@@ -47,10 +49,7 @@ def _build_live_llm(
 
 
 def _doc_search(_query: str) -> str:
-    return (
-        "文档记录：代号是 ORBIT-427。"
-        "方法A在精度方面更好，方法B在速度方面更快。"
-    )
+    return "文档记录：代号是 ORBIT-427。方法A在精度方面更好，方法B在速度方面更快。"
 
 
 def _collect_answer(session, prompt: str) -> str:
@@ -156,7 +155,7 @@ def test_live_router_roundtrip(live_config: dict[str, str]) -> None:
         "请比较两种方法的优缺点并给出 trade-off 建议。",
         coordinator=a2a.coordinator,
     )
-    assert mode in {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
+    assert mode in {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_TEAM}
     assert reason
 
 
@@ -196,7 +195,7 @@ def test_live_a2a_plan_act_replan_mode_roundtrip(
     )
     answer, trace = a2a.coordinator.run(
         "请先规划、执行、复核后回答：对比方法A和方法B并给出代号。",
-        workflow_mode=WORKFLOW_PLAN_ACT_REPLAN,
+        workflow_mode=LEGACY_WORKFLOW_MODE,
     )
     assert answer
 
@@ -208,9 +207,7 @@ def test_live_a2a_plan_act_replan_mode_roundtrip(
     assert performatives[-1] == "final"
 
 
-def test_live_mindmap_and_archive_roundtrip(
-    live_config: dict[str, str], tmp_path: Path
-) -> None:
+def test_live_mindmap_and_archive_roundtrip(live_config: dict[str, str], tmp_path: Path) -> None:
     session = create_paper_agent_session(
         llm=_build_live_llm(live_config),
         search_document_fn=_doc_search,

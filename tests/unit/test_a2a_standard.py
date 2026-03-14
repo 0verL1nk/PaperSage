@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from agent.a2a.standard import (
     A2A_VERSION_HEADER,
     METHOD_CANCEL_TASK,
@@ -16,6 +18,7 @@ from agent.a2a.standard import (
     build_agent_card,
     build_coordinator_executor,
 )
+from agent.a2a.coordinator import WORKFLOW_TEAM
 
 
 def test_build_agent_card_contains_core_fields():
@@ -181,10 +184,44 @@ def test_build_coordinator_executor_uses_run_with_mode():
             return "ok", []
 
     coordinator = _FakeCoordinator()
-    executor = build_coordinator_executor(coordinator, workflow_mode="plan_act")
+    executor = build_coordinator_executor(cast(Any, coordinator), workflow_mode="plan_act")
     result = executor("q")
     assert result == "ok"
     assert coordinator.calls == [("q", "plan_act")]
+
+
+def test_build_coordinator_executor_canonicalizes_legacy_mode_string():
+    class _FakeCoordinator:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, question, workflow_mode):
+            self.calls.append((question, workflow_mode))
+            return "ok", []
+
+    coordinator = _FakeCoordinator()
+    executor = build_coordinator_executor(cast(Any, coordinator), workflow_mode="plan_act_replan")
+    result = executor("q")
+
+    assert result == "ok"
+    assert coordinator.calls == [("q", "plan_act")]
+
+
+def test_build_coordinator_executor_defaults_to_team_mode():
+    class _FakeCoordinator:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, question, workflow_mode):
+            self.calls.append((question, workflow_mode))
+            return "ok", []
+
+    coordinator = _FakeCoordinator()
+    executor = build_coordinator_executor(cast(Any, coordinator))
+    result = executor("q")
+
+    assert result == "ok"
+    assert coordinator.calls == [("q", WORKFLOW_TEAM)]
 
 
 def test_v1_send_get_cancel_roundtrip():

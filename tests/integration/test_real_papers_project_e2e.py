@@ -6,12 +6,14 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from agent.a2a.coordinator import WORKFLOW_PLAN_ACT_REPLAN, create_multi_agent_a2a_session
+from agent.a2a.coordinator import create_multi_agent_a2a_session
 from agent.adapters.document import extract_document_payload
 from agent.adapters.rag import create_project_evidence_retriever
 from agent.application.turn_engine import execute_turn_core
 from agent.llm_provider import build_openai_compatible_chat_model
 from agent.paper_agent import create_paper_agent_session
+
+LEGACY_WORKFLOW_MODE = "plan_act_replan"
 
 REAL_PAPER_SOURCES: tuple[dict[str, str], ...] = (
     {
@@ -229,9 +231,7 @@ def test_real_papers_project_retrieval_hits_multiple_documents(
     assert isinstance(evidences, list)
     assert len(evidences) >= 2
     hit_doc_uids = {
-        str(item.get("doc_uid") or "").strip()
-        for item in evidences
-        if isinstance(item, dict)
+        str(item.get("doc_uid") or "").strip() for item in evidences if isinstance(item, dict)
     }
     hit_doc_uids.discard("")
     assert len(hit_doc_uids) >= 2
@@ -268,9 +268,7 @@ def test_real_papers_turn_engine_live_end_to_end(
     evidence_items = result["evidence_items"]
     assert isinstance(evidence_items, list) and evidence_items
     hit_doc_uids = {
-        str(item.get("doc_uid") or "").strip()
-        for item in evidence_items
-        if isinstance(item, dict)
+        str(item.get("doc_uid") or "").strip() for item in evidence_items if isinstance(item, dict)
     }
     hit_doc_uids.discard("")
     assert len(hit_doc_uids) >= 2
@@ -295,13 +293,12 @@ def test_real_papers_a2a_team_live_end_to_end(
         search_document_fn=live_real_scenario.search_document_fn,
         search_document_evidence_fn=live_real_scenario.search_document_evidence_fn,
         context_hint=(
-            "当前项目包含 3 篇论文："
-            "arxiv:1706.03762, arxiv:2005.11401, arxiv:2201.11903。"
+            "当前项目包含 3 篇论文：arxiv:1706.03762, arxiv:2005.11401, arxiv:2201.11903。"
         ),
     )
     answer, trace = a2a.coordinator.run(
         "请做一个多智能体协作结论：比较三篇论文关系，并给出一个真实项目落地建议。",
-        workflow_mode=WORKFLOW_PLAN_ACT_REPLAN,
+        workflow_mode=LEGACY_WORKFLOW_MODE,
         max_replan_rounds=1,
     )
 

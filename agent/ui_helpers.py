@@ -16,11 +16,19 @@ from .domain.trace import phase_label_from_performative, phase_summary
 from .metrics import create_session_metrics, summarize_session_metrics
 from .mindmap_renderer import render_mindmap_html_with_cli
 
-LEGACY_WORKFLOW_LABELS = {
+WORKFLOW_LABELS = {
     "react": "ReAct（Tool+Memory）",
     "plan_act": "Plan-Act（A2A协调）",
-    "plan_act_replan": "Plan-Act-RePlan（A2A协调）",
+    "team": "Team（多智能体协作）",
 }
+
+
+def _canonicalize_workflow_mode(workflow_mode: str) -> str:
+    normalized = str(workflow_mode or "").strip().lower()
+    if normalized == "plan_act_replan":
+        return "plan_act"
+    return normalized
+
 
 _MINDMAP_HEIGHT_RE = re.compile(
     r"#mindmap\s*\{[^}]*height:\s*(\d+)px",
@@ -893,7 +901,8 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
             else:
                 workflow_mode = message.get("workflow_mode")
                 if isinstance(workflow_mode, str):
-                    label = LEGACY_WORKFLOW_LABELS.get(workflow_mode, workflow_mode)
+                    canonical_mode = _canonicalize_workflow_mode(workflow_mode)
+                    label = WORKFLOW_LABELS.get(canonical_mode, canonical_mode)
                     reason = message.get("workflow_reason") or ""
                     reason_chip = (
                         f"<span class='llm-chip'>{reason}</span>"

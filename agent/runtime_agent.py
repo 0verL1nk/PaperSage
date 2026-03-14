@@ -2,7 +2,6 @@ from collections.abc import Callable
 from typing import Any
 
 from langchain.agents import create_agent
-from langgraph.checkpoint.memory import InMemorySaver
 
 from .capabilities import (
     build_agent_tools,
@@ -54,12 +53,14 @@ def create_runtime_agent(
     tools: list[Any],
     checkpointer: Any | None = None,
 ) -> Any:
+    from agent.orchestration.checkpointer import create_checkpointer
+
     middleware = build_progressive_tool_middleware(tools)
     create_kwargs: dict[str, Any] = {
         "model": model,
         "tools": tools,
         "system_prompt": system_prompt,
-        "checkpointer": checkpointer if checkpointer is not None else InMemorySaver(),
+        "checkpointer": checkpointer if checkpointer is not None else create_checkpointer("sqlite"),
     }
     if middleware:
         create_kwargs["middleware"] = middleware

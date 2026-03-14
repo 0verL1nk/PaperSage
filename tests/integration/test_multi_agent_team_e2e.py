@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from agent.a2a.coordinator import WORKFLOW_PLAN_ACT_REPLAN, A2AMultiAgentCoordinator
+from agent.a2a.coordinator import A2AMultiAgentCoordinator
 from agent.a2a.standard import (
     A2A_VERSION_HEADER,
     METHOD_SEND_MESSAGE,
@@ -10,6 +10,8 @@ from agent.a2a.standard import (
 )
 from agent.application.turn_engine import execute_turn_core
 from agent.domain.orchestration import TeamRole
+
+LEGACY_WORKFLOW_MODE = "plan_act_replan"
 
 
 class _FakeLeaderAgent:
@@ -143,7 +145,7 @@ def test_multi_agent_server_replan_pipeline_end_to_end():
         ),
         execute_message_fn=build_coordinator_executor(
             coordinator,
-            workflow_mode=WORKFLOW_PLAN_ACT_REPLAN,
+            workflow_mode=LEGACY_WORKFLOW_MODE,
         ),
     )
 
