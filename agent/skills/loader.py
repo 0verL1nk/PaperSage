@@ -13,9 +13,26 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agent.domain.openviking_contracts import (
+    OpenVikingAdapter,
+    OpenVikingReadRequest,
+    OpenVikingSearchRequest,
+)
+
 logger = logging.getLogger(__name__)
 
 _TASK_TOKEN_PATTERN = re.compile(r"[a-z0-9_\-\u4e00-\u9fff]+")
+_SKILLS_REFERENCE_NAMESPACE = "skills_reference"
+_SKILLS_PROJECT_UID = "skills"
+_REFERENCE_INGEST_MAX_CHARS = 200000
+
+
+def get_openviking_adapter() -> OpenVikingAdapter:
+    from agent.adapters.openviking_runtime import (
+        get_openviking_adapter as _get_openviking_adapter,
+    )
+
+    return _get_openviking_adapter()
 
 
 @dataclass(frozen=True)
@@ -220,34 +237,20 @@ def build_skill_runtime_payload(
     if skill is None:
         return None
 
-    references = skill.resources.references
-    task_terms = _task_terms(task)
-    ranked_references = sorted(
-        references,
-        key=lambda path: (_score_reference(path, task_terms), path.name),
-        reverse=True,
+    selected_references = _load_skill_references_from_openviking(
+        skill=skill,
+        task=task,
+        max_references=max_references,
+        reference_char_limit=reference_char_limit,
     )
-    if ranked_references and _score_reference(ranked_references[0], task_terms) <= 0:
-        ranked_references = sorted(references, key=lambda item: item.name)
-    selected_references = ranked_references[: max(0, int(max_references))]
 
     payload: dict[str, Any] = {
         "name": skill.name,
         "description": skill.description,
         "instructions": skill.instructions,
-        "references": [
-            {
-                "path": _relative_text(path, skill.skill_path),
-                "content": _read_reference_excerpt(path, max(1, int(reference_char_limit))),
-            }
-            for path in selected_references
-        ],
-        "scripts": [
-            _relative_text(path, skill.skill_path) for path in skill.resources.scripts
-        ],
-        "assets": [
-            _relative_text(path, skill.skill_path) for path in skill.resources.assets
-        ],
+        "references": selected_references,
+        "scripts": [_relative_text(path, skill.skill_path) for path in skill.resources.scripts],
+        "assets": [_relative_text(path, skill.skill_path) for path in skill.resources.assets],
     }
     if skill.resources.agent_metadata is not None:
         payload["agent_metadata"] = _relative_text(
@@ -255,3 +258,69 @@ def build_skill_runtime_payload(
             skill.skill_path,
         )
     return payload
+
+
+def _load_skill_references_from_openviking(
+    *,
+    skill: Skill,
+    task: str,
+    max_references: int,
+    reference_char_limit: int,
+) -> list[dict[str, str]]:
+    adapter = get_openviking_adapter()
+    _ingest_skill_references(
+        adapter=adapter,
+        skill=skill,
+        reference_char_limit=reference_char_limit,
+    )
+    max_items = max(0, int(max_references))
+    if max_items <= 0:
+        return []
+    query_text = f"{skill.name} {str(task or '').strip()}".strip()
+    hits = adapter.search(
+        OpenVikingSearchRequest(
+            project_uid=_SKILLS_PROJECT_UID,
+            query=query_text,
+            top_k=max_items,
+        )
+    )
+    selected: list[dict[str, str]] = []
+    for hit in hits:
+        metadata = hit.metadata
+        if str(metadata.get("namespace") or "").strip() != _SKILLS_REFERENCE_NAMESPACE:
+            continue
+        if str(metadata.get("skill_name") or "").strip() != skill.name:
+            continue
+        path_text = str(metadata.get("path") or "").strip()
+        if not path_text:
+            continue
+        read_result = adapter.read(OpenVikingReadRequest(resource_id=hit.resource_id))
+        selected.append({"path": path_text, "content": read_result.content})
+        if len(selected) >= max_items:
+            break
+    return selected
+
+
+def _ingest_skill_references(
+    *,
+    adapter: OpenVikingAdapter,
+    skill: Skill,
+    reference_char_limit: int,
+) -> None:
+    for reference in skill.resources.references:
+        content = _read_reference_excerpt(
+            reference,
+            min(_REFERENCE_INGEST_MAX_CHARS, max(1, int(reference_char_limit))),
+        )
+        if not content:
+            continue
+        metadata: dict[str, object] = {
+            "namespace": _SKILLS_REFERENCE_NAMESPACE,
+            "skill_name": skill.name,
+            "path": _relative_text(reference, skill.skill_path),
+        }
+        _ = adapter.add_resource(
+            project_uid=_SKILLS_PROJECT_UID,
+            content=content,
+            metadata=metadata,
+        )

@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  openviking:
+    image: ${VIKING_IMAGE:-ghcr.io/open-viking/openviking:latest}
+    container_name: openviking
+    ports:
+      - "${VIKING_PORT:-8080}:8080"
+    volumes:
+      - ./configs/openviking.yaml:/app/configs/openviking.yaml:ro
+      - ./.cache/openviking:/var/lib/openviking
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_MODEL_NAME: ${OPENAI_MODEL_NAME:-}
+    command:
+      - --config
+      - /app/configs/openviking.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped

@@ -228,6 +228,14 @@ papersage
 
 浏览器访问 `http://localhost:8501`，在 **⚙️ 设置中心** 填写 API Key 和模型名称即可开始使用。
 
+`paper-sage` / `papersage` 现已集成 OpenViking 启动流程：
+- 先探测 `VIKING_BASE_URL`（默认 `http://localhost:8080`）的 `/health`。
+- 若健康检查失败，会检查本地 `openviking` 包和 `openviking-server` 二进制是否可用。
+- 若不可用，将快速失败并给出可执行的错误提示（不再执行运行时安装）。
+- 若可用，自动尝试在当前 CLI 环境拉起本地 `openviking-server` 进程（不依赖 Docker）。
+- 若 `openviking-server` 缺失或健康检查超时，会快速失败并给出可执行的错误提示。
+- 由 CLI 当前进程拉起的 `openviking-server` 会在 PaperSage 正常退出或收到退出信号时自动回收，不会影响已存在的外部 OpenViking 服务。
+
 ---
 
 ### 方式二：克隆源码本地启动
@@ -241,8 +249,10 @@ cd PaperSage
 uv sync --no-install-project
 
 # 启动应用
-streamlit run main.py
+make run
 ```
+
+`make run` 会调用 `paper-sage`，与打包后的命令行为一致（同样支持自动探测/拉起本地 OpenViking）。
 
 ### 方式三：Docker 部署
 
@@ -330,6 +340,9 @@ AGENT_PROJECT_INDEX_CACHE_DIR=./.cache/project_indexes
 
 # 日志
 APP_LOG_LEVEL=INFO
+
+# OpenViking（一键启动）
+VIKING_BASE_URL=http://localhost:8080
 ```
 
 </details>

@@ -1,5 +1,7 @@
 from typing import Any
 
+from .memory import query_turn_memory
+
 PROMPT_LAYOUT_VERSION = "CTXv1"
 PROMPT_INVENTORY_TAG = "I"
 PROMPT_SUMMARY_TAG = "S"
@@ -57,7 +59,7 @@ def build_hinted_prompt(
     detect_language_fn,
     with_language_hint_fn,
     inject_compact_summary_fn,
-    search_project_memory_items_fn,
+    search_project_memory_items_fn=None,
     inject_long_term_memory_fn,
     tool_specs: list[dict[str, Any]] | None = None,
     skill_names: list[str] | None = None,
@@ -75,12 +77,19 @@ def build_hinted_prompt(
         prompt_with_language=str(prompt_with_language or base_prompt),
     )
 
-    long_term_memories = search_project_memory_items_fn(
+    search_fn = (
+        search_project_memory_items_fn
+        if callable(search_project_memory_items_fn)
+        else query_turn_memory
+    )
+    long_term_memories = search_fn(
         uuid=user_uuid,
         project_uid=project_uid,
         query=base_prompt,
         limit=memory_limit,
     )
+    if not isinstance(long_term_memories, list):
+        long_term_memories = []
     compact_summary_text = _collapse_inline_text(compact_summary, limit=1400)
     memory_text = _serialize_memory_items(long_term_memories, max_chars=1600)
     language_text = _normalize_language_note(language_note)
@@ -186,11 +195,7 @@ def _serialize_tool_names(
     if not isinstance(tool_specs, list):
         return ""
     names = sorted(
-        {
-            str(item.get("name") or "").strip()
-            for item in tool_specs
-            if isinstance(item, dict)
-        }
+        {str(item.get("name") or "").strip() for item in tool_specs if isinstance(item, dict)}
     )
     names = [name for name in names if name]
     if not names:

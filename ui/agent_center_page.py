@@ -192,7 +192,6 @@ def run_agent_center_page() -> None:
     logger = logging.getLogger("llm_app.agent_center")
     MODE_LEADER = "leader"
 
-
     st.set_page_config(page_title="Agent 中心", page_icon="🤖")
     st.title("🤖 Agent 中心")
     inject_global_theme()
@@ -207,7 +206,6 @@ def run_agent_center_page() -> None:
         },
     )
 
-
     def _drop_agent_session_cache(project_uid: str, session_uid: str) -> None:
         drop_agent_session_cache_state(
             session_state=st.session_state,
@@ -217,7 +215,6 @@ def run_agent_center_page() -> None:
             session_uid=session_uid,
         )
 
-
     def _drop_conversation_cache(project_uid: str, session_uid: str) -> None:
         drop_conversation_cache_state(
             session_state=st.session_state,
@@ -225,7 +222,6 @@ def run_agent_center_page() -> None:
             project_uid=project_uid,
             session_uid=session_uid,
         )
-
 
     def _persist_active_conversation(
         *,
@@ -243,7 +239,6 @@ def run_agent_center_page() -> None:
             session_uid=session_uid,
             conversation_key=conversation_key,
         )
-
 
     def _ensure_conversation_messages(
         *,
@@ -268,7 +263,6 @@ def run_agent_center_page() -> None:
             scope_docs_count=scope_docs_count,
         )
 
-
     def _ensure_compact_summary(
         *,
         user_uuid: str,
@@ -284,7 +278,6 @@ def run_agent_center_page() -> None:
             session_uid=session_uid,
             conversation_key=conversation_key,
         )
-
 
     has_cached_agent_session_fn = partial(
         has_cached_agent_session,
@@ -364,7 +357,6 @@ def run_agent_center_page() -> None:
         apply_auto_compact_state_fn=apply_auto_compact_state,
     )
 
-
     def main():
         user_uuid = st.session_state.get("uuid", "local-user")
         applied_runtime_env = apply_runtime_tuning_env_for_user(uuid=user_uuid)
@@ -383,12 +375,12 @@ def run_agent_center_page() -> None:
         )
         if prerequisite_error == "missing_api_key":
             st.warning("⚠️ 请先在“设置中心”页面配置您的 API Key")
-            st.info('💡 请前往页面“设置中心（2_⚙️_设置中心）”完成配置后刷新。')
+            st.info("💡 请前往页面“设置中心（2_⚙️_设置中心）”完成配置后刷新。")
             logger.warning("Agent center blocked: missing API key")
             return
         if prerequisite_error == "missing_model_name":
             st.warning("⚠️ 请先在“设置中心”页面配置模型名称")
-            st.info('💡 请前往页面“设置中心（2_⚙️_设置中心）”完成配置后刷新。')
+            st.info("💡 请前往页面“设置中心（2_⚙️_设置中心）”完成配置后刷新。")
             logger.warning("Agent center blocked: missing model name")
             return
 
@@ -715,7 +707,6 @@ def run_agent_center_page() -> None:
         )
         update_context_usage_fn(selected_project_uid, conversation_key)
         st.rerun()
-
 
     initialize_agent_center_session_state()
 

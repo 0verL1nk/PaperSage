@@ -19,7 +19,7 @@ from .conversation_state import (
     update_context_usage,
 )
 from .keys import conversation_key, scope_signature, session_key
-from .memory import persist_turn_memory
+from .memory import persist_turn_memory, query_turn_memory
 from .page_orchestrator import (
     ArchivePayload,
     PromptGateResult,
@@ -69,6 +69,7 @@ __all__ = [
     "with_language_hint",
     "build_routing_context",
     "persist_turn_memory",
+    "query_turn_memory",
     "ScopeRuntimeResult",
     "PromptGateResult",
     "TurnExecutionContext",

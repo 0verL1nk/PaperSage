@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from agent.application.agent_center.keys import conversation_key, scope_signature, session_key
-from agent.application.agent_center.memory import persist_turn_memory
+from agent.application.agent_center.memory import persist_turn_memory, query_turn_memory
 from agent.application.agent_center.prompting import build_routing_context, with_language_hint
 
 
@@ -62,7 +62,15 @@ def test_build_routing_context_keeps_stable_prefix_under_limit(monkeypatch):
     )
     context = build_routing_context(
         [
-            {"role": "assistant", "content": "A", "policy_decision": {"plan_enabled": True, "team_enabled": True, "reason": "long reason"}},
+            {
+                "role": "assistant",
+                "content": "A",
+                "policy_decision": {
+                    "plan_enabled": True,
+                    "team_enabled": True,
+                    "reason": "long reason",
+                },
+            },
             {"role": "user", "content": "Q1 " * 30},
             {"role": "assistant", "content": "A1 " * 30},
             {"role": "user", "content": "Q2 " * 30},
@@ -77,6 +85,14 @@ def test_build_routing_context_keeps_stable_prefix_under_limit(monkeypatch):
 
 def test_persist_turn_memory(monkeypatch):
     captured = {}
+
+    class _FakeAdapter:
+        def add_resource(self, *, project_uid, content, metadata=None):
+            captured["project_uid"] = project_uid
+            captured["content"] = content
+            captured["metadata"] = metadata or {}
+            return "res-memory-1"
+
     monkeypatch.setattr(
         "agent.application.agent_center.memory.classify_turn_memory_type",
         lambda _q, _a: "semantic",
@@ -86,8 +102,8 @@ def test_persist_turn_memory(monkeypatch):
         lambda _t: "2099-01-01T00:00:00",
     )
     monkeypatch.setattr(
-        "agent.application.agent_center.memory.upsert_project_memory_item",
-        lambda **kwargs: captured.update(kwargs),
+        "agent.application.agent_center.memory.get_openviking_adapter",
+        lambda: _FakeAdapter(),
     )
     persist_turn_memory(
         user_uuid="u1",
@@ -96,6 +112,50 @@ def test_persist_turn_memory(monkeypatch):
         prompt="question",
         answer="answer",
     )
-    assert captured["uuid"] == "u1"
     assert captured["project_uid"] == "p1"
-    assert captured["session_uid"] == "s1"
+    assert "Q: question\nA: answer" in captured["content"]
+    assert captured["metadata"]["namespace"] == "memory"
+    assert captured["metadata"]["user_uuid"] == "u1"
+    assert captured["project_uid"] == "p1"
+    assert captured["metadata"]["session_uid"] == "s1"
+
+
+def test_query_turn_memory_uses_openviking_hits(monkeypatch):
+    class _FakeHit:
+        def __init__(self, *, content, score, metadata):
+            self.content = content
+            self.score = score
+            self.metadata = metadata
+
+    class _FakeAdapter:
+        def search(self, request):
+            assert request.project_uid == "p1"
+            assert request.query == "method"
+            return [
+                _FakeHit(
+                    content="A",
+                    score=0.9,
+                    metadata={"namespace": "memory", "memory_type": "semantic", "user_uuid": "u1"},
+                ),
+                _FakeHit(
+                    content="B",
+                    score=0.8,
+                    metadata={"namespace": "rag", "memory_type": "semantic", "user_uuid": "u1"},
+                ),
+            ]
+
+    monkeypatch.setattr(
+        "agent.application.agent_center.memory.get_openviking_adapter",
+        lambda: _FakeAdapter(),
+    )
+
+    items = query_turn_memory(
+        uuid="u1",
+        project_uid="p1",
+        query="method",
+        limit=3,
+    )
+
+    assert len(items) == 1
+    assert items[0]["memory_type"] == "semantic"
+    assert items[0]["content"] == "A"

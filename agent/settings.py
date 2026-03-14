@@ -54,6 +54,10 @@ DEFAULT_AGENT_POLICY_ASYNC_REFRESH_SECONDS = 4.0
 DEFAULT_AGENT_POLICY_ASYNC_MIN_CONFIDENCE = 0.6
 DEFAULT_AGENT_POLICY_ASYNC_MAX_STALENESS_SECONDS = 20.0
 DEFAULT_AGENT_LLM_REQUEST_TIMEOUT = 120.0
+DEFAULT_VIKING_BASE_URL = "http://localhost:8080"
+DEFAULT_VIKING_TIMEOUT_SECONDS = 3.0
+DEFAULT_VIKING_MAX_RETRIES = 2
+DEFAULT_VIKING_RETRY_BACKOFF_SECONDS = 0.2
 
 
 @dataclass(frozen=True)
@@ -111,6 +115,10 @@ class AgentSettings:
     agent_policy_async_min_confidence: float
     agent_policy_async_max_staleness_seconds: float
     agent_llm_request_timeout: float
+    viking_base_url: str = DEFAULT_VIKING_BASE_URL
+    viking_timeout_seconds: float = DEFAULT_VIKING_TIMEOUT_SECONDS
+    viking_max_retries: int = DEFAULT_VIKING_MAX_RETRIES
+    viking_retry_backoff_seconds: float = DEFAULT_VIKING_RETRY_BACKOFF_SECONDS
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -136,9 +144,7 @@ def load_agent_settings() -> AgentSettings:
         openai_compatible_base_url=os.getenv(
             "OPENAI_COMPATIBLE_BASE_URL", DEFAULT_OPENAI_COMPATIBLE_BASE_URL
         ),
-        local_embedding_model=os.getenv(
-            "LOCAL_RAG_EMBEDDING_MODEL", DEFAULT_LOCAL_EMBEDDING_MODEL
-        ),
+        local_embedding_model=os.getenv("LOCAL_RAG_EMBEDDING_MODEL", DEFAULT_LOCAL_EMBEDDING_MODEL),
         local_embedding_fallback_model=os.getenv(
             "LOCAL_RAG_EMBEDDING_FALLBACK_MODEL",
             DEFAULT_LOCAL_EMBEDDING_FALLBACK_MODEL,
@@ -148,23 +154,33 @@ def load_agent_settings() -> AgentSettings:
         ),
         rag_chunk_size=_env_int("LOCAL_RAG_CHUNK_SIZE", DEFAULT_RAG_CHUNK_SIZE),
         rag_chunk_overlap=_env_int("LOCAL_RAG_CHUNK_OVERLAP", DEFAULT_RAG_CHUNK_OVERLAP),
-        rag_dense_candidate_k=_env_int("LOCAL_RAG_DENSE_CANDIDATE_K", DEFAULT_RAG_DENSE_CANDIDATE_K),
-        rag_sparse_candidate_k=_env_int("LOCAL_RAG_SPARSE_CANDIDATE_K", DEFAULT_RAG_SPARSE_CANDIDATE_K),
+        rag_dense_candidate_k=_env_int(
+            "LOCAL_RAG_DENSE_CANDIDATE_K", DEFAULT_RAG_DENSE_CANDIDATE_K
+        ),
+        rag_sparse_candidate_k=_env_int(
+            "LOCAL_RAG_SPARSE_CANDIDATE_K", DEFAULT_RAG_SPARSE_CANDIDATE_K
+        ),
         rag_rrf_candidate_k=_env_int("LOCAL_RAG_RRF_CANDIDATE_K", DEFAULT_RAG_RRF_CANDIDATE_K),
-        rag_rerank_candidate_k=_env_int("LOCAL_RAG_RERANK_CANDIDATE_K", DEFAULT_RAG_RERANK_CANDIDATE_K),
+        rag_rerank_candidate_k=_env_int(
+            "LOCAL_RAG_RERANK_CANDIDATE_K", DEFAULT_RAG_RERANK_CANDIDATE_K
+        ),
         rag_top_k=_env_int("LOCAL_RAG_TOP_K", DEFAULT_RAG_TOP_K),
         rag_rerank_enabled=_env_bool("LOCAL_RAG_RERANK_ENABLED", DEFAULT_RAG_RERANK_ENABLED),
-        rag_project_max_chars=_env_int("LOCAL_RAG_PROJECT_MAX_CHARS", DEFAULT_RAG_PROJECT_MAX_CHARS),
-        rag_project_max_chunks=_env_int("LOCAL_RAG_PROJECT_MAX_CHUNKS", DEFAULT_RAG_PROJECT_MAX_CHUNKS),
+        rag_project_max_chars=_env_int(
+            "LOCAL_RAG_PROJECT_MAX_CHARS", DEFAULT_RAG_PROJECT_MAX_CHARS
+        ),
+        rag_project_max_chunks=_env_int(
+            "LOCAL_RAG_PROJECT_MAX_CHUNKS", DEFAULT_RAG_PROJECT_MAX_CHUNKS
+        ),
         rag_project_rerank_enabled=_env_bool(
             "LOCAL_RAG_PROJECT_RERANK_ENABLED",
             DEFAULT_RAG_PROJECT_RERANK_ENABLED,
         ),
-        rag_rerank_model=os.getenv(
-            "LOCAL_RAG_RERANK_MODEL", DEFAULT_RAG_RERANK_MODEL
-        ),
+        rag_rerank_model=os.getenv("LOCAL_RAG_RERANK_MODEL", DEFAULT_RAG_RERANK_MODEL),
         rag_hybrid_enabled=_env_bool("LOCAL_RAG_HYBRID_ENABLED", DEFAULT_RAG_HYBRID_ENABLED),
-        rag_neighbor_expansion=_env_bool("LOCAL_RAG_NEIGHBOR_EXPANSION", DEFAULT_RAG_NEIGHBOR_EXPANSION),
+        rag_neighbor_expansion=_env_bool(
+            "LOCAL_RAG_NEIGHBOR_EXPANSION", DEFAULT_RAG_NEIGHBOR_EXPANSION
+        ),
         rag_neighbor_count=_env_int("LOCAL_RAG_NEIGHBOR_COUNT", DEFAULT_RAG_NEIGHBOR_COUNT),
         rag_query_preprocess_enabled=_env_bool(
             "LOCAL_RAG_QUERY_PREPROCESS_ENABLED",
@@ -302,6 +318,21 @@ def load_agent_settings() -> AgentSettings:
             _env_float(
                 "AGENT_LLM_REQUEST_TIMEOUT",
                 DEFAULT_AGENT_LLM_REQUEST_TIMEOUT,
+            ),
+        ),
+        viking_base_url=(
+            os.getenv("VIKING_BASE_URL", DEFAULT_VIKING_BASE_URL).strip() or DEFAULT_VIKING_BASE_URL
+        ),
+        viking_timeout_seconds=max(
+            0.1,
+            _env_float("VIKING_TIMEOUT_SECONDS", DEFAULT_VIKING_TIMEOUT_SECONDS),
+        ),
+        viking_max_retries=max(0, _env_int("VIKING_MAX_RETRIES", DEFAULT_VIKING_MAX_RETRIES)),
+        viking_retry_backoff_seconds=max(
+            0.0,
+            _env_float(
+                "VIKING_RETRY_BACKOFF_SECONDS",
+                DEFAULT_VIKING_RETRY_BACKOFF_SECONDS,
             ),
         ),
     )
