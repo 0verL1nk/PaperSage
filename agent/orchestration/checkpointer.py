@@ -52,7 +52,7 @@ def create_checkpointer(
         return InMemorySaver()
     if checkpointer_type == "sqlite":
         conn_string = conn_string if conn_string is not None else ":memory:"
-        conn = sqlite3.connect(conn_string)
+        conn = sqlite3.connect(conn_string, check_same_thread=False)
         return SqliteSaver(conn)
     raise UnsupportedCheckpointerTypeError(checkpointer_type)
 
