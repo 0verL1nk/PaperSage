@@ -23,7 +23,7 @@ class SkillMetadata:
     name: str
     description: str
     skill_path: Path
-    keywords: str = "" 
+    keywords: str = ""
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ class Skill:
     instructions: str
     skill_path: Path
     resources: SkillResources
-    keywords: str = "" 
+    keywords: str = ""
 
 
 def _extract_frontmatter(content: str) -> tuple[dict[str, str], str]:
