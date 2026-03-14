@@ -5,10 +5,10 @@ from typing import Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from ..a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_REACT
+from ..a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_REACT, WORKFLOW_TEAM
 from ..domain.orchestration import PolicyDecision
 
-WorkflowMode = Literal["react", "plan_act"]
+WorkflowMode = Literal["react", "plan_act", "team"]
 
 
 class RouteNodeState(TypedDict):
@@ -17,7 +17,9 @@ class RouteNodeState(TypedDict):
 
 
 def route_from_policy_decision(decision: PolicyDecision) -> WorkflowMode:
-    if decision.plan_enabled or decision.team_enabled:
+    if decision.team_enabled:
+        return WORKFLOW_TEAM
+    if decision.plan_enabled:
         return WORKFLOW_PLAN_ACT
     return WORKFLOW_REACT
 
@@ -42,6 +44,7 @@ def _compiled_route_graph():
         {
             WORKFLOW_REACT: END,
             WORKFLOW_PLAN_ACT: END,
+            WORKFLOW_TEAM: END,
         },
     )
     return graph.compile()
@@ -51,6 +54,6 @@ def run_policy_route_node(decision: PolicyDecision) -> WorkflowMode:
     graph = _compiled_route_graph()
     final_state = graph.invoke({"decision": decision, "workflow_mode": WORKFLOW_REACT})
     route = final_state.get("workflow_mode")
-    if route in {WORKFLOW_REACT, WORKFLOW_PLAN_ACT}:
+    if route in {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_TEAM}:
         return route
     return route_from_policy_decision(decision)

@@ -1,8 +1,8 @@
 from typing import Any
 
-from .a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
+from .a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_REACT, WORKFLOW_TEAM
 
-VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
+VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_TEAM}
 
 
 def create_session_metrics() -> dict[str, Any]:
@@ -11,7 +11,7 @@ def create_session_metrics() -> dict[str, Any]:
         "workflow_counts": {
             WORKFLOW_REACT: 0,
             WORKFLOW_PLAN_ACT: 0,
-            WORKFLOW_PLAN_ACT_REPLAN: 0,
+            WORKFLOW_TEAM: 0,
         },
         "plan_enabled_count": 0,
         "team_enabled_count": 0,
@@ -29,7 +29,7 @@ def create_session_metrics() -> dict[str, Any]:
     }
 
 
-def extract_replan_rounds(trace_payload: list[dict[str, str]] | None) -> int:
+def extract_replan_rounds(trace_payload: list[dict[str, Any]] | None) -> int:
     if not isinstance(trace_payload, list):
         return 0
     rounds = 0
@@ -43,7 +43,7 @@ def extract_replan_rounds(trace_payload: list[dict[str, str]] | None) -> int:
 
 def _extract_team_rounds(
     team_execution: dict[str, Any] | None,
-    trace_payload: list[dict[str, str]] | None,
+    trace_payload: list[dict[str, Any]] | None,
 ) -> int:
     if isinstance(team_execution, dict):
         rounds = team_execution.get("rounds")
@@ -52,7 +52,7 @@ def _extract_team_rounds(
     return extract_replan_rounds(trace_payload)
 
 
-def _extract_step_metrics(trace_payload: list[dict[str, str]] | None) -> tuple[int, int, int]:
+def _extract_step_metrics(trace_payload: list[dict[str, Any]] | None) -> tuple[int, int, int]:
     if not isinstance(trace_payload, list):
         return 0, 0, 0
     step_total = 0
@@ -68,7 +68,10 @@ def _extract_step_metrics(trace_payload: list[dict[str, str]] | None) -> tuple[i
             step_retry_total += 1
         elif performative == "step_verify":
             meta = item.get("meta")
-            if isinstance(meta, dict) and str(meta.get("verification_status") or "").strip() == "failed":
+            if (
+                isinstance(meta, dict)
+                and str(meta.get("verification_status") or "").strip() == "failed"
+            ):
                 step_verify_fail_total += 1
     return step_total, step_retry_total, step_verify_fail_total
 
@@ -77,7 +80,7 @@ def record_query_metrics(
     metrics: dict[str, Any],
     *,
     latency_ms: float,
-    trace_payload: list[dict[str, str]] | None = None,
+    trace_payload: list[dict[str, Any]] | None = None,
     workflow_mode: str | None = None,
     policy_decision: dict[str, Any] | None = None,
     team_execution: dict[str, Any] | None = None,
@@ -121,9 +124,9 @@ def record_query_metrics(
     step_total, step_retry_total, step_verify_fail_total = _extract_step_metrics(trace_payload)
     metrics["step_total"] = int(metrics.get("step_total", 0)) + step_total
     metrics["step_retry_total"] = int(metrics.get("step_retry_total", 0)) + step_retry_total
-    metrics["step_verify_fail_total"] = int(
-        metrics.get("step_verify_fail_total", 0)
-    ) + step_verify_fail_total
+    metrics["step_verify_fail_total"] = (
+        int(metrics.get("step_verify_fail_total", 0)) + step_verify_fail_total
+    )
 
     team_rounds = _extract_team_rounds(team_execution, trace_payload)
     metrics["team_rounds_total"] = int(metrics.get("team_rounds_total", 0)) + team_rounds
@@ -165,7 +168,7 @@ def summarize_session_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
         "workflow_counts": {
             WORKFLOW_REACT: int(workflow_counts.get(WORKFLOW_REACT, 0)),
             WORKFLOW_PLAN_ACT: int(workflow_counts.get(WORKFLOW_PLAN_ACT, 0)),
-            WORKFLOW_PLAN_ACT_REPLAN: int(workflow_counts.get(WORKFLOW_PLAN_ACT_REPLAN, 0)),
+            WORKFLOW_TEAM: int(workflow_counts.get(WORKFLOW_TEAM, 0)),
         },
         "workflow_ratios": workflow_ratios,
         "plan_enabled_count": plan_enabled_count,

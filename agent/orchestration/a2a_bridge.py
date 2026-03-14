@@ -9,6 +9,7 @@ from agent.a2a import (
     A2AMultiAgentSession,
     create_multi_agent_a2a_session,
 )
+from agent.a2a.coordinator import canonicalize_workflow_mode
 
 DEFAULT_WORKFLOW_MODE = WORKFLOW_PLAN_ACT
 DEFAULT_MAX_REPLAN_ROUNDS = 2
@@ -47,7 +48,7 @@ class A2ABridge:
     @staticmethod
     def orchestration_to_a2a_input(orchestration_input: Mapping[str, Any]) -> A2AInvocation:
         question = _extract_question(orchestration_input)
-        workflow_mode = (
+        workflow_mode = canonicalize_workflow_mode(
             str(orchestration_input.get("workflow_mode") or DEFAULT_WORKFLOW_MODE).strip()
             or DEFAULT_WORKFLOW_MODE
         )

@@ -45,6 +45,8 @@ logger = logging.getLogger(__name__)
 
 MAX_SINGLE_AGENT_STEP_RETRIES = 1
 MAX_SINGLE_AGENT_PLAN_CYCLES = 2
+WORKFLOW_PLAN_ACT = "plan_act"
+WORKFLOW_TEAM = "team"
 
 
 @dataclass(frozen=True)
@@ -972,8 +974,8 @@ def execute_orchestrated_turn(
     current_parent_span = str(policy_event.get("span_id") or current_parent_span)
     policy_decision = _build_leader_first_default_decision(advisory_decision)
     workflow_mode = run_policy_route_node(advisory_decision)
-    pending_plan_from_policy = workflow_mode == "plan_act"
-    pending_team_from_policy = advisory_decision.team_enabled
+    pending_plan_from_policy = workflow_mode in {WORKFLOW_PLAN_ACT, WORKFLOW_TEAM}
+    pending_team_from_policy = workflow_mode == WORKFLOW_TEAM
 
     plan: ExecutionPlan | None = None
     plan_text = ""

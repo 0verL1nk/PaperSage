@@ -5,8 +5,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from ..domain.orchestration import ExecutionPlan, PlanStep, render_execution_plan
-from .langgraph_plan_act import run_plan_act_graph
 from ..settings import load_agent_settings
+from .langgraph_plan_act import run_plan_act_graph
 
 
 def _planner_instruction(min_steps: int, max_steps: int) -> str:
