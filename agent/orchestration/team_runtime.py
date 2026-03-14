@@ -330,7 +330,7 @@ def _leader_plan_todo(
     """让 leader LLM 根据任务和角色主动规划 todo 列表（带语义依赖）。
 
     cycle_hint: 若上次规划存在依赖环，将环内节点信息传入，引导 leader 修正。
-    失败时 fallback 到机械生成的 _build_team_todo_records()。
+    失败时 fallback 到机械生成的 _build_team_todo_records_mechanical()。
     """
     roles_text = "\n".join(f"{r.name} | {r.goal}" for r in roles)
     # 将 cycle_hint 格式化为 prompt 片段（无提示时为空字符串，不影响 prompt）
@@ -499,40 +499,6 @@ def _build_team_todo_records_mechanical(
             task_id_by_key[(round_idx, role.name)] = task_id
             same_round_task_ids.append(task_id)
     return records
-
-
-def _build_team_todo_records(
-    *,
-    roles: list[TeamRole],
-    rounds: int,
-    plan_id: str,
-) -> list[dict[str, Any]]:
-    """向后兼容入口，委托给 _build_team_todo_records_mechanical()。
-
-    run_team_tasks() 现在优先调用 _leader_plan_todo()，
-    此函数仅供外部单元测试或旧调用路径使用。
-    """
-    return _build_team_todo_records_mechanical(roles=roles, rounds=rounds, plan_id=plan_id)
-
-
-def _todo_dependencies_done(
-    record: dict[str, Any],
-    *,
-    records_by_id: dict[str, dict[str, Any]],
-) -> bool:
-    dependencies = record.get("dependencies")
-    if not isinstance(dependencies, list) or not dependencies:
-        return True
-    for dep in dependencies:
-        dep_id = str(dep or "").strip()
-        if not dep_id:
-            continue
-        dep_record = records_by_id.get(dep_id)
-        if not isinstance(dep_record, dict):
-            return False
-        if str(dep_record.get("status") or "").strip().lower() != "done":
-            return False
-    return True
 
 
 def _build_todo_stats(records: list[dict[str, Any]]) -> dict[str, int]:
