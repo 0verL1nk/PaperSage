@@ -6,10 +6,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
+from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_REACT
 from agent.a2a.router import auto_select_workflow_mode
 
-VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
+LEGACY_WORKFLOW_MODE = "plan_act_replan"
+VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, LEGACY_WORKFLOW_MODE}
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -75,7 +76,7 @@ def run_router_baseline(records: list[dict[str, Any]]) -> dict[str, Any]:
         "route_distribution": {
             WORKFLOW_REACT: distribution.get(WORKFLOW_REACT, 0),
             WORKFLOW_PLAN_ACT: distribution.get(WORKFLOW_PLAN_ACT, 0),
-            WORKFLOW_PLAN_ACT_REPLAN: distribution.get(WORKFLOW_PLAN_ACT_REPLAN, 0),
+            LEGACY_WORKFLOW_MODE: distribution.get(LEGACY_WORKFLOW_MODE, 0),
         },
         "router_latency_ms": {
             "average": round(average_latency_ms, 3),
@@ -92,7 +93,9 @@ def _default_output_path() -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run Phase-0 router baseline for workflow routing.")
+    parser = argparse.ArgumentParser(
+        description="Run Phase-0 router baseline for workflow routing."
+    )
     parser.add_argument(
         "--fixture",
         default="tests/evals/fixtures/multi_agent_eval_set_v1.jsonl",
@@ -117,11 +120,12 @@ def main() -> int:
     print(f"cases: {report['total_cases']}")
     print(f"match_rate: {report['match_rate']:.3f}")
     print(f"route_distribution: {report['route_distribution']}")
-    print(f"latency_ms(avg/p95): {report['router_latency_ms']['average']}/{report['router_latency_ms']['p95']}")
+    print(
+        f"latency_ms(avg/p95): {report['router_latency_ms']['average']}/{report['router_latency_ms']['p95']}"
+    )
     print(f"report: {output_path}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
