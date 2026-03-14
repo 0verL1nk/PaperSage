@@ -9,7 +9,6 @@ from typing import Literal, final
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-
 # Supported checkpointer types
 CheckpointerType = Literal["memory", "sqlite"]
 
