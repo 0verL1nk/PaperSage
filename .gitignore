@@ -75,7 +75,7 @@ objects
 refs
 config
 
-
+.sisyphus
 .agent
 .cache
 .mypy_cache
