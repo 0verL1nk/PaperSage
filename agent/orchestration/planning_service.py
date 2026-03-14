@@ -1,9 +1,11 @@
+# pyright: reportUnknownMemberType=false, reportExplicitAny=false, reportAny=false
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from ..domain.orchestration import ExecutionPlan, PlanStep, render_execution_plan
+from .langgraph_plan_act import run_plan_act_graph
 from ..settings import load_agent_settings
 
 
@@ -111,10 +113,13 @@ def _normalize_plan(
     )
 
 
-def build_execution_plan(prompt: str, llm: Any | None = None) -> ExecutionPlan:
-    settings = load_agent_settings()
-    min_steps = max(1, settings.agent_planner_min_steps)
-    max_steps = max(min_steps, settings.agent_planner_max_steps)
+def _build_execution_plan_with_llm(
+    prompt: str,
+    *,
+    llm: Any | None,
+    min_steps: int,
+    max_steps: int,
+) -> ExecutionPlan:
     if llm is None:
         return _fallback_plan(prompt, min_steps=min_steps, max_steps=max_steps)
     try:
@@ -138,6 +143,34 @@ def build_execution_plan(prompt: str, llm: Any | None = None) -> ExecutionPlan:
         return normalized
     except Exception:
         return _fallback_plan(prompt, min_steps=min_steps, max_steps=max_steps)
+
+
+def build_execution_plan(prompt: str, llm: Any | None = None) -> ExecutionPlan:
+    settings = load_agent_settings()
+    min_steps = max(1, settings.agent_planner_min_steps)
+    max_steps = max(min_steps, settings.agent_planner_max_steps)
+
+    def _planner(plan_prompt: str) -> ExecutionPlan | None:
+        return _build_execution_plan_with_llm(
+            plan_prompt,
+            llm=llm,
+            min_steps=min_steps,
+            max_steps=max_steps,
+        )
+
+    try:
+        return run_plan_act_graph(
+            prompt=prompt,
+            planner=_planner,
+            max_attempts=1,
+        )
+    except Exception:
+        return _build_execution_plan_with_llm(
+            prompt,
+            llm=llm,
+            min_steps=min_steps,
+            max_steps=max_steps,
+        )
 
 
 def build_execution_plan_text(prompt: str, llm: Any | None = None) -> str:
