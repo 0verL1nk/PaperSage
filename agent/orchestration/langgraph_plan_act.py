@@ -7,11 +7,12 @@ from typing import Annotated, Any, Literal, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from langchain_core.tools import tool
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from ..domain.orchestration import ExecutionPlan, PlanStep
+from .retry_loop import add_retry_loop_edge, build_retry_route
 
 PlannerCallable = Callable[[str], ExecutionPlan | None]
 
@@ -121,14 +122,6 @@ def _consume_plan_result(state: PlanActState) -> dict[str, Any]:
     return {"plan": None, "status": "failed", "errors": errors}
 
 
-def _route_after_consume(state: PlanActState) -> Literal["continue", "end"]:
-    if state.get("plan") is not None:
-        return "end"
-    if int(state.get("attempt", 0)) >= int(state.get("max_attempts", 1)):
-        return "end"
-    return "continue"
-
-
 def create_plan_act_graph(*, planner: PlannerCallable):
     @tool("build_execution_plan_tool")
     def build_execution_plan_tool(prompt: str) -> str:
@@ -144,13 +137,11 @@ def create_plan_act_graph(*, planner: PlannerCallable):
     graph.add_edge(START, "prepare_plan_call")
     graph.add_edge("prepare_plan_call", "planner_tools")
     graph.add_edge("planner_tools", "consume_plan_result")
-    graph.add_conditional_edges(
-        "consume_plan_result",
-        _route_after_consume,
-        {
-            "continue": "prepare_plan_call",
-            "end": END,
-        },
+    add_retry_loop_edge(
+        graph,
+        source="consume_plan_result",
+        continue_to="prepare_plan_call",
+        route=build_retry_route(is_success=lambda state: state.get("plan") is not None),
     )
     return graph.compile()
 
