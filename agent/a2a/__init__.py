@@ -1,7 +1,7 @@
 from .coordinator import (
     WORKFLOW_PLAN_ACT,
-    WORKFLOW_PLAN_ACT_REPLAN,
     WORKFLOW_REACT,
+    WORKFLOW_TEAM,
     A2AMessage,
     A2AMultiAgentCoordinator,
     A2AMultiAgentSession,
@@ -37,7 +37,7 @@ __all__ = [
     "create_multi_agent_a2a_session",
     "WORKFLOW_REACT",
     "WORKFLOW_PLAN_ACT",
-    "WORKFLOW_PLAN_ACT_REPLAN",
+    "WORKFLOW_TEAM",
     "WORKFLOW_LABELS",
     "ROUTER_INSTRUCTION",
     "auto_select_workflow_mode",

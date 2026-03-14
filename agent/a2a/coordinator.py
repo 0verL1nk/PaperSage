@@ -85,7 +85,18 @@ REACT_SYSTEM_PROMPT = (
 
 WORKFLOW_REACT = "react"
 WORKFLOW_PLAN_ACT = "plan_act"
-WORKFLOW_PLAN_ACT_REPLAN = "plan_act_replan"
+WORKFLOW_TEAM = "team"
+
+
+def canonicalize_workflow_mode(workflow_mode: str | None) -> str:
+    normalized = str(workflow_mode or "").strip().lower()
+    if normalized == "plan_act_replan":
+        return WORKFLOW_PLAN_ACT
+    if normalized in {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_TEAM}:
+        return normalized
+    return WORKFLOW_PLAN_ACT
+
+
 REACT_ALLOWED_TOOLS = {
     "search_document",
     "search_papers",
@@ -228,10 +239,11 @@ class A2AMultiAgentCoordinator:
     def run(
         self,
         question: str,
-        workflow_mode: str = WORKFLOW_PLAN_ACT_REPLAN,
+        workflow_mode: str = WORKFLOW_PLAN_ACT,
         on_event: Callable[[A2AMessage], None] | None = None,
         max_replan_rounds: int = 2,
     ) -> tuple[str, list[A2AMessage]]:
+        workflow_mode = canonicalize_workflow_mode(workflow_mode)
         run_started = time.perf_counter()
         state = STATE_SUBMITTED
         trace_task_id = f"{self.session_id}:run:{uuid4().hex}"
@@ -355,10 +367,7 @@ class A2AMultiAgentCoordinator:
         raw_plan = self._invoke(
             self.planner_agent,
             "planner",
-            (
-                "Generate a compact execution plan for the question below.\n"
-                f"Question: {question}"
-            ),
+            (f"Generate a compact execution plan for the question below.\nQuestion: {question}"),
         )
         plan = self._normalize_plan_text(raw_plan)
         if not plan.strip():
@@ -394,27 +403,6 @@ class A2AMultiAgentCoordinator:
                 f"Plan: {plan}"
             ),
         )
-        if workflow_mode == WORKFLOW_PLAN_ACT:
-            self._record_trace(
-                trace,
-                _msg(
-                    sender="researcher",
-                    receiver="user",
-                    performative="final",
-                    content=draft,
-                ),
-                on_event,
-            )
-            state = self._transition_state(state, STATE_FINALIZING)
-            state = self._transition_state(state, STATE_COMPLETED)
-            logger.info(
-                "A2A run finish: mode=%s trace_events=%s state=%s latency_ms=%.2f",
-                workflow_mode,
-                len(trace),
-                state,
-                (time.perf_counter() - run_started) * 1000.0,
-            )
-            return draft, trace
 
         bounded_rounds = normalize_max_review_rounds(max_replan_rounds)
         for round_idx in range(1, bounded_rounds + 1):
@@ -519,7 +507,9 @@ class A2AMultiAgentCoordinator:
                     "1. Address reviewer feedback with additional evidence.\n"
                     "2. Return a corrected and concise final answer."
                 )
-                logger.debug("Replan output invalid at round=%s, fallback revised plan used", round_idx + 1)
+                logger.debug(
+                    "Replan output invalid at round=%s, fallback revised plan used", round_idx + 1
+                )
             self._record_trace(
                 trace,
                 _msg(
@@ -651,10 +641,3 @@ def create_multi_agent_a2a_session(
     )
     logger.info("Created multi-agent A2A session: session_id=%s", session_id)
     return A2AMultiAgentSession(coordinator=coordinator, session_id=session_id)
-
-
-# Backward-compatible ACP names
-ACPMessage = A2AMessage
-ACPMultiAgentSession = A2AMultiAgentSession
-ACPMultiAgentCoordinator = A2AMultiAgentCoordinator
-create_multi_agent_acp_session = create_multi_agent_a2a_session
