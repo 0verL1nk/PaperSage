@@ -1,7 +1,8 @@
+from pytest import MonkeyPatch
+
 from agent.domain.orchestration import ExecutionPlan, PlanStep
 from agent.orchestration import planning_service
 from agent.orchestration.langgraph_plan_act import run_plan_act_graph
-from pytest import MonkeyPatch
 
 
 def _build_demo_plan() -> ExecutionPlan:

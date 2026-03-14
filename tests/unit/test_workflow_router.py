@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_REACT
+from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_REACT, WORKFLOW_TEAM
 from agent.a2a.router import _policy_to_workflow_mode, auto_select_workflow_mode
 from agent.domain.orchestration import PolicyDecision
 from agent.orchestration.policy_engine import decide_execution_policy
@@ -13,7 +13,11 @@ from agent.orchestration.policy_engine import decide_execution_policy
 
 
 def test_policy_to_mode_team_enabled():
-    assert _policy_to_workflow_mode(plan_enabled=True, team_enabled=True) == WORKFLOW_PLAN_ACT
+    assert _policy_to_workflow_mode(plan_enabled=True, team_enabled=True) == WORKFLOW_TEAM
+
+
+def test_policy_to_mode_team_only():
+    assert _policy_to_workflow_mode(plan_enabled=False, team_enabled=True) == WORKFLOW_TEAM
 
 
 def test_policy_to_mode_plan_only():
@@ -79,7 +83,7 @@ def test_router_prefers_llm_team_decision():
     )
     with patch("agent.a2a.router.intercept", return_value=decision):
         mode, _reason = auto_select_workflow_mode("请帮我处理这个问题", coordinator=MagicMock())
-    assert mode == WORKFLOW_PLAN_ACT
+    assert mode == WORKFLOW_TEAM
 
 
 def test_router_raises_when_llm_retries_exhausted():

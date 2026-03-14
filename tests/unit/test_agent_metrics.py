@@ -1,4 +1,4 @@
-from agent.a2a.coordinator import WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
+from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_REACT, WORKFLOW_TEAM
 from agent.metrics import (
     create_session_metrics,
     extract_replan_rounds,
@@ -39,7 +39,7 @@ def test_record_query_metrics_accumulates_replan_rounds():
     metrics = create_session_metrics()
     record_query_metrics(
         metrics,
-        workflow_mode=WORKFLOW_PLAN_ACT_REPLAN,
+        workflow_mode=WORKFLOW_PLAN_ACT,
         latency_ms=300.0,
         trace_payload=[
             {"performative": "request"},
@@ -64,3 +64,17 @@ def test_record_query_metrics_accumulates_replan_rounds():
     assert summary["step_total"] == 1
     assert summary["step_retry_total"] == 1
     assert summary["step_verify_fail_total"] == 1
+
+
+def test_record_query_metrics_counts_team_mode() -> None:
+    metrics = create_session_metrics()
+    updated = record_query_metrics(
+        metrics,
+        workflow_mode=WORKFLOW_TEAM,
+        latency_ms=80.0,
+        trace_payload=[{"performative": "request"}, {"performative": "final"}],
+    )
+
+    assert updated["workflow_counts"][WORKFLOW_TEAM] == 1
+    summary = summarize_session_metrics(updated)
+    assert summary["workflow_counts"][WORKFLOW_TEAM] == 1

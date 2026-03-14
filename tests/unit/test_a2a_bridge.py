@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, cast
 
-from agent.a2a import A2AMessage, WORKFLOW_PLAN_ACT
-from agent.orchestration.langgraph_team_dag import execute_team_task_via_a2a_bridge
+from agent.a2a import WORKFLOW_PLAN_ACT, A2AMessage
 from agent.orchestration.a2a_bridge import (
     DEFAULT_MAX_REPLAN_ROUNDS,
     A2ABridge,
 )
+from agent.orchestration.langgraph_team_dag import execute_team_task_via_a2a_bridge
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,24 @@ def test_run_with_session_maps_inputs_and_outputs() -> None:
     assert output["final_answer"] == "final answer"
     assert output["trace"]
     assert output["session_id"] == "sess-1"
+    assert output["workflow_mode"] == "plan_act"
+
+
+def test_run_with_session_canonicalizes_legacy_plan_act_replan_mode() -> None:
+    coordinator = _FakeCoordinator()
+    session = _FakeSession(coordinator=coordinator, session_id="sess-legacy")
+    bridge = A2ABridge()
+
+    output = bridge.run_with_session(
+        cast(Any, session),
+        {
+            "user_prompt": "compare methods",
+            "workflow_mode": "plan_act_replan",
+            "max_replan_rounds": 2,
+        },
+    )
+
+    assert coordinator.calls[0]["workflow_mode"] == "plan_act"
     assert output["workflow_mode"] == "plan_act"
 
 

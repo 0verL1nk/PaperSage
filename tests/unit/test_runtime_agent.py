@@ -1,6 +1,7 @@
-from agent import runtime_agent
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
+
+from agent import runtime_agent
 
 
 def test_build_runtime_tools_blocks_spawn_tools(monkeypatch):
