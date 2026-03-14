@@ -13,11 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Skill Ecosystem Integration:** Updated `SkillLoader` to parse and index `keywords` from `SKILL.md` frontmatter, making dynamically loaded skills discoverable through the central tool search via the `use_skill` proxy.
 
 ### Changed
+
 - Progressive Tool Disclosure Middleware now extracts discovered tools from the `search_tools` JSON response to un-defer their schema definitions instead of relying on explicit activation names.
-
-
-### Changed
-
 - Added a shared runtime agent builder so paper agent, team member agent, and A2A agents use one assembly path for tools, middleware, and checkpointer setup.
 - Team member agents now load the shared tool system with `start_plan` / `start_team` removed at load time, preventing nested mode spawning inside team execution.
 
