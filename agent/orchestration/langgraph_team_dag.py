@@ -5,6 +5,8 @@ from typing import Any
 
 from langgraph.types import Send
 
+from .role_dispatcher import RoleDispatchPlan
+
 TODO_STATUS = "todo"
 DONE_STATUS = "done"
 DEFAULT_ROLE_ORDER = 999
@@ -81,3 +83,45 @@ def build_ready_task_dispatches(
         for record in ready_records
         if str(record.get("id") or "").strip()
     ]
+
+
+def _build_records_by_todo_id(todo_records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        str(record.get("id") or "").strip(): record
+        for record in todo_records
+        if str(record.get("id") or "").strip()
+    }
+
+
+def build_ready_role_dispatches(
+    todo_records: list[dict[str, Any]],
+    *,
+    role_plan: RoleDispatchPlan,
+    target_node: str = "dispatch_team_task",
+) -> list[Send]:
+    ready_dispatches = build_ready_task_dispatches(
+        todo_records,
+        role_order=role_plan.role_order,
+        target_node=target_node,
+    )
+    records_by_todo_id = _build_records_by_todo_id(todo_records)
+    role_dispatches: list[Send] = []
+    for dispatch in ready_dispatches:
+        dispatch_arg = dispatch.arg if isinstance(dispatch.arg, dict) else {}
+        todo_id = str(dispatch_arg.get("todo_id") or "").strip()
+        if not todo_id:
+            continue
+        record = records_by_todo_id.get(todo_id)
+        assignee = str((record or {}).get("assignee") or "").strip()
+        role = role_plan.role_map.get(assignee)
+        role_dispatches.append(
+            Send(
+                dispatch.node,
+                {
+                    "todo_id": todo_id,
+                    "assignee": assignee,
+                    "role_goal": role.goal if role else "",
+                },
+            )
+        )
+    return role_dispatches
