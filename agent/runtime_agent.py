@@ -6,9 +6,9 @@ from langchain.agents.middleware import SummarizationMiddleware
 
 from .capabilities import (
     build_agent_tools,
-    build_progressive_tool_middleware,
     discover_available_tools,
 )
+from .middlewares import TraceMiddleware, build_progressive_tool_middleware
 
 SPAWN_TOOL_NAMES = {"start_plan", "start_team"}
 
@@ -56,6 +56,9 @@ def create_runtime_agent(
     enable_auto_summarization: bool = True,
 ) -> Any:
     middleware_list = []
+
+    # Trace middleware
+    middleware_list.append(TraceMiddleware())
 
     # Progressive tool disclosure middleware
     progressive_middleware = build_progressive_tool_middleware(tools)
