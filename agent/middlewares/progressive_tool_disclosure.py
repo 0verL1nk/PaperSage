@@ -54,9 +54,13 @@ def _extract_tool_names_from_search_result(content: str) -> list[str]:
     try:
         data = json.loads(content)
         if isinstance(data, dict) and data.get("type") == "tool_search_result":
-            return [t["tool_name"] for t in data.get("tools", []) if isinstance(t, dict)]
-    except Exception:
-        pass
+            return [
+                t["tool_name"]
+                for t in data.get("tools", [])
+                if isinstance(t, dict) and "tool_name" in t
+            ]
+    except Exception as e:
+        logger.warning("Failed to parse tool search result content: %s", e)
     return []
 
 
@@ -127,8 +131,6 @@ class ProgressiveToolDisclosureMiddleware(AgentMiddleware):
             sorted(visible_names),
         )
 
-        if not filtered_tools:
-            return handler(request)
         if len(filtered_tools) == len(all_tools):
             return handler(request)
 
