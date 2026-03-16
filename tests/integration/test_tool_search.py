@@ -4,7 +4,8 @@ import pytest
 from langchain.agents.middleware.types import ModelRequest
 from langchain_core.messages import HumanMessage
 
-from agent.capabilities import build_agent_tools, build_progressive_tool_middleware
+from agent.capabilities import build_agent_tools
+from agent.middlewares import build_progressive_tool_middleware
 
 
 @pytest.mark.integration

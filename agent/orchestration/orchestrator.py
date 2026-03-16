@@ -1037,9 +1037,15 @@ def execute_orchestrated_turn(
             runtime_state=runtime_state,
             team_execution=team_execution,
         )
+        # Add on_event to config for middleware access
+        runtime_config = dict(leader_runtime_config or {})
+        if "configurable" not in runtime_config:
+            runtime_config["configurable"] = {}
+        runtime_config["configurable"]["on_event"] = on_event
+
         result = leader_agent.invoke(
             {"messages": [{"role": "user", "content": leader_prompt}]},
-            config=leader_runtime_config or {},
+            config=runtime_config,
         )
         (
             answer,

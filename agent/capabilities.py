@@ -7,8 +7,6 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -355,74 +353,6 @@ def _extract_activated_tool_names(messages: list[Any]) -> set[str]:
     return activated
 
 
-class ProgressiveToolDisclosureMiddleware(AgentMiddleware):
-    """Rebuild visible tools per-model-call based on activation history."""
-
-    def __init__(self, *, fixed_tool_names: set[str], lazy_tool_names: set[str]) -> None:
-        self.fixed_tool_names = set(fixed_tool_names)
-        self.lazy_tool_names = set(lazy_tool_names)
-
-    def wrap_model_call(
-        self,
-        request: ModelRequest[Any],
-        handler: Callable[[ModelRequest[Any]], ModelResponse[Any]],
-    ) -> ModelResponse[Any]:
-        all_tools = list(request.tools or [])
-        if not all_tools:
-            return handler(request)
-        activated_names = _extract_activated_tool_names(list(request.messages or []))
-        visible_names = (
-            set(self.fixed_tool_names) | {"search_tools"} | (activated_names & self.lazy_tool_names)
-        )
-        filtered_tools: list[Any] = []
-        for item in all_tools:
-            if isinstance(item, dict):
-                name = str(item.get("name") or "").strip()
-            else:
-                name = str(getattr(item, "name", "") or "").strip()
-            if not name:
-                continue
-            if name in visible_names:
-                filtered_tools.append(item)
-        if not filtered_tools:
-            return handler(request)
-        if len(filtered_tools) == len(all_tools):
-            return handler(request)
-        request_with_filtered_tools = request.override(tools=filtered_tools)
-        return handler(request_with_filtered_tools)
-
-
-def build_progressive_tool_middleware(tools: list[Any]) -> list[AgentMiddleware]:
-    progressive_enabled = _env_flag("AGENT_PROGRESSIVE_TOOL_DISCLOSURE", default=True)
-    if not progressive_enabled:
-        return []
-    fixed_tool_names: set[str] = set()
-    lazy_tool_names: set[str] = set()
-    has_activation_tool = False
-    for item in tools:
-        if isinstance(item, dict):
-            name = str(item.get("name") or "").strip()
-            visibility = str(item.get(_TOOL_VISIBILITY_ATTR) or "").strip().lower()
-        else:
-            name = str(getattr(item, "name", "") or "").strip()
-            visibility = str(getattr(item, _TOOL_VISIBILITY_ATTR, "") or "").strip().lower()
-        if not name:
-            continue
-        if name == "search_tools":
-            has_activation_tool = True
-            continue
-        if visibility == "lazy":
-            lazy_tool_names.add(name)
-        else:
-            fixed_tool_names.add(name)
-    if not has_activation_tool or not lazy_tool_names:
-        return []
-    return [
-        ProgressiveToolDisclosureMiddleware(
-            fixed_tool_names=fixed_tool_names,
-            lazy_tool_names=lazy_tool_names,
-        )
-    ]
 
 
 def discover_available_tools(
@@ -1170,3 +1100,10 @@ def build_agent_tools(
         ",".join(tool_item.name for tool_item in all_tools),
     )
     return all_tools
+
+
+# Deprecated: Import from agent.middlewares instead
+from .middlewares import (  # noqa: E402, F401
+    ProgressiveToolDisclosureMiddleware,
+    build_progressive_tool_middleware,
+)

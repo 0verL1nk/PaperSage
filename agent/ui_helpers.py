@@ -944,12 +944,6 @@ def _render_chat_history(chat_messages: list[dict]) -> None:
                     ),
                     unsafe_allow_html=True,
                 )
-            phase_path = message.get("phase_path")
-            if isinstance(phase_path, str) and phase_path:
-                st.markdown(
-                    f"<div class='llm-chip-row'><span class='llm-chip'>执行阶段 {phase_path}</span></div>",
-                    unsafe_allow_html=True,
-                )
             trace_payload = message.get("acp_trace")
             _render_trace_by_mode(
                 trace_payload if isinstance(trace_payload, list) else None,
