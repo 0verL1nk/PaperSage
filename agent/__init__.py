@@ -1,4 +1,4 @@
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 
 from .a2a import (
     coordinator as multi_agent_a2a,
