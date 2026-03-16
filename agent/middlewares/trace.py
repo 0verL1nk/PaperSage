@@ -30,15 +30,33 @@ class TraceMiddleware(AgentMiddleware):
     def after_model(
         self, state: AgentState, runtime: Runtime, config: RunnableConfig
     ) -> dict[str, Any] | None:
-        """Emit model_response event after model returns."""
+        """Emit model_response event with tool call details."""
         on_event = config.get("configurable", {}).get("on_event")
-        if callable(on_event):
-            on_event({
-                "sender": "model",
-                "receiver": "agent",
-                "performative": "model_response",
-                "content": "模型响应",
-            })
+        if not callable(on_event):
+            return None
+
+        # Extract tool calls from the latest AIMessage
+        messages = state.get("messages", [])
+        if not messages:
+            return None
+
+        last_msg = messages[-1]
+        tool_calls = getattr(last_msg, "tool_calls", None)
+
+        if tool_calls and isinstance(tool_calls, list) and tool_calls:
+            # Model called tools
+            tool_names = [str(call.get("name", "unknown") if isinstance(call, dict) else getattr(call, "name", "unknown")) for call in tool_calls]
+            content = f"调用工具: {', '.join(tool_names)}"
+        else:
+            # Model returned text response
+            content = "模型响应"
+
+        on_event({
+            "sender": "model",
+            "receiver": "agent",
+            "performative": "model_response",
+            "content": content,
+        })
         return None
 
     def after_agent(
