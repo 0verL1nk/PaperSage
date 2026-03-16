@@ -1,12 +1,15 @@
 """Progressive tool disclosure middleware."""
 
 import json
+import logging
 import os
 from collections.abc import Callable
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
+
+logger = logging.getLogger(__name__)
 
 
 _TOOL_VISIBILITY_ATTR = "_progressive_tool_visibility"
@@ -83,6 +86,11 @@ class ProgressiveToolDisclosureMiddleware(AgentMiddleware):
     def __init__(self, *, fixed_tool_names: set[str], lazy_tool_names: set[str]) -> None:
         self.fixed_tool_names = set(fixed_tool_names)
         self.lazy_tool_names = set(lazy_tool_names)
+        logger.info(
+            "ProgressiveToolDisclosureMiddleware initialized: fixed=%d lazy=%d",
+            len(self.fixed_tool_names),
+            len(self.lazy_tool_names),
+        )
 
     def wrap_model_call(
         self,
@@ -92,6 +100,7 @@ class ProgressiveToolDisclosureMiddleware(AgentMiddleware):
         """Filter tools based on activation history."""
         all_tools = list(request.tools or [])
         if not all_tools:
+            logger.debug("wrap_model_call: no tools in request")
             return handler(request)
 
         activated_names = _extract_activated_tool_names(list(request.messages or []))
@@ -110,6 +119,14 @@ class ProgressiveToolDisclosureMiddleware(AgentMiddleware):
             if name in visible_names:
                 filtered_tools.append(item)
 
+        logger.info(
+            "wrap_model_call: tools=%d -> %d | activated=%s | visible=%s",
+            len(all_tools),
+            len(filtered_tools),
+            sorted(activated_names),
+            sorted(visible_names),
+        )
+
         if not filtered_tools:
             return handler(request)
         if len(filtered_tools) == len(all_tools):
@@ -123,6 +140,7 @@ def build_progressive_tool_middleware(tools: list[Any]) -> list[AgentMiddleware]
     """Build progressive tool disclosure middleware from tool list."""
     progressive_enabled = _env_flag("AGENT_PROGRESSIVE_TOOL_DISCLOSURE", default=True)
     if not progressive_enabled:
+        logger.info("build_progressive_tool_middleware: disabled by env flag")
         return []
 
     fixed_tool_names: set[str] = set()
@@ -148,8 +166,18 @@ def build_progressive_tool_middleware(tools: list[Any]) -> list[AgentMiddleware]
             fixed_tool_names.add(name)
 
     if not has_activation_tool or not lazy_tool_names:
+        logger.info(
+            "build_progressive_tool_middleware: skipped | has_search_tools=%s lazy_count=%d",
+            has_activation_tool,
+            len(lazy_tool_names),
+        )
         return []
 
+    logger.info(
+        "build_progressive_tool_middleware: enabled | fixed=%d lazy=%d",
+        len(fixed_tool_names),
+        len(lazy_tool_names),
+    )
     return [
         ProgressiveToolDisclosureMiddleware(
             fixed_tool_names=fixed_tool_names,
