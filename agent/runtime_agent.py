@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import SummarizationMiddleware
+from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 
 from .capabilities import (
     build_agent_tools,
@@ -55,7 +55,7 @@ def create_runtime_agent(
     checkpointer: Any | None = None,
     enable_auto_summarization: bool = True,
 ) -> Any:
-    middleware_list = []
+    middleware_list: list[AgentMiddleware] = []
 
     # Trace middleware
     middleware_list.append(TraceMiddleware())

@@ -1,8 +1,7 @@
 """Type definitions for middleware."""
 
-from typing_extensions import NotRequired
-
 from langchain.agents.middleware import AgentState as BaseAgentState
+from typing_extensions import NotRequired
 
 
 class AgentState(BaseAgentState):

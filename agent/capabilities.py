@@ -7,8 +7,6 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field

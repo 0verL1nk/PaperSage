@@ -1,6 +1,5 @@
 """Trace middleware for tracking agent execution phases."""
 
-from collections.abc import Callable
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
@@ -13,7 +12,7 @@ from .types import AgentState
 class TraceMiddleware(AgentMiddleware):
     """Middleware that emits trace events during agent execution."""
 
-    def before_model(
+    def before_model(  # type: ignore[override]
         self, state: AgentState, runtime: Runtime, config: RunnableConfig
     ) -> dict[str, Any] | None:
         """Emit model_call event before model invocation."""
@@ -27,7 +26,7 @@ class TraceMiddleware(AgentMiddleware):
             })
         return None
 
-    def after_model(
+    def after_model(  # type: ignore[override]
         self, state: AgentState, runtime: Runtime, config: RunnableConfig
     ) -> dict[str, Any] | None:
         """Emit model_response event with tool call details."""
@@ -59,7 +58,7 @@ class TraceMiddleware(AgentMiddleware):
         })
         return None
 
-    def after_agent(
+    def after_agent(  # type: ignore[override]
         self, state: AgentState, runtime: Runtime, config: RunnableConfig
     ) -> dict[str, Any] | None:
         """Emit agent_complete event after agent finishes."""
