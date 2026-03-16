@@ -6,6 +6,7 @@ def run_agent_center_page() -> None:
 
     import streamlit as st
     import streamlit.components.v1 as components
+    from langgraph.checkpoint.sqlite import SqliteSaver
 
     DEBUG_MODE = os.getenv("DEBUG", "").lower() in {"1", "true", "yes"}
 
@@ -74,9 +75,6 @@ def run_agent_center_page() -> None:
         with_language_hint,
     )
     from agent.application.agent_center import (
-        apply_auto_compact as apply_auto_compact_state,
-    )
-    from agent.application.agent_center import (
         clear_project_runtime as clear_project_runtime_state,
     )
     from agent.application.agent_center import (
@@ -127,11 +125,8 @@ def run_agent_center_page() -> None:
     )
     from agent.application.language import detect_language
     from agent.context_governance import (
-        auto_compact_messages,
         build_context_usage_snapshot,
         extract_skill_context_texts_from_trace,
-        inject_compact_summary,
-        should_trigger_auto_compact,
     )
     from agent.logging_utils import configure_application_logging, logging_context
     from agent.memory.policy import (
@@ -139,7 +134,6 @@ def run_agent_center_page() -> None:
     )
     from agent.memory.store import (
         get_project_session_compact_memory,
-        save_project_session_compact_memory,
         search_project_memory_items,
     )
     from agent.metrics import record_query_metrics
@@ -160,9 +154,6 @@ def run_agent_center_page() -> None:
         render_chat_history_panel,
         render_project_session_sidebar,
         render_strategy_sidebar,
-    )
-    from ui.agent_center.state import (
-        apply_auto_compact as apply_auto_compact_runtime,
     )
     from ui.agent_center.state import (
         clear_project_runtime,
@@ -347,21 +338,6 @@ def run_agent_center_page() -> None:
         build_context_usage_snapshot_fn=build_context_usage_snapshot,
         extract_skill_context_texts_from_trace_fn=extract_skill_context_texts_from_trace,
         update_context_usage_state_fn=update_context_usage_state,
-    )
-
-    apply_auto_compact_fn = partial(
-        apply_auto_compact_runtime,
-        st=st,
-        logger=logger,
-        should_trigger_auto_compact_fn=should_trigger_auto_compact,
-        auto_compact_messages_fn=auto_compact_messages,
-        build_openai_compatible_chat_model_fn=create_chat_model,
-        get_user_api_key_fn=read_user_api_key,
-        get_user_model_name_fn=read_user_model_name,
-        get_user_base_url_fn=read_user_base_url,
-        save_project_session_compact_memory_fn=save_project_session_compact_memory,
-        persist_active_conversation_fn=_persist_active_conversation,
-        apply_auto_compact_state_fn=apply_auto_compact_state,
     )
 
 
@@ -560,15 +536,9 @@ def run_agent_center_page() -> None:
             return
         prompt = str(prompt_gate.prompt or "")
 
-        compact_summary = apply_auto_compact_fn(
-            selected_project_uid,
-            selected_session_uid,
-            user_uuid,
-            conversation_key,
-        )
+        # SummarizationMiddleware handles compression automatically
         turn_context = build_turn_execution_context(
             prompt=prompt,
-            compact_summary=compact_summary,
             user_uuid=user_uuid,
             project_uid=selected_project_uid,
             session_state=st.session_state,
@@ -577,7 +547,6 @@ def run_agent_center_page() -> None:
                 **kwargs,
                 detect_language_fn=detect_language,
                 with_language_hint_fn=with_language_hint,
-                inject_compact_summary_fn=inject_compact_summary,
                 search_project_memory_items_fn=search_project_memory_items,
                 inject_long_term_memory_fn=inject_long_term_memory,
                 memory_limit=4,
@@ -692,6 +661,21 @@ def run_agent_center_page() -> None:
             resolve_archive_target_fn=resolve_archive_target,
             scope_docs_with_text=scope_docs_with_text,
         )
+
+        # Sync messages from checkpointer to UI
+        try:
+            runtime_config = st.session_state.get("paper_agent_runtime_config", {})
+            if runtime_config:
+                checkpointer_db_path = os.getenv("CHECKPOINTER_DB_PATH", "./data/checkpoints.db")
+                with SqliteSaver.from_conn_string(checkpointer_db_path) as checkpointer:
+                    checkpoint = checkpointer.get(runtime_config)
+                    if checkpoint and hasattr(checkpoint, "channel_values"):
+                        messages = checkpoint.channel_values.get("messages", [])
+                        if messages:
+                            st.session_state["agent_messages"] = messages
+        except Exception as e:
+            logger.warning("Failed to sync messages from checkpointer: %s", e)
+
         save_output(
             uuid=st.session_state.get("uuid", "local-user"),
             project_uid=selected_project_uid,

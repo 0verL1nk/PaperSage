@@ -1,8 +1,4 @@
-from types import SimpleNamespace
-
 from agent.application.agent_center.conversation_state import (
-    apply_auto_compact,
-    ensure_compact_summary,
     ensure_conversation_messages,
     get_history_paging_state,
     load_more_conversation_messages,
@@ -133,61 +129,6 @@ def test_ensure_conversation_messages_refreshes_persisted_bootstrap_scope_count(
 
     assert "6 篇文档" in st.session_state["agent_messages"][0]["content"]
     assert saved["called"] == 1
-
-
-def test_compact_summary_context_and_auto_compact():
-    st = _FakeSt()
-    st.session_state["agent_messages"] = [{"role": "user", "content": "q"}]
-    st.session_state["paper_project_tool_specs"] = {"p1": [{"name": "search_document"}]}
-    st.session_state["paper_project_skill_context_texts"] = {"p1:s1": ["skill"]}
-    saved_summary = {}
-
-    ensure_compact_summary(
-        st=st,
-        get_project_session_compact_memory_fn=lambda **_kwargs: {"compact_summary": "seed"},
-        user_uuid="u1",
-        project_uid="p1",
-        session_uid="s1",
-        conversation_key="p1:s1",
-    )
-    update_context_usage(
-        st=st,
-        build_context_usage_snapshot_fn=lambda **kwargs: kwargs,
-        project_uid="p1",
-        conversation_key="p1:s1",
-    )
-
-    class _Result:
-        messages = [{"role": "assistant", "content": "done"}]
-        summary = "new-summary"
-        compacted = True
-        source_message_count = 2
-        source_token_estimate = 100
-        compacted_token_estimate = 40
-        used_llm = False
-        anchor_count = 1
-
-    out = apply_auto_compact(
-        st=st,
-        logger=SimpleNamespace(info=lambda *_args, **_kwargs: None),
-        should_trigger_auto_compact_fn=lambda _messages: False,
-        auto_compact_messages_fn=lambda *_args, **_kwargs: _Result(),
-        build_openai_compatible_chat_model_fn=lambda **_kwargs: object(),
-        get_user_api_key_fn=lambda: "",
-        get_user_model_name_fn=lambda: "",
-        get_user_base_url_fn=lambda: "",
-        save_project_session_compact_memory_fn=lambda **kwargs: saved_summary.update(kwargs),
-        persist_active_conversation_fn=lambda **_kwargs: None,
-        project_uid="p1",
-        session_uid="s1",
-        user_uuid="u1",
-        conversation_key="p1:s1",
-    )
-
-    assert out == "new-summary"
-    assert st.session_state["paper_project_compact_summaries"]["p1:s1"] == "new-summary"
-    assert saved_summary["compact_summary"] == "new-summary"
-    assert st.captions
 
 
 def test_update_context_usage_backfills_skill_texts_from_message_trace():

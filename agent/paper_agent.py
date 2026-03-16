@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+import sqlite3
 from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
 from langchain_core.prompts import ChatPromptTemplate
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .runtime_agent import build_runtime_tools, create_runtime_agent
 
@@ -81,6 +83,9 @@ def create_paper_agent_session(
     document_name: str | None = None,
     project_name: str | None = None,
     scope_summary: str | None = None,
+    project_uid: str | None = None,
+    session_uid: str | None = None,
+    user_uuid: str | None = None,
 ) -> PaperAgentSession:
     logger.info(
         "Creating paper agent session: project_name=%s document_name=%s",
@@ -125,10 +130,24 @@ def create_paper_agent_session(
         )
 
     thread_id = f"paper-qa-{uuid4().hex}"
+    if project_uid and session_uid and user_uuid:
+        from .adapters import get_or_create_thread_id_for_session
+        thread_id = get_or_create_thread_id_for_session(
+            project_uid=project_uid,
+            session_uid=session_uid,
+            uuid=user_uuid,
+        )
+
+    checkpointer_db_path = os.getenv("CHECKPOINTER_DB_PATH", "./data/checkpoints.db")
+    os.makedirs(os.path.dirname(checkpointer_db_path), exist_ok=True)
+    conn = sqlite3.connect(checkpointer_db_path, check_same_thread=False)
+    checkpointer = SqliteSaver(conn)
+
     agent = create_runtime_agent(
         model=llm,
         tools=tools,
         system_prompt=final_system_prompt,
+        checkpointer=checkpointer,
     )
     logger.info("Created paper agent session: thread_id=%s tools=%s", thread_id, len(tools))
     return PaperAgentSession(agent=agent, thread_id=thread_id, tool_specs=tool_specs)

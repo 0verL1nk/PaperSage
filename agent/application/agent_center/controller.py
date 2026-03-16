@@ -56,7 +56,6 @@ def build_hinted_prompt(
     project_uid: str,
     detect_language_fn,
     with_language_hint_fn,
-    inject_compact_summary_fn,
     search_project_memory_items_fn,
     inject_long_term_memory_fn,
     tool_specs: list[dict[str, Any]] | None = None,

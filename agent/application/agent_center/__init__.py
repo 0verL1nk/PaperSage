@@ -10,7 +10,6 @@ from .controller import (
     validate_runtime_prerequisites,
 )
 from .conversation_state import (
-    apply_auto_compact,
     ensure_compact_summary,
     ensure_conversation_messages,
     get_history_paging_state,
@@ -83,7 +82,6 @@ __all__ = [
     "ensure_conversation_messages",
     "ensure_compact_summary",
     "update_context_usage",
-    "apply_auto_compact",
     "get_history_paging_state",
     "load_more_conversation_messages",
     "has_cached_agent_session",

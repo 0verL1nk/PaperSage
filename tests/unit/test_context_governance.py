@@ -3,7 +3,6 @@ from agent.context_governance import (
     build_context_usage_snapshot,
     extract_active_skills_from_trace,
     extract_skill_context_texts_from_trace,
-    inject_compact_summary,
     should_trigger_auto_compact,
 )
 
@@ -68,14 +67,6 @@ def test_auto_compact_uses_llm_summary_and_anchors(monkeypatch):
     assert result.anchor_count == 1
     assert "事实锚点" in result.summary
     assert "F1" in result.summary
-
-
-def test_inject_compact_summary_appends_memory():
-    prompt = "请继续回答。"
-    summary = "用户关注实验结论与局限性。"
-    augmented = inject_compact_summary(prompt, summary)
-    assert "[会话压缩记忆]" in augmented
-    assert "局限性" in augmented
 
 
 def test_build_context_usage_snapshot_contains_required_keys(monkeypatch):

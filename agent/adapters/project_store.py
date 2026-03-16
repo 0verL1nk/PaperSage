@@ -3,6 +3,7 @@ from agent.adapters.sqlite.project_repository import (
     create_project_session,
     delete_project_session,
     ensure_default_project_session,
+    get_or_create_thread_id,
     list_project_files,
     list_project_session_messages,
     list_project_session_messages_page,
@@ -107,4 +108,17 @@ def save_session_messages_for_project(
         project_uid=project_uid,
         uuid=uuid,
         messages=messages,
+    )
+
+
+def get_or_create_thread_id_for_session(
+    *,
+    project_uid: str,
+    session_uid: str,
+    uuid: str,
+) -> str:
+    return get_or_create_thread_id(
+        project_uid=project_uid,
+        session_uid=session_uid,
+        uuid=uuid,
     )
