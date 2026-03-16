@@ -9,7 +9,6 @@ from .controller import (
     scroll_chat_to_bottom,
 )
 from .state import (
-    apply_auto_compact,
     clear_project_runtime,
     ensure_agent_runtime,
     has_cached_agent_session,
@@ -33,5 +32,4 @@ __all__ = [
     "ensure_agent_runtime",
     "prepare_agent_session",
     "update_context_usage",
-    "apply_auto_compact",
 ]

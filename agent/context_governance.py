@@ -424,16 +424,6 @@ def should_trigger_auto_compact(messages: list[dict[str, Any]]) -> bool:
     return source_tokens > trigger_tokens
 
 
-def inject_compact_summary(prompt: str, summary: str) -> str:
-    clean_summary = summary.strip()
-    if not clean_summary:
-        return prompt
-    return (
-        f"{prompt}\n\n"
-        "[会话压缩记忆]\n"
-        f"{clean_summary}\n\n"
-        "[使用要求] 若当前问题与上述记忆冲突，请以当前问题和当前文档证据为准。"
-    )
 
 
 def _estimate_skills_tokens(

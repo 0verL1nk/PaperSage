@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 from langchain.agents import create_agent
-from langgraph.checkpoint.memory import InMemorySaver
+from langchain.agents.middleware import SummarizationMiddleware
 
 from .capabilities import (
     build_agent_tools,
@@ -53,14 +53,31 @@ def create_runtime_agent(
     system_prompt: str,
     tools: list[Any],
     checkpointer: Any | None = None,
+    enable_auto_summarization: bool = True,
 ) -> Any:
-    middleware = build_progressive_tool_middleware(tools)
+    middleware_list = []
+
+    # Progressive tool disclosure middleware
+    progressive_middleware = build_progressive_tool_middleware(tools)
+    if progressive_middleware:
+        middleware_list.extend(progressive_middleware)
+
+    # Auto summarization middleware
+    if enable_auto_summarization:
+        summarization_middleware = SummarizationMiddleware(
+            model=model,
+            trigger=[("fraction", 0.55)],
+            keep=("messages", 20),
+        )
+        middleware_list.append(summarization_middleware)
+
     create_kwargs: dict[str, Any] = {
         "model": model,
         "tools": tools,
         "system_prompt": system_prompt,
-        "checkpointer": checkpointer if checkpointer is not None else InMemorySaver(),
     }
-    if middleware:
-        create_kwargs["middleware"] = middleware
+    if checkpointer is not None:
+        create_kwargs["checkpointer"] = checkpointer
+    if middleware_list:
+        create_kwargs["middleware"] = middleware_list
     return create_agent(**create_kwargs)

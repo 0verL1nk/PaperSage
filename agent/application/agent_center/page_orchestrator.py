@@ -107,6 +107,7 @@ def prepare_scope_runtime(
         project_name,
         scope_docs_with_text,
         scope_signature,
+        user_uuid=user_uuid,
     )
     ensure_conversation_messages_fn(
         user_uuid=user_uuid,
@@ -188,7 +189,6 @@ def gate_prompt_and_enqueue(
 def build_turn_execution_context(
     *,
     prompt: str,
-    compact_summary: str,
     user_uuid: str,
     project_uid: str,
     session_state: dict[str, Any],
@@ -200,11 +200,11 @@ def build_turn_execution_context(
 ) -> TurnExecutionContext:
     routing_context = build_routing_context_fn(
         session_state.get("agent_messages", []),
-        compact_summary,
+        "",
     )
     hinted_prompt = build_hinted_prompt_fn(
         prompt=prompt,
-        compact_summary=compact_summary,
+        compact_summary="",
         user_uuid=user_uuid,
         project_uid=project_uid,
         tool_specs=(

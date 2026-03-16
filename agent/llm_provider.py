@@ -4,6 +4,12 @@ from pydantic import SecretStr
 from .settings import load_agent_settings
 
 
+def _get_model_max_input_tokens(model_name: str) -> int:
+    """根据模型名称返回最大输入token数,默认200,000"""
+    # 统一默认值为 200,000
+    return 200000
+
+
 def _provider_supports_reasoning_effort(base_url: str) -> bool:
     normalized = base_url.lower()
     return "api.openai.com" in normalized
@@ -51,6 +57,7 @@ def build_openai_compatible_chat_model(
         if _provider_supports_enable_thinking_flag(resolved_base_url):
             resolved_extra_body = {"enable_thinking": True}
 
+    max_input_tokens = _get_model_max_input_tokens(model_name)
     return ChatOpenAI(
         model=model_name,
         api_key=SecretStr(api_key),
@@ -59,4 +66,5 @@ def build_openai_compatible_chat_model(
         timeout=resolved_timeout,
         reasoning_effort=resolved_reasoning,
         extra_body=resolved_extra_body,
+        profile={"max_input_tokens": max_input_tokens},
     )

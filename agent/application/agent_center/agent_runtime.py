@@ -9,6 +9,7 @@ def ensure_agent_runtime(
     *,
     session_state: dict[str, Any],
     logger,
+    user_uuid: str,
     project_uid: str,
     session_uid: str,
     project_name: str,
@@ -198,6 +199,9 @@ def ensure_agent_runtime(
             document_name=scope_preview or "项目范围",
             project_name=project_name,
             scope_summary=scope_preview or "空范围",
+            project_uid=project_uid,
+            session_uid=session_uid,
+            user_uuid=user_uuid,
         )
         leader_sessions[leader_session_key] = {
             "agent": agent_session.agent,
@@ -228,6 +232,7 @@ def prepare_agent_session(
     ensure_agent_runtime_fn,
     cached_caption_fn: Callable[[], None],
     build_captioned_fn: Callable[[Callable[[], None]], None],
+    user_uuid: str,
     project_uid: str,
     session_uid: str,
     project_name: str,
@@ -237,7 +242,7 @@ def prepare_agent_session(
     has_cached_session = has_cached_session_fn(project_uid, session_uid, scope_signature)
     logger.debug("Agent session cache status: has_cached=%s", has_cached_session)
     if has_cached_session:
-        ensure_agent_runtime_fn(project_uid, session_uid, project_name, scope_docs, scope_signature)
+        ensure_agent_runtime_fn(project_uid, session_uid, project_name, scope_docs, scope_signature, user_uuid=user_uuid)
         cached_caption_fn()
         return
 
@@ -248,5 +253,6 @@ def prepare_agent_session(
             project_name,
             scope_docs,
             scope_signature,
+            user_uuid=user_uuid,
         )
     )

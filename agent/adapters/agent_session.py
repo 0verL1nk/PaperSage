@@ -13,6 +13,9 @@ def create_leader_session(
     document_name: str = "",
     project_name: str = "",
     scope_summary: str = "",
+    project_uid: str | None = None,
+    session_uid: str | None = None,
+    user_uuid: str | None = None,
 ):
     return create_paper_agent_session(
         llm=llm,
@@ -23,4 +26,7 @@ def create_leader_session(
         document_name=document_name,
         project_name=project_name,
         scope_summary=scope_summary,
+        project_uid=project_uid,
+        session_uid=session_uid,
+        user_uuid=user_uuid,
     )

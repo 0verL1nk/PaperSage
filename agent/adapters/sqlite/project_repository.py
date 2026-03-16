@@ -142,6 +142,11 @@ def ensure_projects_tables(db_name: str = "./database.sqlite") -> None:
     if "expires_at" not in memory_columns:
         cursor.execute("ALTER TABLE memory_items ADD COLUMN expires_at TEXT DEFAULT ''")
 
+    cursor.execute("PRAGMA table_info(project_sessions)")
+    session_columns = {row[1] for row in cursor.fetchall()}
+    if "thread_id" not in session_columns:
+        cursor.execute("ALTER TABLE project_sessions ADD COLUMN thread_id TEXT DEFAULT ''")
+
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_projects_uuid_updated_at ON projects(uuid, updated_at DESC)"
     )
@@ -981,3 +986,39 @@ def ensure_default_project_for_user(
                 db_name=db_name,
             )
     return default_project_uid
+
+
+def get_or_create_thread_id(
+    project_uid: str,
+    session_uid: str,
+    uuid: str,
+    db_name: str = "./database.sqlite",
+) -> str:
+    ensure_projects_tables(db_name)
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT thread_id
+        FROM project_sessions
+        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
+    """,
+        (session_uid, project_uid, uuid),
+    )
+    row = cursor.fetchone()
+    if row and row[0]:
+        conn.close()
+        return str(row[0])
+
+    thread_id = f"thread-{_gen_uuid()}"
+    cursor.execute(
+        """
+        UPDATE project_sessions
+        SET thread_id = ?
+        WHERE session_uid = ? AND project_uid = ? AND uuid = ?
+    """,
+        (thread_id, session_uid, project_uid, uuid),
+    )
+    conn.commit()
+    conn.close()
+    return thread_id

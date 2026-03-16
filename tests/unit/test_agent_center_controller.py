@@ -50,7 +50,6 @@ def test_build_hinted_prompt_and_runtime_helpers():
         project_uid="p1",
         detect_language_fn=lambda _text: "en",
         with_language_hint_fn=lambda text, _detector: f"{text}::lang",
-        inject_compact_summary_fn=lambda text, summary: f"{text}::{summary}",
         search_project_memory_items_fn=lambda **_kwargs: memories,
         inject_long_term_memory_fn=lambda text, mem: f"{text}::{len(mem)}",
         memory_limit=4,
@@ -75,7 +74,6 @@ def test_build_hinted_prompt_includes_compact_tool_metadata():
         project_uid="p1",
         detect_language_fn=lambda _text: "en",
         with_language_hint_fn=lambda text, _detector: text,
-        inject_compact_summary_fn=lambda text, summary: f"{text}::{summary}",
         search_project_memory_items_fn=lambda **_kwargs: [],
         inject_long_term_memory_fn=lambda text, mem: f"{text}::{len(mem)}",
         tool_specs=[
