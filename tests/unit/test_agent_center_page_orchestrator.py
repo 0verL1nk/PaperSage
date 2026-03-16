@@ -27,7 +27,7 @@ def test_prepare_scope_runtime_success_and_failure():
         ),
         build_scope_cache_caption_fn=lambda stats: f"caption:{stats['session_hit']}",
         build_scope_signature_fn=lambda docs: f"sig:{len(docs)}",
-        prepare_agent_session_fn=lambda *_args: calls.__setitem__("prepare", calls["prepare"] + 1),
+        prepare_agent_session_fn=lambda *args, **kwargs: calls.__setitem__("prepare", calls["prepare"] + 1),
         ensure_conversation_messages_fn=lambda **_kwargs: calls.__setitem__("messages", calls["messages"] + 1),
         ensure_compact_summary_fn=lambda **_kwargs: calls.__setitem__("compact", calls["compact"] + 1),
         update_context_usage_fn=lambda *_args: calls.__setitem__("usage", calls["usage"] + 1),
@@ -71,7 +71,7 @@ def test_prepare_scope_runtime_skips_loading_when_cached():
         build_scope_cache_caption_fn=lambda _stats: "",
         build_scope_signature_fn=lambda docs: f"sig:{len(docs)}",
         has_cached_session_fn=lambda *_args: True,
-        prepare_agent_session_fn=lambda *_args: calls.__setitem__("prepare", calls["prepare"] + 1),
+        prepare_agent_session_fn=lambda *args, **kwargs: calls.__setitem__("prepare", calls["prepare"] + 1),
         ensure_conversation_messages_fn=lambda **_kwargs: None,
         ensure_compact_summary_fn=lambda **_kwargs: None,
         update_context_usage_fn=lambda *_args: None,
@@ -144,7 +144,6 @@ def test_gate_prompt_and_enqueue_states():
 def test_build_turn_execution_context():
     context = build_turn_execution_context(
         prompt="q",
-        compact_summary="s",
         user_uuid="u1",
         project_uid="p1",
         session_state={
@@ -152,13 +151,13 @@ def test_build_turn_execution_context():
             "paper_agent_runtime_config": {"configurable": {"thread_id": "tid"}},
         },
         build_routing_context_fn=lambda messages, summary: f"{len(messages)}:{summary}",
-        build_hinted_prompt_fn=lambda **kwargs: f"{kwargs['prompt']}:{kwargs['compact_summary']}",
+        build_hinted_prompt_fn=lambda **kwargs: f"{kwargs['prompt']}",
         resolve_runtime_session_id_fn=lambda cfg: str(cfg["configurable"]["thread_id"]),
         resolve_selected_doc_uid_for_logging_fn=lambda docs: str(docs[0]["uid"]),
         scope_docs_with_text=[{"uid": "d1"}],
     )
-    assert context.hinted_prompt == "q:s"
-    assert context.routing_context == "1:s"
+    assert context.hinted_prompt == "q"
+    assert context.routing_context == "1:"
     assert context.session_id == "tid"
     assert context.selected_doc_uid_for_logging == "d1"
     assert context.run_id.startswith("run-")

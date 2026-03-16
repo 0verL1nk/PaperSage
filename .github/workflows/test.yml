@@ -1,0 +1,23 @@
+name: Unit Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  unit-tests:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev --no-install-project
+
+      - name: Run unit tests
+        run: uv run --extra dev python -m pytest tests/unit -q

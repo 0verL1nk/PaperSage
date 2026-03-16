@@ -29,6 +29,7 @@ def test_ensure_agent_runtime_reuses_cached_session():
     ensure_agent_runtime(
         session_state=session_state,
         logger=SimpleNamespace(info=lambda *_args, **_kwargs: None, debug=lambda *_args, **_kwargs: None),
+        user_uuid="test-user",
         project_uid="p1",
         session_uid="s1",
         project_name="项目A",
@@ -75,6 +76,7 @@ def test_ensure_agent_runtime_creates_fresh_session():
     ensure_agent_runtime(
         session_state=session_state,
         logger=SimpleNamespace(info=lambda *_args, **_kwargs: None, debug=lambda *_args, **_kwargs: None),
+        user_uuid="test-user",
         project_uid="p1",
         session_uid="s1",
         project_name="项目A",
@@ -101,7 +103,7 @@ def test_ensure_agent_runtime_creates_fresh_session():
 def test_prepare_agent_session_cached_and_build_paths():
     calls = {"ensure": 0, "caption": 0, "build": 0}
 
-    def _ensure(*_args):
+    def _ensure(*_args, **_kwargs):
         calls["ensure"] += 1
 
     prepare_agent_session(
@@ -110,6 +112,7 @@ def test_prepare_agent_session_cached_and_build_paths():
         ensure_agent_runtime_fn=_ensure,
         cached_caption_fn=lambda: calls.__setitem__("caption", calls["caption"] + 1),
         build_captioned_fn=lambda run: (calls.__setitem__("build", calls["build"] + 1), run()),
+        user_uuid="test-user",
         project_uid="p1",
         session_uid="s1",
         project_name="项目A",
@@ -125,6 +128,7 @@ def test_prepare_agent_session_cached_and_build_paths():
         ensure_agent_runtime_fn=_ensure,
         cached_caption_fn=lambda: calls.__setitem__("caption", calls["caption"] + 1),
         build_captioned_fn=lambda run: (calls.__setitem__("build", calls["build"] + 1), run()),
+        user_uuid="test-user",
         project_uid="p1",
         session_uid="s1",
         project_name="项目A",

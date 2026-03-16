@@ -18,7 +18,7 @@ def test_build_system_prompt_does_not_raise():
 def test_create_paper_agent_session_uses_runtime_agent_builder(monkeypatch):
     captured = {}
 
-    def fake_create_runtime_agent(*, model, tools, system_prompt):
+    def fake_create_runtime_agent(*, model, tools, system_prompt, **kwargs):
         captured["model"] = model
         captured["tools"] = tools
         captured["system_prompt"] = system_prompt
