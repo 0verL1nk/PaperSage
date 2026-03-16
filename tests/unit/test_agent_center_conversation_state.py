@@ -1,7 +1,4 @@
-from types import SimpleNamespace
-
 from agent.application.agent_center.conversation_state import (
-    ensure_compact_summary,
     ensure_conversation_messages,
     get_history_paging_state,
     load_more_conversation_messages,
