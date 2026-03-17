@@ -39,9 +39,9 @@
 
 ## 6. 创建技能工具模块
 
-- [ ] 6.1 将 SkillInput 移到 skill.py
-- [ ] 6.2 将 _get_skill_options 移到 skill.py
-- [ ] 6.3 实现 build_skill_tool 函数
+- [x] 6.1 将 SkillInput 移到 skill.py
+- [x] 6.2 将 _get_skill_options 移到 skill.py
+- [x] 6.3 实现 build_skill_tool 函数
 
 ## 7. 创建工具构建器
 
