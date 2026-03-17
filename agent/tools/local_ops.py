@@ -107,6 +107,22 @@ LOCAL_OPS_TOOL_METADATA = (
         name="ask_human",
         description="Ask user for clarification/confirmation when autonomous action is risky.",
     ),
+    ToolMetadata(
+        name="read_file",
+        description="Read file content from workspace with offset and limit support.",
+    ),
+    ToolMetadata(
+        name="write_file",
+        description="Write or append content to file in workspace.",
+    ),
+    ToolMetadata(
+        name="edit_file",
+        description="Replace text in file with exact string matching.",
+    ),
+    ToolMetadata(
+        name="update_file",
+        description="Update specific line range in file.",
+    ),
 )
 
 
@@ -252,5 +268,103 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             return json.dumps(payload, ensure_ascii=False)
 
         tools.append(ask_human)
+
+    if "read_file" in enabled_tool_names:
+        @tool(
+            "read_file",
+            description="Read file content from workspace.",
+            args_schema=ReadFileInput,
+        )
+        def read_file(path: str, offset: int = 0, limit: int = 4000) -> str:
+            resolved, error = _resolve_workspace_path(path)
+            if resolved is None:
+                return str(error or "Invalid path.")
+            if not resolved.exists():
+                return f"File not found: {_display_workspace_path(resolved)}"
+            if not resolved.is_file():
+                return f"Not a file: {_display_workspace_path(resolved)}"
+            try:
+                content = resolved.read_text(encoding="utf-8")
+            except Exception as exc:
+                return f"Failed to read file: {exc}"
+            safe_offset = max(0, int(offset))
+            safe_limit = max(1, min(int(limit), 20000))
+            return content[safe_offset:safe_offset + safe_limit]
+
+        tools.append(read_file)
+
+    if "write_file" in enabled_tool_names:
+        @tool(
+            "write_file",
+            description="Write content to file in workspace.",
+            args_schema=WriteFileInput,
+        )
+        def write_file(path: str, content: str, append: bool = False) -> str:
+            resolved, error = _resolve_workspace_path(path)
+            if resolved is None:
+                return str(error or "Invalid path.")
+            try:
+                resolved.parent.mkdir(parents=True, exist_ok=True)
+                mode = "a" if append else "w"
+                resolved.write_text(content, encoding="utf-8") if not append else resolved.open(mode, encoding="utf-8").write(content)
+                return f"Written to {_display_workspace_path(resolved)}"
+            except Exception as exc:
+                return f"Failed to write file: {exc}"
+
+        tools.append(write_file)
+
+    if "edit_file" in enabled_tool_names:
+        @tool(
+            "edit_file",
+            description="Replace text in file.",
+            args_schema=EditFileInput,
+        )
+        def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
+            resolved, error = _resolve_workspace_path(path)
+            if resolved is None:
+                return str(error or "Invalid path.")
+            if not resolved.exists():
+                return f"File not found: {_display_workspace_path(resolved)}"
+            try:
+                content = resolved.read_text(encoding="utf-8")
+            except Exception as exc:
+                return f"Failed to read file: {exc}"
+            if old_text not in content:
+                return "Text not found in file."
+            new_content = content.replace(old_text, new_text) if replace_all else content.replace(old_text, new_text, 1)
+            try:
+                resolved.write_text(new_content, encoding="utf-8")
+                return f"Edited {_display_workspace_path(resolved)}"
+            except Exception as exc:
+                return f"Failed to write file: {exc}"
+
+        tools.append(edit_file)
+
+    if "update_file" in enabled_tool_names:
+        @tool(
+            "update_file",
+            description="Update lines in file.",
+            args_schema=UpdateFileInput,
+        )
+        def update_file(path: str, start_line: int, end_line: int, new_text: str) -> str:
+            resolved, error = _resolve_workspace_path(path)
+            if resolved is None:
+                return str(error or "Invalid path.")
+            if not resolved.exists():
+                return f"File not found: {_display_workspace_path(resolved)}"
+            try:
+                lines = resolved.read_text(encoding="utf-8").splitlines(keepends=True)
+            except Exception as exc:
+                return f"Failed to read file: {exc}"
+            if start_line < 1 or end_line < start_line or end_line > len(lines):
+                return f"Invalid line range: {start_line}-{end_line} (file has {len(lines)} lines)"
+            new_lines = lines[:start_line-1] + [new_text if new_text.endswith("\n") else new_text + "\n"] + lines[end_line:]
+            try:
+                resolved.write_text("".join(new_lines), encoding="utf-8")
+                return f"Updated {_display_workspace_path(resolved)}"
+            except Exception as exc:
+                return f"Failed to write file: {exc}"
+
+        tools.append(update_file)
 
     return tools

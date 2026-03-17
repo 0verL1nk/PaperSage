@@ -19,7 +19,6 @@ from .scholarly_search import (
 )
 from .skills.loader import build_skill_runtime_payload, discover_available_skills
 from .tools import LOCAL_OPS_TOOL_METADATA, ToolMetadata, build_local_ops_tools
-from .tools.plan_tools import PLAN_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -1074,9 +1073,6 @@ def build_agent_tools(
 
     all_tools = list(runtime_tools)
     all_tools.append(search_tools)
-
-    # Add plan tools
-    all_tools.extend(PLAN_TOOLS)
 
     logger.info(
         "Agent tools prepared: discovered=%s registered=%s names=%s",
