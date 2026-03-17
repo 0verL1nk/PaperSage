@@ -44,11 +44,11 @@ def auto_select_workflow_mode(
     """根据 prompt 或 RequestContext 自动选择工作流模式。
 
     注意: 在agent-centric模式下,此函数已废弃。
-    Agent通过工具(create_plan, activate_team_mode)自主决定工作流。
+    Agent通过工具(create_plan, write_todos)自主决定工作流。
     此函数保留仅为API兼容性,默认返回react模式。
     """
     logger.warning(
         "auto_select_workflow_mode is deprecated in agent-centric mode. "
-        "Agent decides workflow via tools (create_plan, activate_team_mode)."
+        "Agent decides workflow via tools (create_plan, write_todos)."
     )
     return WORKFLOW_REACT, "agent-centric mode: agent decides via tools"

@@ -179,7 +179,6 @@ class OrchestrationMiddleware(AgentMiddleware):
             {"tool_name": "update_plan", "description": "更新执行计划"},
             {"tool_name": "delete_plan", "description": "删除执行计划"},
             {"tool_name": "write_todos", "description": "写入待办任务列表"},
-            {"tool_name": "activate_team_mode", "description": "激活团队协作模式"},
         ]
 
         content = json.dumps(
@@ -213,8 +212,7 @@ class OrchestrationMiddleware(AgentMiddleware):
             guidance = (
                 "【重要提示】这是一个复杂的多步骤任务,需要使用规划工具:\n\n"
                 "1. 首先使用 create_plan 工具创建执行计划,明确任务步骤和策略\n"
-                "2. 使用 write_todos 工具跟踪任务进度\n"
-                "3. 如需团队协作,使用 activate_team_mode 工具\n\n"
+                "2. 使用 write_todos 工具跟踪任务进度\n\n"
                 "请先调用相应的工具进行规划,不要直接回答。"
             )
 
