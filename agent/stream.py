@@ -277,50 +277,8 @@ def extract_tool_activation_events_from_result(result: Any) -> list[dict[str, st
 
 
 def extract_mode_activation_events_from_result(result: Any) -> list[dict[str, str]]:
-    messages = _iter_result_messages(result)
-    events: list[dict[str, str]] = []
-    seen: set[str] = set()
-
-    def _append(mode_name: str, content: str) -> None:
-        normalized_name = str(mode_name or "").strip().lower()
-        if normalized_name not in {"plan", "team"}:
-            return
-        if normalized_name in seen:
-            return
-        seen.add(normalized_name)
-        normalized_content = str(content or "").strip()
-        events.append(
-            {
-                "sender": "leader",
-                "receiver": f"mode:{normalized_name}",
-                "performative": "mode_activate",
-                "content": normalized_content or f"activate {normalized_name}",
-            }
-        )
-
-    for message in messages:
-        msg_type = str(_message_attr(message, "type", "") or "").lower()
-        role = str(_message_attr(message, "role", "") or "").lower()
-        if msg_type != "tool" and role != "tool":
-            continue
-        tool_name = str(_message_attr(message, "name", "") or "").strip()
-        if tool_name not in {"start_plan", "start_team"}:
-            continue
-        content = _message_text(message).strip()
-        if not content:
-            continue
-        try:
-            payload = json.loads(content)
-        except Exception:
-            payload = None
-        if not isinstance(payload, dict):
-            continue
-        if str(payload.get("type") or "").strip() != "mode_activate":
-            continue
-        mode_name = str(payload.get("mode") or "").strip().lower()
-        _append(mode_name, content)
-
-    return events
+    """提取模式激活事件（已废弃：start_plan 和 start_team 工具已被移除）"""
+    return []
 
 
 def extract_ask_human_requests_from_result(result: Any) -> list[dict[str, str]]:
