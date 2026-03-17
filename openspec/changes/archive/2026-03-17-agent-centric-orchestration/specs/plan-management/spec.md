@@ -15,7 +15,8 @@ The system SHALL provide a create_plan tool that stores Leader's self-written pl
 
 #### Scenario: Plan already exists
 - **WHEN** Leader calls create_plan while a plan already exists
-- **THEN** the system returns an error indicating plan must be deleted first
+- **THEN** the system replaces the existing plan with the new one
+- **AND** the system indicates that the previous plan was replaced
 
 ### Requirement: Plan Reading
 The system SHALL provide a read_plan tool that retrieves Leader's plan.
