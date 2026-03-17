@@ -104,7 +104,6 @@ def execute_turn_core(
     policy_llm: Any | None = None,
     search_document_evidence_fn: EvidenceRetriever | None = None,
     leader_tool_specs: list[dict[str, Any]] | None = None,
-    emit_tool_load_event: bool = True,
     routing_context: str = "",
     on_event: EventCallback | None = None,
     orchestrated_turn_executor: OrchestratedTurnExecutor | None = None,
@@ -137,23 +136,6 @@ def execute_turn_core(
             if not name:
                 continue
             registered_tool_names.append(name)
-    if registered_tool_names and emit_tool_load_event:
-        normalized_names = sorted({name for name in registered_tool_names})
-        preview_limit = 6
-        preview_names = normalized_names[:preview_limit]
-        remaining_count = max(0, len(normalized_names) - len(preview_names))
-        preview_text = ", ".join(preview_names)
-        if remaining_count > 0:
-            preview_text = f"{preview_text}, ... (+{remaining_count})"
-        load_summary = f"registered={len(normalized_names)} | tools={preview_text}"
-        _collect_event(
-            {
-                "sender": "runtime",
-                "receiver": "leader",
-                "performative": "tool_load",
-                "content": load_summary,
-            }
-        )
 
     run_started = time.perf_counter()
     search_document_fn = build_search_document_fn(search_document_evidence_fn)

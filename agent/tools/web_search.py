@@ -201,110 +201,106 @@ def _build_native_web_search_client():
     return _NativeDuckDuckGoSearch()
 
 
-def build_web_search_tool() -> Any:
-    """构建Web搜索工具"""
-    web_search_clients: list[tuple[str, Any]] | None = None
+# Module-level cache for web search clients
+_web_search_clients: list[tuple[str, Any]] | None = None
 
-    def _ensure_web_search_clients() -> list[tuple[str, Any]]:
-        nonlocal web_search_clients
-        if web_search_clients is not None:
-            return web_search_clients
 
-        clients: list[tuple[str, Any]] = []
+def _ensure_web_search_clients() -> list[tuple[str, Any]]:
+    global _web_search_clients
+    if _web_search_clients is not None:
+        return _web_search_clients
 
-        brave_client = _build_brave_web_search_client()
-        if brave_client is not None:
-            clients.append(("brave_search_api", brave_client))
-            logger.info("tool.search_web provider initialized: brave_search_api")
+    clients: list[tuple[str, Any]] = []
 
-        searxng_client = _build_searxng_web_search_client()
-        if searxng_client is not None:
-            clients.append(("searxng_public_pool", searxng_client))
-            logger.info("tool.search_web provider initialized: searxng_public_pool")
+    brave_client = _build_brave_web_search_client()
+    if brave_client is not None:
+        clients.append(("brave_search_api", brave_client))
+        logger.info("tool.search_web provider initialized: brave_search_api")
 
-        wikipedia_client = _build_wikipedia_web_search_client()
-        if wikipedia_client is not None:
-            clients.append(("wikipedia_api", wikipedia_client))
-            logger.info("tool.search_web provider initialized: wikipedia_api")
+    searxng_client = _build_searxng_web_search_client()
+    if searxng_client is not None:
+        clients.append(("searxng_public_pool", searxng_client))
+        logger.info("tool.search_web provider initialized: searxng_public_pool")
 
-        if not clients:
-            logger.warning("tool.search_web no primary provider initialized")
+    wikipedia_client = _build_wikipedia_web_search_client()
+    if wikipedia_client is not None:
+        clients.append(("wikipedia_api", wikipedia_client))
+        logger.info("tool.search_web provider initialized: wikipedia_api")
 
-        if not clients:
-            allow_ddg_fallback = _env_flag("AGENT_WEB_ENABLE_DDG_FALLBACK", default=False)
-            if allow_ddg_fallback:
-                fallback_client = _build_native_web_search_client()
-                if fallback_client is not None:
-                    clients.append(("native_duckduckgo_search", fallback_client))
-                    logger.info(
-                        "tool.search_web provider fallback initialized: native_duckduckgo_search"
-                    )
-                else:
-                    try:
-                        native_client = DuckDuckGoSearchRun()
-                        clients.append(("langchain_duckduckgo_search", native_client))
-                        logger.info(
-                            "tool.search_web provider fallback initialized: langchain_duckduckgo_search"
-                        )
-                    except Exception:
-                        logger.warning("tool.search_web no fallback provider available")
+    if not clients:
+        logger.warning("tool.search_web no primary provider initialized")
 
-        web_search_clients = clients
-        return web_search_clients
+    if not clients:
+        allow_ddg_fallback = _env_flag("AGENT_WEB_ENABLE_DDG_FALLBACK", default=False)
+        if allow_ddg_fallback:
+            fallback_client = _build_native_web_search_client()
+            if fallback_client is not None:
+                clients.append(("native_duckduckgo_search", fallback_client))
+                logger.info("tool.search_web provider fallback initialized: native_duckduckgo_search")
+            else:
+                try:
+                    native_client = DuckDuckGoSearchRun()
+                    clients.append(("langchain_duckduckgo_search", native_client))
+                    logger.info("tool.search_web provider fallback initialized: langchain_duckduckgo_search")
+                except Exception:
+                    logger.warning("tool.search_web no fallback provider available")
 
-    def _run_web_search_internal(query: str) -> tuple[str | None, str | None, str | None]:
-        clients = _ensure_web_search_clients()
-        if not clients:
-            return (
-                None,
-                None,
-                (
-                    "Web search is unavailable in current environment. "
-                    "Set BRAVE_SEARCH_API_KEY in .env, or configure AGENT_SEARXNG_BASE_URLS, "
-                    "or enable AGENT_WEB_ENABLE_DDG_FALLBACK=1."
-                ),
-            )
-        errors: list[str] = []
-        for provider_name, provider in clients:
-            try:
-                response = provider.run(query)
-                response_text = response if isinstance(response, str) else str(response)
-                if not response_text or response_text.strip() == "No web search results found.":
-                    errors.append(f"{provider_name}: no results")
-                    continue
-                return provider_name, response_text, None
-            except Exception as exc:
-                errors.append(f"{provider_name}: {exc}")
-                logger.info("tool.search_web provider failed: %s (%s)", provider_name, exc)
-        return None, None, f"Web search failed: {' | '.join(errors)}"
+    _web_search_clients = clients
+    return _web_search_clients
 
-    @tool(
-        "search_web",
-        description="Search public web content for supplemental context.",
-        args_schema=SearchWebInput,
+
+def _run_web_search_internal(query: str) -> tuple[str | None, str | None, str | None]:
+    clients = _ensure_web_search_clients()
+    if not clients:
+        return (
+            None,
+            None,
+            (
+                "Web search is unavailable in current environment. "
+                "Set BRAVE_SEARCH_API_KEY in .env, or configure AGENT_SEARXNG_BASE_URLS, "
+                "or enable AGENT_WEB_ENABLE_DDG_FALLBACK=1."
+            ),
+        )
+    errors: list[str] = []
+    for provider_name, provider in clients:
+        try:
+            response = provider.run(query)
+            response_text = response if isinstance(response, str) else str(response)
+            if not response_text or response_text.strip() == "No web search results found.":
+                errors.append(f"{provider_name}: no results")
+                continue
+            return provider_name, response_text, None
+        except Exception as exc:
+            errors.append(f"{provider_name}: {exc}")
+            logger.info("tool.search_web provider failed: %s (%s)", provider_name, exc)
+    return None, None, f"Web search failed: {' | '.join(errors)}"
+
+
+@tool(
+    "search_web",
+    description="Search public web content for supplemental context.",
+    args_schema=SearchWebInput,
+)
+def search_web(query: str) -> str:
+    safe_query = _sanitize_query(query)
+    logger.info(
+        "tool.search_web called: query_len=%s query_preview=%s",
+        len(safe_query),
+        _preview(safe_query),
     )
-    def search_web(query: str) -> str:
-        safe_query = _sanitize_query(query)
-        logger.info(
-            "tool.search_web called: query_len=%s query_preview=%s",
-            len(safe_query),
-            _preview(safe_query),
-        )
-        if not safe_query:
-            logger.warning("tool.search_web blocked: empty query after sanitization")
-            return "Web search query is empty after sanitization."
-        if _is_dangerous_query(safe_query):
-            logger.warning("tool.search_web blocked by policy")
-            return "Blocked by tool policy: query appears unsafe for web search."
-        provider_name, response_text, error_text = _run_web_search_internal(safe_query)
-        if response_text is None:
-            logger.warning("tool.search_web unavailable: %s", error_text)
-            return str(error_text or "Web search failed.")
-        logger.info(
-            "tool.search_web success: provider=%s response_len=%s",
-            provider_name,
-            len(response_text),
-        )
-        return response_text
-
-    return search_web
+    if not safe_query:
+        logger.warning("tool.search_web blocked: empty query after sanitization")
+        return "Web search query is empty after sanitization."
+    if _is_dangerous_query(safe_query):
+        logger.warning("tool.search_web blocked by policy")
+        return "Blocked by tool policy: query appears unsafe for web search."
+    provider_name, response_text, error_text = _run_web_search_internal(safe_query)
+    if response_text is None:
+        logger.warning("tool.search_web unavailable: %s", error_text)
+        return str(error_text or "Web search failed.")
+    logger.info(
+        "tool.search_web success: provider=%s response_len=%s",
+        provider_name,
+        len(response_text),
+    )
+    return response_text

@@ -1,6 +1,5 @@
 """论文搜索工具模块"""
 import logging
-from typing import Any
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -27,34 +26,29 @@ class SearchPapersInput(BaseModel):
     )
 
 
-def build_paper_search_tool() -> Any:
-    """构建论文搜索工具"""
-
-    @tool(
-        "search_papers",
-        description="Search academic papers from scholarly providers when document evidence is insufficient.",
-        args_schema=SearchPapersInput,
+@tool(
+    "search_papers",
+    description="Search academic papers from scholarly providers when document evidence is insufficient.",
+    args_schema=SearchPapersInput,
+)
+def search_papers(query: str, limit: int = 5) -> str:
+    safe_query = _sanitize_query(query)
+    logger.info(
+        "tool.search_papers called: limit=%s query_len=%s query_preview=%s",
+        limit,
+        len(safe_query),
+        _preview(safe_query),
     )
-    def search_papers(query: str, limit: int = 5) -> str:
-        safe_query = _sanitize_query(query)
-        logger.info(
-            "tool.search_papers called: limit=%s query_len=%s query_preview=%s",
-            limit,
-            len(safe_query),
-            _preview(safe_query),
-        )
-        if not safe_query:
-            logger.warning("tool.search_papers blocked: empty query after sanitization")
-            return "Academic search query is empty after sanitization."
-        if _is_dangerous_query(safe_query):
-            logger.warning("tool.search_papers blocked by policy")
-            return "Blocked by tool policy: query appears unsafe for academic search."
-        try:
-            papers = search_semantic_scholar(query=safe_query, limit=limit)
-        except ScholarlySearchError as exc:
-            logger.warning("tool.search_papers failed: %s", exc)
-            return f"Academic search failed: {exc} Try narrowing the topic or use search_web."
-        logger.info("tool.search_papers success: results=%s", len(papers))
-        return format_search_papers_results(papers)
-
-    return search_papers
+    if not safe_query:
+        logger.warning("tool.search_papers blocked: empty query after sanitization")
+        return "Academic search query is empty after sanitization."
+    if _is_dangerous_query(safe_query):
+        logger.warning("tool.search_papers blocked by policy")
+        return "Blocked by tool policy: query appears unsafe for academic search."
+    try:
+        papers = search_semantic_scholar(query=safe_query, limit=limit)
+    except ScholarlySearchError as exc:
+        logger.warning("tool.search_papers failed: %s", exc)
+        return f"Academic search failed: {exc} Try narrowing the topic or use search_web."
+    logger.info("tool.search_papers success: results=%s", len(papers))
+    return format_search_papers_results(papers)

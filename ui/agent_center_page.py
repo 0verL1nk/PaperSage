@@ -48,7 +48,6 @@ def run_agent_center_page() -> None:
         build_scope_cache_caption,
         build_session_maps,
         build_session_preview,
-        build_tool_load_signature,
         build_turn_execution_context,
         clear_turn_lock,
         create_and_select_session,
@@ -68,7 +67,6 @@ def run_agent_center_page() -> None:
         resolve_selected_doc_uid_for_logging,
         serialize_output_content,
         should_allow_delete_session,
-        should_emit_tool_load_event,
         store_turn_metrics,
         update_selected_session_map,
         validate_runtime_prerequisites,
@@ -587,16 +585,6 @@ def run_agent_center_page() -> None:
             scope_docs_with_text=scope_docs_with_text,
         )
 
-        current_tool_specs = st.session_state.get("paper_current_tool_specs", [])
-        tool_load_signature = build_tool_load_signature(current_tool_specs)
-        tool_load_signature_map = st.session_state.get("agent_tool_load_signature_map", {})
-        emit_tool_load_event = should_emit_tool_load_event(
-            signature_map=tool_load_signature_map,
-            conversation_key=conversation_key,
-            tool_load_signature=tool_load_signature,
-        )
-        if not isinstance(tool_load_signature_map, dict):
-            tool_load_signature_map = {}
         try:
             with logging_context(
                 uid=user_uuid,
@@ -625,7 +613,6 @@ def run_agent_center_page() -> None:
                                 prompt=prompt,
                                 hinted_prompt=turn_context.hinted_prompt,
                                 routing_context=turn_context.routing_context,
-                                emit_tool_load_event=emit_tool_load_event,
                             ),
                             deps=runtime_deps,
                             on_event=_on_event,
@@ -675,9 +662,6 @@ def run_agent_center_page() -> None:
                     len(turn_result["evidence_items"]),
                     int(turn_result["team_execution"].get("rounds", 0)),
                 )
-            if emit_tool_load_event:
-                tool_load_signature_map[conversation_key] = tool_load_signature
-                st.session_state["agent_tool_load_signature_map"] = tool_load_signature_map
         finally:
             clear_turn_lock(st.session_state)
         archive_payload = apply_turn_result(
