@@ -34,8 +34,8 @@
 
 ## 5. 创建论文搜索模块
 
-- [ ] 5.1 将 SearchPapersInput 移到 paper_search.py
-- [ ] 5.2 实现 build_paper_search_tool 函数
+- [x] 5.1 将 SearchPapersInput 移到 paper_search.py
+- [x] 5.2 实现 build_paper_search_tool 函数
 
 ## 6. 创建技能工具模块
 
