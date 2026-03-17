@@ -28,7 +28,7 @@ from .a2a.standard import (
     build_coordinator_executor,
 )
 from .archive import list_agent_outputs, save_agent_output
-from .capabilities import build_agent_tools
+from .tools.builder import build_agent_tools
 from .llm_provider import build_openai_compatible_chat_model
 from .paper_agent import create_paper_agent_session
 from .rag.hybrid import (

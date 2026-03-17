@@ -53,10 +53,10 @@
 
 ## 8. 更新导入路径
 
-- [ ] 8.1 搜索所有从 agent.capabilities 导入的代码
-- [ ] 8.2 更新为从 agent.tools.builder 导入 build_agent_tools
-- [ ] 8.3 更新为从 agent.tools 导入 discover_available_tools（如果需要）
-- [ ] 8.4 更新 agent/tools/__init__.py 导出新模块
+- [x] 8.1 搜索所有从 agent.capabilities 导入的代码
+- [x] 8.2 更新为从 agent.tools.builder 导入 build_agent_tools
+- [x] 8.3 更新为从 agent.tools 导入 discover_available_tools（如果需要）
+- [x] 8.4 更新 agent/tools/__init__.py 导出新模块
 
 ## 9. 测试验证
 

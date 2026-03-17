@@ -3,13 +3,11 @@ from typing import Any
 
 from langchain.agents import create_agent
 
-from .capabilities import (
+from .tools.builder import (
     build_agent_tools,
     discover_available_tools,
 )
 from .middlewares import build_middleware_list, todolist_middleware
-
-SPAWN_TOOL_NAMES = {"start_plan", "start_team"}
 
 
 def build_runtime_tools(
