@@ -428,3 +428,5 @@ class OrchestratedTurn:
     runtime_state: PlanRuntimeState | None = None
     leader_tool_names: list[str] = field(default_factory=list)
     ask_human_requests: list[dict[str, str]] = field(default_factory=list)
+    todos: list[dict[str, Any]] = field(default_factory=list)
+    agent_plan: dict[str, str] | None = None

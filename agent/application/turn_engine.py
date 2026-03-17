@@ -202,4 +202,6 @@ def execute_turn_core(
         "phase_path": phase_path,
         "used_document_rag": used_document_rag,
         "ask_human_requests": list(getattr(orchestrated, "ask_human_requests", []) or []),
+        "todos": list(getattr(orchestrated, "todos", []) or []),
+        "agent_plan": getattr(orchestrated, "agent_plan", None),
     }

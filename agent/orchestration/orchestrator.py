@@ -1109,8 +1109,8 @@ def execute_orchestrated_turn(
         on_event=on_event,
     )
 
-    # Check if agent activated team mode via tool call
-    agent_state = runtime_config.get("configurable", {}).get("state", {})
+    # Extract agent state from result (contains todos and plan from middleware)
+    agent_state = result.get("state", {}) if isinstance(result, dict) else {}
     team_mode_config = agent_state.get("team_mode")
 
     if team_mode_config and team_mode_config.get("enabled"):
@@ -1174,6 +1174,10 @@ def execute_orchestrated_turn(
     )
     _log_routing_decision(prompt, policy_decision, team_execution, replan_rounds)
 
+    # Extract todos and plan from agent state
+    todos = list(agent_state.get("todos", []) or [])
+    agent_plan = agent_state.get("plan")
+
     return OrchestratedTurn(
         answer=answer,
         policy_decision=policy_decision,
@@ -1184,6 +1188,8 @@ def execute_orchestrated_turn(
         runtime_state=runtime_state,
         leader_tool_names=sorted(observed_leader_tool_names),
         ask_human_requests=aggregated_ask_human_requests,
+        todos=todos,
+        agent_plan=agent_plan,
     )
 
 
