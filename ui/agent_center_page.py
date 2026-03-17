@@ -662,13 +662,11 @@ def run_agent_center_page() -> None:
                     st.session_state["current_agent_plan"] = agent_plan
                     logger.info("Stored agent_plan to session_state: %s", agent_plan)
 
-                # Store todos from runtime_state in session state
-                runtime_state = turn_result.get("runtime_state")
-                if runtime_state and isinstance(runtime_state, dict):
-                    todos = runtime_state.get("todos")
-                    if todos:
-                        st.session_state["current_todos"] = todos
-                        logger.info("Stored todos to session_state: count=%s", len(todos))
+                # Store todos from turn_result in session state
+                todos = turn_result.get("todos")
+                if todos:
+                    st.session_state["current_todos"] = todos
+                    logger.info("Stored todos to session_state: count=%s", len(todos))
 
                 logger.info(
                     "Agent run finished: latency_ms=%.2f trace_events=%s evidence_items=%s team_rounds=%s",
