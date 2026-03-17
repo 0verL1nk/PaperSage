@@ -70,8 +70,7 @@ def create_plan(
             "messages": [
                 ToolMessage(
                     f"Plan created successfully. Goal: {goal}\n\n"
-                    f"Now execute the plan step by step:\n{description}\n\n"
-                    f"Start with the first step immediately.",
+                    f"Now execute the plan step by step. Start with the first step immediately.",
                     tool_call_id=tool_call_id,
                 )
             ],

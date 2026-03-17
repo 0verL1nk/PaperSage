@@ -220,3 +220,32 @@ def render_pinned_human_requests_panel(
                 key=f"human_reply_{project_uid}_{idx}",
                 placeholder="输入确认/补充信息（当前仅展示，不自动回传）",
             )
+
+
+def render_pinned_plan_panel(
+    *,
+    project_uid: str,
+    chat_messages: list[dict[str, Any]],
+    expanded: bool = True,
+) -> None:
+    """Render pinned plan panel showing the current execution plan."""
+    agent_plan = None
+    for message in reversed(chat_messages[-20:]):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        plan_data = message.get("agent_plan")
+        if isinstance(plan_data, dict) and plan_data.get("goal"):
+            agent_plan = plan_data
+            break
+
+    if not agent_plan:
+        return
+
+    goal = str(agent_plan.get("goal", "")).strip()
+    description = str(agent_plan.get("description", "")).strip()
+
+    with st.expander("📋 执行计划（Plan）", expanded=expanded):
+        st.markdown(f"**目标：** {goal}")
+        if description:
+            st.markdown("**策略：**")
+            st.text(description)

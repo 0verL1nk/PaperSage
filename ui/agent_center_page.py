@@ -165,6 +165,7 @@ def run_agent_center_page() -> None:
     )
     from ui.agent_center_sidebar import (
         render_pinned_human_requests_panel,
+        render_pinned_plan_panel,
         render_pinned_todo_panel,
     )
     from ui.agent_center_turn_view import build_status_event_line, render_turn_result
@@ -521,6 +522,7 @@ def run_agent_center_page() -> None:
             render_output_archive_fn=_render_output_archive,
             render_workflow_metrics_fn=_render_workflow_metrics,
             render_context_usage_fn=_render_context_usage,
+            render_pinned_plan_panel_fn=render_pinned_plan_panel,
             render_pinned_todo_panel_fn=render_pinned_todo_panel,
             render_pinned_human_requests_panel_fn=render_pinned_human_requests_panel,
         )
