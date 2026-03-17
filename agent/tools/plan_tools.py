@@ -38,6 +38,8 @@ def create_plan(
     This tool stores the plan you write based on your understanding of the task.
     The plan content comes from you - this tool only stores it in agent state.
 
+    If a plan already exists, it will be replaced with the new one.
+
     Use this when you need to organize a complex multi-step task.
     Write your own strategy based on the conversation context.
 
@@ -48,31 +50,23 @@ def create_plan(
     Returns:
         Command to update state
     """
-    # Check if plan already exists
-    if state.get("plan"):
-        return Command(
-            update={
-                "messages": [
-                    ToolMessage(
-                        "Error: A plan already exists. Delete it first with delete_plan before creating a new one.",
-                        tool_call_id=tool_call_id,
-                    )
-                ],
-            }
-        )
-
-    # Store plan in agent state
+    # Store plan in agent state (replace if exists)
     plan_data = {"goal": goal, "description": description}
+
+    message = (
+        f"Plan created successfully. Goal: {goal}\n\n"
+        f"Now execute the plan step by step. Start with the first step immediately."
+    )
+
+    # Add note if replacing existing plan
+    if state.get("plan"):
+        message = f"Previous plan replaced. {message}"
 
     return Command(
         update={
             "plan": plan_data,
             "messages": [
-                ToolMessage(
-                    f"Plan created successfully. Goal: {goal}\n\n"
-                    f"Now execute the plan step by step. Start with the first step immediately.",
-                    tool_call_id=tool_call_id,
-                )
+                ToolMessage(message, tool_call_id=tool_call_id)
             ],
         }
     )
