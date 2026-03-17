@@ -67,11 +67,11 @@
 
 ## 10. 清理废弃代码
 
-- [ ] 10.1 删除 agent/runtime_agent.py 中的 SPAWN_TOOL_NAMES 定义
-- [ ] 10.2 更新 agent/orchestration/team_runtime.py 移除 SPAWN_TOOL_NAMES 引用
-- [ ] 10.3 更新 agent/stream.py 移除 start_plan/start_team 检查
-- [ ] 10.4 更新 tests/unit/test_agent_stream.py 移除相关测试
-- [ ] 10.5 删除 agent/capabilities.py 文件
-- [ ] 10.6 删除 agent/tools/local_ops.py 文件
-- [ ] 10.7 更新 agent/tools/__init__.py 移除 local_ops 导出
-- [ ] 10.8 确认没有遗留的导入引用
+- [x] 10.1 删除 agent/runtime_agent.py 中的 SPAWN_TOOL_NAMES 定义
+- [x] 10.2 更新 agent/orchestration/team_runtime.py 移除 SPAWN_TOOL_NAMES 引用
+- [x] 10.3 更新 agent/stream.py 移除 start_plan/start_team 检查
+- [x] 10.4 更新 tests/unit/test_agent_stream.py 移除相关测试
+- [x] 10.5 删除 agent/capabilities.py 文件
+- [x] 10.6 删除 agent/tools/local_ops.py 文件
+- [x] 10.7 更新 agent/tools/__init__.py 移除 local_ops 导出
+- [x] 10.8 确认没有遗留的导入引用
