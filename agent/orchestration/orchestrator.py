@@ -1111,6 +1111,12 @@ def execute_orchestrated_turn(
 
     # Extract agent state from result (contains todos and plan from middleware)
     agent_state = result.get("state", {}) if isinstance(result, dict) else {}
+    logger.debug(
+        "[Agent State] state_keys=%s, has_todos=%s, has_plan=%s",
+        list(agent_state.keys()) if isinstance(agent_state, dict) else "not_dict",
+        "todos" in agent_state if isinstance(agent_state, dict) else False,
+        "plan" in agent_state if isinstance(agent_state, dict) else False,
+    )
     team_mode_config = agent_state.get("team_mode")
 
     if team_mode_config and team_mode_config.get("enabled"):
