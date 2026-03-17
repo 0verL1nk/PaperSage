@@ -267,6 +267,7 @@ def render_strategy_sidebar(
     render_output_archive_fn: Callable[..., None],
     render_workflow_metrics_fn: Callable[[str], None],
     render_context_usage_fn: Callable[[str], None],
+    render_pinned_plan_panel_fn: Callable[..., None],
     render_pinned_todo_panel_fn: Callable[..., None],
     render_pinned_human_requests_panel_fn: Callable[..., None],
 ) -> None:
@@ -276,6 +277,11 @@ def render_strategy_sidebar(
         render_output_archive_fn(selected_project_uid, disable_interaction=turn_in_progress)
         render_workflow_metrics_fn(conversation_key)
         render_context_usage_fn(conversation_key)
+        render_pinned_plan_panel_fn(
+            project_uid=selected_project_uid,
+            chat_messages=chat_messages,
+            expanded=True,
+        )
         render_pinned_todo_panel_fn(project_uid=selected_project_uid, expanded=True)
         render_pinned_human_requests_panel_fn(
             project_uid=selected_project_uid,
