@@ -68,7 +68,12 @@ def create_plan(
         update={
             "plan": plan_data,
             "messages": [
-                ToolMessage(f"Plan created successfully. Goal: {goal}", tool_call_id=tool_call_id)
+                ToolMessage(
+                    f"Plan created successfully. Goal: {goal}\n\n"
+                    f"Now execute the plan step by step:\n{description}\n\n"
+                    f"Start with the first step immediately.",
+                    tool_call_id=tool_call_id,
+                )
             ],
         }
     )
