@@ -23,19 +23,18 @@ from ..domain.orchestration import (
     next_ready_plan_step,
     render_execution_plan,
 )
-from ..domain.request_context import RequestContext
 from ..domain.revision_policy import failure_needs_revision, has_revision_budget
 from ..output_cleaner import sanitize_public_answer
 from ..settings import load_agent_settings
 from ..stream import (
     extract_ask_human_requests_from_result,
-    extract_mode_activation_events_from_result,
     extract_result_text,
     extract_skill_activation_events_from_result,
     extract_tool_activation_events_from_result,
     extract_tool_names_from_result,
     extract_tool_trace_events_from_result,
 )
+from .planning_service import revise_execution_plan
 from .team_runtime import run_team_tasks
 
 logger = logging.getLogger(__name__)
@@ -963,7 +962,6 @@ def execute_orchestrated_turn(
     if search_document_fn is None:
         search_document_fn = _default_search_document_fn(search_document_evidence_fn)
     settings = load_agent_settings()
-    policy_router_llm = policy_llm if policy_llm is not None else llm
     resolved_team_members = (
         settings.agent_team_max_members
         if max_team_members is None
@@ -1160,7 +1158,7 @@ def execute_orchestrated_turn(
 
     # Build policy_decision based on agent's tool usage
     plan_activated = agent_state.get("plan") is not None
-    team_activated = team_mode_config and team_mode_config.get("enabled", False)
+    team_activated = bool(team_mode_config and team_mode_config.get("enabled", False))
 
     policy_decision = PolicyDecision(
         plan_enabled=plan_activated,

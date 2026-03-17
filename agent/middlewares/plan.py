@@ -1,11 +1,10 @@
 """Plan middleware for managing execution plans in agent state."""
 
-from typing import Annotated, Any, NotRequired
+from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.todo import PlanningState
-from langchain_core.messages import SystemMessage
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 
 class PlanStateExtension(TypedDict):

@@ -15,7 +15,7 @@ def build_middleware_list(
     model: Any,
     enable_auto_summarization: bool = True,
     enable_tool_selector: bool = True,
-) -> list[AgentMiddleware]:
+) -> list[AgentMiddleware[Any, Any, Any]]:
     """Build complete middleware list for agent runtime.
 
     Args:
@@ -26,7 +26,7 @@ def build_middleware_list(
     Returns:
         List of configured middleware instances.
     """
-    middleware_list: list[AgentMiddleware] = []
+    middleware_list: list[AgentMiddleware[Any, Any, Any]] = []
 
     # Trace middleware (first to record all middleware execution)
     middleware_list.append(TraceMiddleware())

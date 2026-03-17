@@ -1,7 +1,7 @@
 """E2E test for TodoListMiddleware integration."""
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.runtime_agent import create_runtime_agent
 

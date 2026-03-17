@@ -11,6 +11,7 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
+from .middlewares.progressive_tool_disclosure import _TOOL_VISIBILITY_ATTR
 from .scholarly_search import (
     ScholarlySearchError,
     format_search_papers_results,

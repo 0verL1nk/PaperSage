@@ -1,7 +1,6 @@
 """Unit tests for plan management tools."""
 
-import pytest
-from agent.tools.plan_tools import create_plan, read_plan, update_plan, delete_plan
+from agent.tools.plan_tools import create_plan, delete_plan, read_plan, update_plan
 
 
 def test_create_plan_new():
