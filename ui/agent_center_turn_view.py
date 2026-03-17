@@ -131,7 +131,7 @@ def render_turn_result(
             st.markdown("</div></div>", unsafe_allow_html=True)
 
         else:
-            st.write(answer)
+            st.write(summary_text)
 
     if phase_path and phase_path != "无":
         st.caption(f"执行阶段：{phase_path}")
