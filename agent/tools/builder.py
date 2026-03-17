@@ -3,10 +3,10 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from ..tools import ToolMetadata
 from .document import build_list_document_tool, build_read_document_tool, build_search_document_tool
 from .paper_search import build_paper_search_tool
 from .skill import build_skill_tool
+from .types import ToolMetadata
 from .utils import _env_flag
 from .web_search import build_web_search_tool
 

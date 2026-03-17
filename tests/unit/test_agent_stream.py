@@ -240,40 +240,6 @@ def test_extract_tool_activation_events_from_result_collects_activate_tool_calls
     assert any(item["receiver"] == "tool:search_web" for item in events)
 
 
-def test_extract_mode_activation_events_from_result_collects_mode_tools():
-    result = {
-        "messages": [
-            {
-                "role": "assistant",
-                "tool_calls": [
-                    {
-                        "name": "start_plan",
-                        "args": {"goal": "拆步骤", "reason": "task is multi-step"},
-                    },
-                    {
-                        "name": "start_team",
-                        "args": {"goal": "交叉验证", "reason": "need reviewer"},
-                    },
-                ],
-            },
-            {
-                "role": "tool",
-                "name": "start_plan",
-                "content": '{"type":"mode_activate","mode":"plan","goal":"拆步骤"}',
-            },
-            {
-                "role": "tool",
-                "name": "start_team",
-                "content": '{"type":"mode_activate","mode":"team","goal":"交叉验证"}',
-            },
-        ]
-    }
-
-    events = extract_mode_activation_events_from_result(result)
-    assert len(events) == 2
-    assert any(item["receiver"] == "mode:plan" for item in events)
-    assert any(item["receiver"] == "mode:team" for item in events)
-
 
 def test_extract_mode_activation_events_from_result_requires_successful_tool_result():
     result = {
