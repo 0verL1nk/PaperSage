@@ -18,6 +18,8 @@ from .scholarly_search import (
 )
 from .skills.loader import build_skill_runtime_payload, discover_available_skills
 from .tools import LOCAL_OPS_TOOL_METADATA, ToolMetadata, build_local_ops_tools
+from .tools.plan_tools import PLAN_TOOLS
+from .tools.team_tools import TEAM_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +136,6 @@ _DEFAULT_FIXED_TOOL_NAMES = {
     "search_document",
     "ask_human",
 }
-_TOOL_VISIBILITY_ATTR = "_progressive_tool_visibility"
 _TOOL_METADATA = (
     ToolMetadata(
         name="search_document",
@@ -992,18 +993,6 @@ def build_agent_tools(
 
         _register_tool(start_team)
 
-    progressive_enabled = _env_flag("AGENT_PROGRESSIVE_TOOL_DISCLOSURE", default=True)
-    if not progressive_enabled:
-        for tool_obj in runtime_tools:
-            setattr(tool_obj, _TOOL_VISIBILITY_ATTR, "fixed")
-        logger.info(
-            "Agent tools prepared (legacy): discovered=%s enabled=%s names=%s",
-            len(discovered_tools),
-            len(runtime_tools),
-            ",".join(tool_item.name for tool_item in runtime_tools),
-        )
-        return runtime_tools
-
     fixed_tool_names = _resolve_fixed_tool_names(enabled_tool_names=set(runtime_tool_map.keys()))
     lazy_tool_names = sorted(
         name for name in runtime_tool_map.keys() if name not in fixed_tool_names
@@ -1083,27 +1072,17 @@ def build_agent_tools(
             ensure_ascii=False,
         )
 
-    for tool_name, tool_obj in runtime_tool_map.items():
-        visibility = "fixed" if tool_name in fixed_tool_names else "lazy"
-        setattr(tool_obj, _TOOL_VISIBILITY_ATTR, visibility)
-    setattr(search_tools, _TOOL_VISIBILITY_ATTR, "fixed")
-
     all_tools = list(runtime_tools)
     all_tools.append(search_tools)
 
+    # Add plan and team tools
+    all_tools.extend(PLAN_TOOLS)
+    all_tools.extend(TEAM_TOOLS)
+
     logger.info(
-        "Agent tools prepared (progressive): discovered=%s fixed=%s lazy=%s registered=%s names=%s",
+        "Agent tools prepared: discovered=%s registered=%s names=%s",
         len(discovered_tools),
-        len(fixed_tool_names),
-        len(lazy_tool_names),
         len(all_tools),
         ",".join(tool_item.name for tool_item in all_tools),
     )
     return all_tools
-
-
-# Deprecated: Import from agent.middlewares instead
-from .middlewares import (  # noqa: E402, F401
-    ProgressiveToolDisclosureMiddleware,
-    build_progressive_tool_middleware,
-)

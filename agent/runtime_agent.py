@@ -2,13 +2,12 @@ from collections.abc import Callable
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 
 from .capabilities import (
     build_agent_tools,
     discover_available_tools,
 )
-from .middlewares import TraceMiddleware, build_progressive_tool_middleware
+from .middlewares import build_middleware_list, todolist_middleware
 
 SPAWN_TOOL_NAMES = {"start_plan", "start_team"}
 
@@ -55,28 +54,18 @@ def create_runtime_agent(
     checkpointer: Any | None = None,
     enable_auto_summarization: bool = True,
 ) -> Any:
-    middleware_list: list[AgentMiddleware] = []
+    # Add TodoListMiddleware tools to the tools list
+    all_tools = list(tools) + list(todolist_middleware.tools)
 
-    # Trace middleware
-    middleware_list.append(TraceMiddleware())
-
-    # Progressive tool disclosure middleware
-    progressive_middleware = build_progressive_tool_middleware(tools)
-    if progressive_middleware:
-        middleware_list.extend(progressive_middleware)
-
-    # Auto summarization middleware
-    if enable_auto_summarization:
-        summarization_middleware = SummarizationMiddleware(
-            model=model,
-            trigger=[("fraction", 0.55)],
-            keep=("messages", 20),
-        )
-        middleware_list.append(summarization_middleware)
+    # Build middleware list
+    middleware_list = build_middleware_list(
+        model=model,
+        enable_auto_summarization=enable_auto_summarization,
+    )
 
     create_kwargs: dict[str, Any] = {
         "model": model,
-        "tools": tools,
+        "tools": all_tools,
         "system_prompt": system_prompt,
     }
     if checkpointer is not None:

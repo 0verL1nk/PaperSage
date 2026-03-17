@@ -441,6 +441,35 @@ def run_agent_center_page() -> None:
                 selected_docs=len(scope_docs),
                 turn_in_progress=turn_in_progress,
             )
+
+            # Display current plan if exists
+            current_plan = st.session_state.get("current_plan")
+            if current_plan:
+                st.markdown("### 📋 执行计划")
+                with st.expander("查看计划详情", expanded=True):
+                    goal = current_plan.get("goal", "")
+                    description = current_plan.get("description", "")
+                    if goal:
+                        st.markdown(f"**目标:** {goal}")
+                    if description:
+                        st.markdown(f"**策略:**\n\n{description}")
+
+            # Display current todos if exists
+            current_todos = st.session_state.get("current_todos")
+            if current_todos and isinstance(current_todos, list):
+                st.markdown("### ✅ 任务列表")
+                with st.expander("查看任务详情", expanded=True):
+                    for idx, todo in enumerate(current_todos, 1):
+                        if isinstance(todo, dict):
+                            content = todo.get("content", "")
+                            status = todo.get("status", "pending")
+                            status_icon = {
+                                "pending": "⬜",
+                                "in_progress": "🟨",
+                                "completed": "✅"
+                            }.get(status, "⬜")
+                            st.markdown(f"{idx}. {status_icon} {content}")
+
         if not scope_docs:
             st.warning("当前项目还没有激活文档，请在文件中心或项目中心绑定文档。")
             return
@@ -624,6 +653,21 @@ def run_agent_center_page() -> None:
                         run_latency_ms=turn_result["run_latency_ms"],
                         phase_path=turn_result["phase_path"],
                     )
+
+                # Store plan data in session state
+                plan_data = turn_result.get("plan")
+                if plan_data:
+                    st.session_state["current_plan"] = plan_data
+                    logger.info("Stored plan to session_state: %s", plan_data)
+
+                # Store todos from runtime_state in session state
+                runtime_state = turn_result.get("runtime_state")
+                if runtime_state and isinstance(runtime_state, dict):
+                    todos = runtime_state.get("todos")
+                    if todos:
+                        st.session_state["current_todos"] = todos
+                        logger.info("Stored todos to session_state: count=%s", len(todos))
+
                 logger.info(
                     "Agent run finished: latency_ms=%.2f trace_events=%s evidence_items=%s team_rounds=%s",
                     float(turn_result["run_latency_ms"]),

@@ -110,7 +110,6 @@ def execute_turn_core(
             on_event(event)
 
     registered_tool_names: list[str] = []
-    schema_ready_names: set[str] = set()
     if isinstance(leader_tool_specs, list):
         for item in leader_tool_specs:
             if not isinstance(item, dict):
@@ -119,9 +118,6 @@ def execute_turn_core(
             if not name:
                 continue
             registered_tool_names.append(name)
-            args_schema = str(item.get("args_schema") or "").strip()
-            if args_schema:
-                schema_ready_names.add(name)
     if registered_tool_names and emit_tool_load_event:
         normalized_names = sorted({name for name in registered_tool_names})
         preview_limit = 6
@@ -130,14 +126,7 @@ def execute_turn_core(
         preview_text = ", ".join(preview_names)
         if remaining_count > 0:
             preview_text = f"{preview_text}, ... (+{remaining_count})"
-        schema_ready_count = len(schema_ready_names)
-        schema_lazy_count = max(0, len(normalized_names) - schema_ready_count)
-        load_summary = (
-            f"registered={len(normalized_names)}"
-            f" | schema_ready={schema_ready_count}"
-            f" | schema_lazy={schema_lazy_count}"
-            f" | tools={preview_text}"
-        )
+        load_summary = f"registered={len(normalized_names)} | tools={preview_text}"
         _collect_event(
             {
                 "sender": "runtime",
