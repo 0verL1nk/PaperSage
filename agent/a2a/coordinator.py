@@ -86,34 +86,6 @@ REACT_SYSTEM_PROMPT = (
 WORKFLOW_REACT = "react"
 WORKFLOW_PLAN_ACT = "plan_act"
 WORKFLOW_PLAN_ACT_REPLAN = "plan_act_replan"
-REACT_ALLOWED_TOOLS = {
-    "search_document",
-    "search_papers",
-    "search_web",
-    "use_skill",
-    "read_file",
-    "write_file",
-    "edit_file",
-    "update_file",
-    "bash",
-    "write_todo",
-    "edit_todo",
-    "ask_human",
-}
-RESEARCHER_ALLOWED_TOOLS = {
-    "search_document",
-    "search_papers",
-    "search_web",
-    "use_skill",
-    "read_file",
-    "write_file",
-    "edit_file",
-    "update_file",
-    "bash",
-    "write_todo",
-    "edit_todo",
-    "ask_human",
-}
 
 
 @dataclass(frozen=True)
@@ -592,12 +564,10 @@ def create_multi_agent_a2a_session(
     react_tools = build_agent_tools(
         search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
-        allowed_tools=REACT_ALLOWED_TOOLS,
     )
     researcher_tools = build_agent_tools(
         search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
-        allowed_tools=RESEARCHER_ALLOWED_TOOLS,
     )
     session_id = f"a2a-{uuid4().hex}"
     normalized_hint = context_hint.strip()
