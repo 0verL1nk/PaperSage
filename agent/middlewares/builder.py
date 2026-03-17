@@ -14,12 +14,14 @@ from .trace import TraceMiddleware
 def build_middleware_list(
     model: Any,
     enable_auto_summarization: bool = True,
+    enable_tool_selector: bool = True,
 ) -> list[AgentMiddleware]:
     """Build complete middleware list for agent runtime.
 
     Args:
         model: The model to use for middleware that require it.
         enable_auto_summarization: Whether to enable auto summarization.
+        enable_tool_selector: Whether to enable LLM tool selector (requires JSON mode support).
 
     Returns:
         List of configured middleware instances.
@@ -38,9 +40,10 @@ def build_middleware_list(
     # Plan middleware (extends state to support plan field)
     middleware_list.append(plan_middleware)
 
-    # LLM Tool Selector middleware (official implementation)
-    tool_selector = build_tool_selector_middleware(model)
-    middleware_list.append(tool_selector)
+    # LLM Tool Selector middleware (requires JSON mode support)
+    if enable_tool_selector:
+        tool_selector = build_tool_selector_middleware(model)
+        middleware_list.append(tool_selector)
 
     # Auto summarization middleware
     if enable_auto_summarization:

@@ -53,6 +53,7 @@ def create_runtime_agent(
     tools: list[Any],
     checkpointer: Any | None = None,
     enable_auto_summarization: bool = True,
+    enable_tool_selector: bool = True,
 ) -> Any:
     # Add TodoListMiddleware tools to the tools list
     all_tools = list(tools) + list(todolist_middleware.tools)
@@ -61,6 +62,7 @@ def create_runtime_agent(
     middleware_list = build_middleware_list(
         model=model,
         enable_auto_summarization=enable_auto_summarization,
+        enable_tool_selector=enable_tool_selector,
     )
 
     create_kwargs: dict[str, Any] = {

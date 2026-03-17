@@ -656,11 +656,11 @@ def run_agent_center_page() -> None:
                         phase_path=turn_result["phase_path"],
                     )
 
-                # Store plan data in session state
-                plan_data = turn_result.get("plan")
-                if plan_data:
-                    st.session_state["current_plan"] = plan_data
-                    logger.info("Stored plan to session_state: %s", plan_data)
+                # Store agent_plan data in session state
+                agent_plan = turn_result.get("agent_plan")
+                if agent_plan:
+                    st.session_state["current_agent_plan"] = agent_plan
+                    logger.info("Stored agent_plan to session_state: %s", agent_plan)
 
                 # Store todos from runtime_state in session state
                 runtime_state = turn_result.get("runtime_state")

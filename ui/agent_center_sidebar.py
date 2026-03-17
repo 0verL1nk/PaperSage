@@ -229,16 +229,20 @@ def render_pinned_plan_panel(
     expanded: bool = True,
 ) -> None:
     """Render pinned plan panel showing the current execution plan."""
-    agent_plan = None
-    for message in reversed(chat_messages[-20:]):
-        if not isinstance(message, dict) or message.get("role") != "assistant":
-            continue
-        plan_data = message.get("agent_plan")
-        if isinstance(plan_data, dict) and plan_data.get("goal"):
-            agent_plan = plan_data
-            break
+    # First try to get from session_state (real-time)
+    agent_plan = st.session_state.get("current_agent_plan")
 
-    if not agent_plan:
+    # Fallback to chat messages if not in session_state
+    if not isinstance(agent_plan, dict) or not agent_plan.get("goal"):
+        for message in reversed(chat_messages[-20:]):
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            plan_data = message.get("agent_plan")
+            if isinstance(plan_data, dict) and plan_data.get("goal"):
+                agent_plan = plan_data
+                break
+
+    if not isinstance(agent_plan, dict) or not agent_plan.get("goal"):
         return
 
     goal = str(agent_plan.get("goal", "")).strip()

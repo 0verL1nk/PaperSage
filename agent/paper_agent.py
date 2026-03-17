@@ -26,7 +26,6 @@ PAPER_QA_SYSTEM_PROMPT = """你是专业论文问答 Agent。
 4) 生成思维导图时，先调用 use_skill("mindmap", task)，输出必须用 <mindmap> 标签包裹：
    <mindmap>{{"name":"主题","children":[...]}}</mindmap>
    禁止使用 markdown 代码块 ```json
-5) 文件操作：创建或写入文件使用 write_file，编辑文件使用 edit_file，读取文件使用 read_file
 
 [复杂任务处理 - 重要]
 当遇到复杂的多步骤任务时（如文献综述、对比分析、系统性调研等）：
@@ -138,11 +137,16 @@ def create_paper_agent_session(
     conn = sqlite3.connect(checkpointer_db_path, check_same_thread=False)
     checkpointer = SqliteSaver(conn)
 
+    # Check if tool selector should be enabled (requires JSON mode support)
+    # Default to False to avoid JSON mode errors with incompatible models
+    enable_tool_selector = os.getenv("ENABLE_TOOL_SELECTOR", "false").lower() in {"true", "1", "yes"}
+
     agent = create_runtime_agent(
         model=llm,
         tools=tools,
         system_prompt=final_system_prompt,
         checkpointer=checkpointer,
+        enable_tool_selector=enable_tool_selector,
     )
     logger.info("Created paper agent session: thread_id=%s tools=%s", thread_id, len(tools))
     return PaperAgentSession(agent=agent, thread_id=thread_id, tool_specs=tool_specs)

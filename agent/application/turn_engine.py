@@ -179,7 +179,14 @@ def execute_turn_core(
         on_event=_collect_event,
     )
 
-    answer = orchestrated.answer or "抱歉，我暂时没有生成有效回复。"
+    answer = orchestrated.answer
+    if not answer:
+        logger.warning(
+            "Empty answer from orchestrated turn. orchestrated_type=%s, has_answer=%s",
+            type(orchestrated).__name__,
+            hasattr(orchestrated, "answer"),
+        )
+        answer = "抱歉，我暂时没有生成有效回复。"
     policy_decision = orchestrated.policy_decision.to_dict()
     team_execution = orchestrated.team_execution.to_dict()
     trace_payload = event_logs if event_logs else orchestrated.trace_payload

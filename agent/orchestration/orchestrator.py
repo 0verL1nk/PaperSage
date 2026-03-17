@@ -296,6 +296,11 @@ def _extract_leader_result_payload(
         answer = _llm_content_to_text(getattr(result, "content", result))
     answer = sanitize_public_answer(answer)
     if not answer:
+        logger.error(
+            "[EMPTY_ANSWER] Empty answer from leader agent. result_type=%s, result_keys=%s",
+            type(result).__name__,
+            list(result.keys()) if isinstance(result, dict) else "n/a",
+        )
         answer = "抱歉，我暂时没有生成有效回复。"
     return (
         answer,
@@ -1074,10 +1079,19 @@ def execute_orchestrated_turn(
         leader_prompt[:200] if len(leader_prompt) > 200 else leader_prompt,
     )
 
-    result = leader_agent.invoke(
-        {"messages": input_messages},
-        config=runtime_config,
-    )
+    try:
+        result = leader_agent.invoke(
+            {"messages": input_messages},
+            config=runtime_config,
+        )
+    except Exception as exc:
+        logger.error(
+            "[AGENT_INVOKE_ERROR] Leader agent invocation failed: %s | error_type=%s",
+            str(exc),
+            type(exc).__name__,
+            exc_info=True,
+        )
+        raise
 
     # Debug: Log LLM output
     result_messages = result.get("messages", []) if isinstance(result, dict) else []
