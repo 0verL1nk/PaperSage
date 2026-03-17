@@ -7,10 +7,10 @@ from uuid import uuid4
 
 from a2a.types import Message, Part, Role, TextPart
 
-from ..tools.builder import build_agent_tools
 from ..contracts import normalize_plan_text, normalize_review_text
 from ..runtime_agent import create_runtime_agent
 from ..stream import extract_result_text
+from ..tools.builder import build_agent_tools
 from .replan_policy import (
     has_replan_budget,
     normalize_max_review_rounds,

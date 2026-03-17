@@ -3,11 +3,11 @@ from typing import Any
 
 from langchain.agents import create_agent
 
+from .middlewares import build_middleware_list, todolist_middleware
 from .tools.builder import (
     build_agent_tools,
     discover_available_tools,
 )
-from .middlewares import build_middleware_list, todolist_middleware
 
 
 def build_runtime_tools(
