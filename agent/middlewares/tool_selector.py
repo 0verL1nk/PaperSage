@@ -9,6 +9,7 @@ from langchain.agents.middleware import AgentMiddleware
 logger = logging.getLogger(__name__)
 
 DEFAULT_SYSTEM_PROMPT = "Your goal is to select the most relevant tools for answering the user's query."
+DEFAULT_MAX_TOOLS = 8  # Default maximum number of tools to select
 
 
 class SimpleToolSelectorMiddleware(AgentMiddleware):
@@ -137,7 +138,7 @@ def build_tool_selector_middleware(model: Any) -> SimpleToolSelectorMiddleware:
     """
     return SimpleToolSelectorMiddleware(
         model=model,
-        max_tools=8,
+        max_tools=DEFAULT_MAX_TOOLS,
         always_include=["ask_human", "search_document"],
     )
 

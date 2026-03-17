@@ -13,6 +13,9 @@ from .types import AgentState
 
 logger = logging.getLogger(__name__)
 
+# Complexity analysis thresholds
+COMPLEXITY_FALLBACK_LENGTH_THRESHOLD = 200  # Character count threshold for fallback complexity check
+
 
 class OrchestrationMiddleware(AgentMiddleware):
     """Middleware that analyzes context and suggests orchestration tools.
@@ -157,7 +160,7 @@ class OrchestrationMiddleware(AgentMiddleware):
             # Fallback: simple heuristic on last message
             last_content = str(getattr(messages[-1], "content", ""))
             fallback_result = {
-                "is_complex": len(last_content) > 200 or any(kw in last_content for kw in ["步骤", "规划", "对比", "分析"]),
+                "is_complex": len(last_content) > COMPLEXITY_FALLBACK_LENGTH_THRESHOLD or any(kw in last_content for kw in ["步骤", "规划", "对比", "分析"]),
                 "reason": "fallback heuristic"
             }
 
