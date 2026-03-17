@@ -23,21 +23,18 @@ from ..domain.orchestration import (
     next_ready_plan_step,
     render_execution_plan,
 )
-from ..domain.request_context import RequestContext
 from ..domain.revision_policy import failure_needs_revision, has_revision_budget
 from ..output_cleaner import sanitize_public_answer
 from ..settings import load_agent_settings
 from ..stream import (
     extract_ask_human_requests_from_result,
-    extract_mode_activation_events_from_result,
     extract_result_text,
     extract_skill_activation_events_from_result,
     extract_tool_activation_events_from_result,
     extract_tool_names_from_result,
     extract_tool_trace_events_from_result,
 )
-from .planning_service import build_execution_plan, revise_execution_plan
-from .policy_engine import intercept as intercept_policy
+from .planning_service import revise_execution_plan
 from .team_runtime import run_team_tasks
 
 logger = logging.getLogger(__name__)
@@ -298,6 +295,11 @@ def _extract_leader_result_payload(
         answer = _llm_content_to_text(getattr(result, "content", result))
     answer = sanitize_public_answer(answer)
     if not answer:
+        logger.error(
+            "[EMPTY_ANSWER] Empty answer from leader agent. result_type=%s, result_keys=%s",
+            type(result).__name__,
+            list(result.keys()) if isinstance(result, dict) else "n/a",
+        )
         answer = "抱歉，我暂时没有生成有效回复。"
     return (
         answer,
@@ -538,9 +540,24 @@ def _execute_plan_step(
         step_tool_hints=list(step.tool_hints),
         runtime_state=runtime_state,
     )
+    # Debug: Log LLM input
+    logger.debug(
+        "[LLM IO] Step execution - Input: user_message_len=%d, prompt_preview=%s",
+        len(step_prompt),
+        step_prompt[:200] if len(step_prompt) > 200 else step_prompt,
+    )
+
     result = leader_agent.invoke(
         {"messages": [{"role": "user", "content": step_prompt}]},
         config=leader_runtime_config or {},
+    )
+
+    # Debug: Log LLM output
+    result_messages = result.get("messages", []) if isinstance(result, dict) else []
+    logger.debug(
+        "[LLM IO] Step execution - Output: message_count=%d, last_message_type=%s",
+        len(result_messages),
+        type(result_messages[-1]).__name__ if result_messages else "none",
     )
     (
         answer,
@@ -945,7 +962,6 @@ def execute_orchestrated_turn(
     if search_document_fn is None:
         search_document_fn = _default_search_document_fn(search_document_evidence_fn)
     settings = load_agent_settings()
-    policy_router_llm = policy_llm if policy_llm is not None else llm
     resolved_team_members = (
         settings.agent_team_max_members
         if max_team_members is None
@@ -977,30 +993,31 @@ def execute_orchestrated_turn(
     )
     current_parent_span = str(root_event.get("span_id") or "")
 
-    advisory_decision = intercept_policy(
-        RequestContext(
-            prompt=prompt,
-            context_digest=routing_context,
-        ),
-        llm=policy_router_llm,
-    )
-    policy_event = _emit_event(
-        trace_payload=trace_payload,
-        trace_context=trace_context,
-        sender="policy_engine",
-        receiver="leader",
-        performative="policy",
-        content=(
-            f"plan={advisory_decision.plan_enabled}, "
-            f"team={advisory_decision.team_enabled}, "
-            f"reason={advisory_decision.reason}"
-        ),
-        parent_span_id=current_parent_span,
-        metadata={"advisory_only": True},
-        on_event=on_event,
-    )
-    current_parent_span = str(policy_event.get("span_id") or current_parent_span)
-    policy_decision = _build_leader_first_default_decision(advisory_decision)
+    # Agent-centric mode: policy_engine is disabled, agent decides via tools
+    # advisory_decision = intercept_policy(
+    #     RequestContext(
+    #         prompt=prompt,
+    #         context_digest=routing_context,
+    #     ),
+    #     llm=policy_router_llm,
+    # )
+    # policy_event = _emit_event(
+    #     trace_payload=trace_payload,
+    #     trace_context=trace_context,
+    #     sender="policy_engine",
+    #     receiver="leader",
+    #     performative="policy",
+    #     content=(
+    #         f"plan={advisory_decision.plan_enabled}, "
+    #         f"team={advisory_decision.team_enabled}, "
+    #         f"reason={advisory_decision.reason}"
+    #     ),
+    #     parent_span_id=current_parent_span,
+    #     metadata={"advisory_only": True},
+    #     on_event=on_event,
+    # )
+    # current_parent_span = str(policy_event.get("span_id") or current_parent_span)
+    # policy_decision = _build_leader_first_default_decision(advisory_decision)
 
     plan: ExecutionPlan | None = None
     plan_text = ""
@@ -1026,146 +1043,131 @@ def execute_orchestrated_turn(
     observed_leader_tool_names: set[str] = set()
     aggregated_ask_human_requests: list[dict[str, str]] = []
 
-    answer = ""
-    final_leader_passes = 0
-    while True:
-        final_leader_passes += 1
-        leader_prompt = _build_final_leader_prompt(
-            hinted_prompt=hinted_prompt,
-            plan_text=plan_text,
-            plan=plan,
-            runtime_state=runtime_state,
-            team_execution=team_execution,
-        )
-        # Add on_event to config for middleware access
-        runtime_config = dict(leader_runtime_config or {})
-        if "configurable" not in runtime_config:
-            runtime_config["configurable"] = {}
-        runtime_config["configurable"]["on_event"] = on_event
+    # Agent-centric mode: single leader invocation
+    # Debug: Log prompt construction
+    logger.debug(
+        "[Prompt Construction] prompt_len=%d, hinted_prompt_len=%d, prompt_preview=%s, hinted_preview=%s",
+        len(prompt),
+        len(hinted_prompt),
+        prompt[:100] if len(prompt) > 100 else prompt,
+        hinted_prompt[:100] if len(hinted_prompt) > 100 else hinted_prompt,
+    )
 
+    leader_prompt = _build_final_leader_prompt(
+        hinted_prompt=hinted_prompt,
+        plan_text=plan_text,
+        plan=plan,
+        runtime_state=runtime_state,
+        team_execution=team_execution,
+    )
+
+    # Add on_event to config for middleware access
+    runtime_config = dict(leader_runtime_config or {})
+    if "configurable" not in runtime_config:
+        runtime_config["configurable"] = {}
+    runtime_config["configurable"]["on_event"] = on_event
+
+    # Debug: Log LLM input
+    input_messages = [{"role": "user", "content": leader_prompt}]
+    thread_id = runtime_config.get("configurable", {}).get("thread_id", "none")
+    logger.debug(
+        "[LLM IO] Main execution - Input: thread_id=%s, input_message_count=%d, prompt_preview=%s",
+        thread_id,
+        len(input_messages),
+        leader_prompt[:200] if len(leader_prompt) > 200 else leader_prompt,
+    )
+
+    try:
         result = leader_agent.invoke(
-            {"messages": [{"role": "user", "content": leader_prompt}]},
+            {"messages": input_messages},
             config=runtime_config,
         )
-        (
-            answer,
-            leader_tool_names,
-            ask_human_requests,
-            tool_trace_events,
-            skill_activation_events,
-            tool_activation_events,
-        ) = _extract_leader_result_payload(result)
-        observed_leader_tool_names.update(leader_tool_names)
-        aggregated_ask_human_requests.extend(ask_human_requests)
-        mode_activation_events = (
-            extract_mode_activation_events_from_result(result) if isinstance(result, dict) else []
+    except Exception as exc:
+        logger.error(
+            "[AGENT_INVOKE_ERROR] Leader agent invocation failed: %s | error_type=%s",
+            str(exc),
+            type(exc).__name__,
+            exc_info=True,
         )
-        current_parent_span = _emit_leader_runtime_events(
-            trace_payload=trace_payload,
+        raise
+
+    # Debug: Log LLM output
+    result_messages = result.get("messages", []) if isinstance(result, dict) else []
+    logger.debug(
+        "[LLM IO] Main execution - Output: thread_id=%s, result_message_count=%d, last_message_type=%s",
+        thread_id,
+        len(result_messages),
+        type(result_messages[-1]).__name__ if result_messages else "none",
+    )
+
+    (
+        answer,
+        leader_tool_names,
+        ask_human_requests,
+        tool_trace_events,
+        skill_activation_events,
+        tool_activation_events,
+    ) = _extract_leader_result_payload(result)
+    observed_leader_tool_names.update(leader_tool_names)
+    aggregated_ask_human_requests.extend(ask_human_requests)
+
+    current_parent_span = _emit_leader_runtime_events(
+        trace_payload=trace_payload,
+        trace_context=trace_context,
+        parent_span_id=current_parent_span,
+        tool_trace_events=tool_trace_events,
+        skill_activation_events=skill_activation_events,
+        tool_activation_events=tool_activation_events,
+        on_event=on_event,
+    )
+
+    # Extract agent state from result (contains todos and plan from middleware)
+    agent_state = result.get("state", {}) if isinstance(result, dict) else {}
+    logger.debug(
+        "[Agent State] state_keys=%s, has_todos=%s, has_plan=%s",
+        list(agent_state.keys()) if isinstance(agent_state, dict) else "not_dict",
+        "todos" in agent_state if isinstance(agent_state, dict) else False,
+        "plan" in agent_state if isinstance(agent_state, dict) else False,
+    )
+    team_mode_config = agent_state.get("team_mode")
+
+    if team_mode_config and team_mode_config.get("enabled"):
+        team_execution = run_team_tasks(
+            prompt=prompt,
+            plan_text=plan_text,
+            llm=llm,
+            search_document_fn=search_document_fn,
+            search_document_evidence_fn=search_document_evidence_fn,
+            max_members=team_mode_config.get("max_members", resolved_team_members),
+            max_rounds=team_mode_config.get("max_rounds", resolved_team_rounds),
             trace_context=trace_context,
             parent_span_id=current_parent_span,
-            tool_trace_events=tool_trace_events,
-            skill_activation_events=skill_activation_events,
-            tool_activation_events=tool_activation_events,
-            on_event=on_event,
+            on_event=lambda event: _record_existing_event(trace_payload, event, on_event),
+            policy_checkpoint_fn=None,
         )
-        for item in mode_activation_events:
-            mode_event = _emit_event(
-                trace_payload=trace_payload,
-                trace_context=trace_context,
-                sender=str(item.get("sender") or "leader"),
-                receiver=str(item.get("receiver") or "mode"),
-                performative="mode_activate",
-                content=str(item.get("content") or "activate mode"),
-                parent_span_id=current_parent_span,
-                on_event=on_event,
+        if team_execution.trace_events:
+            current_parent_span = str(
+                team_execution.trace_events[-1].get("span_id") or current_parent_span
             )
-            current_parent_span = str(mode_event.get("span_id") or current_parent_span)
-        requested_modes = _requested_modes_from_events(mode_activation_events)
-        should_run_plan = "plan" in requested_modes and plan is None
-        should_run_team = "team" in requested_modes and not team_execution.enabled
-        if not should_run_plan and not should_run_team:
-            break
-        if should_run_plan:
-            plan = build_execution_plan(prompt, llm=llm)
-            plan_text = render_execution_plan(plan)
-            runtime_state = create_plan_runtime_state(
-                user_goal=prompt,
-                current_plan=plan,
-                context_summary=routing_context,
-            )
-            plan_event = _emit_event(
-                trace_payload=trace_payload,
-                trace_context=trace_context,
-                sender="planner",
-                receiver="leader",
-                performative="plan",
-                content=plan_text,
-                parent_span_id=current_parent_span,
-                metadata={"stage": "leader_tool"},
-                on_event=on_event,
-            )
-            current_parent_span = str(plan_event.get("span_id") or current_parent_span)
-            runtime_state = evolve_plan_runtime_state(
-                runtime_state,
-                budget_usage_delta={"planner_calls": 1},
-            )
-            (
-                runtime_state,
-                plan_tool_names,
-                plan_ask_human_requests,
-                current_parent_span,
-                plan,
-                plan_text,
-            ) = _run_plan_runtime(
-                prompt=prompt,
-                hinted_prompt=hinted_prompt,
-                plan=plan,
-                plan_text=plan_text,
-                runtime_state=runtime_state,
-                leader_agent=leader_agent,
-                leader_runtime_config=leader_runtime_config,
-                llm=llm,
-                trace_payload=trace_payload,
-                trace_context=trace_context,
-                parent_span_id=current_parent_span,
-                on_event=on_event,
-            )
-            observed_leader_tool_names.update(plan_tool_names)
-            aggregated_ask_human_requests.extend(plan_ask_human_requests)
-        if should_run_team:
-            team_execution = run_team_tasks(
-                prompt=prompt,
-                plan_text=plan_text,
-                llm=llm,
-                search_document_fn=search_document_fn,
-                search_document_evidence_fn=search_document_evidence_fn,
-                max_members=resolved_team_members,
-                max_rounds=resolved_team_rounds,
-                trace_context=trace_context,
-                parent_span_id=current_parent_span,
-                on_event=lambda event: _record_existing_event(trace_payload, event, on_event),
-                policy_checkpoint_fn=None,
-            )
-            if team_execution.trace_events:
-                current_parent_span = str(
-                    team_execution.trace_events[-1].get("span_id") or current_parent_span
-                )
-            try:
-                synced_todo_path = _persist_team_todo_records(team_execution)
-                if synced_todo_path:
-                    logger.info("team todo synced: %s", synced_todo_path)
-            except Exception as exc:
-                logger.warning("team todo sync failed: %s", exc)
-        policy_decision = PolicyDecision(
-            plan_enabled=plan is not None,
-            team_enabled=team_execution.enabled,
-            reason="leader requested mode runtime via tool call",
-            confidence=policy_decision.confidence,
-            source="leader_tool",
-        )
-        if final_leader_passes >= 2:
-            break
+        try:
+            synced_todo_path = _persist_team_todo_records(team_execution)
+            if synced_todo_path:
+                logger.info("team todo synced: %s", synced_todo_path)
+        except Exception as exc:
+            logger.warning("team todo sync failed: %s", exc)
+
+    # Build policy_decision based on agent's tool usage
+    plan_activated = agent_state.get("plan") is not None
+    team_activated = bool(team_mode_config and team_mode_config.get("enabled", False))
+
+    policy_decision = PolicyDecision(
+        plan_enabled=plan_activated,
+        team_enabled=team_activated,
+        reason="agent-centric mode: agent decides via tools",
+        confidence=1.0,
+        source="agent_tools",
+    )
+
     runtime_state = evolve_plan_runtime_state(
         runtime_state,
         artifact={"type": "final_answer", "content": answer},
@@ -1190,6 +1192,10 @@ def execute_orchestrated_turn(
     )
     _log_routing_decision(prompt, policy_decision, team_execution, replan_rounds)
 
+    # Extract todos and plan from agent state
+    todos = list(agent_state.get("todos", []) or [])
+    agent_plan = agent_state.get("plan")
+
     return OrchestratedTurn(
         answer=answer,
         policy_decision=policy_decision,
@@ -1200,6 +1206,8 @@ def execute_orchestrated_turn(
         runtime_state=runtime_state,
         leader_tool_names=sorted(observed_leader_tool_names),
         ask_human_requests=aggregated_ask_human_requests,
+        todos=todos,
+        agent_plan=agent_plan,
     )
 
 

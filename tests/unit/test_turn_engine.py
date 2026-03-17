@@ -104,7 +104,7 @@ def test_execute_turn_core_without_document_rag_skips_evidence():
     assert called["evidence"] == 0
     assert result["used_document_rag"] is False
     assert result["evidence_items"] == []
-    assert isinstance(result["mindmap_data"], dict)
+    assert result["mindmap_data"] is None or isinstance(result["mindmap_data"], dict)
 
 
 def test_execute_turn_core_emits_tool_load_event_from_tool_specs():

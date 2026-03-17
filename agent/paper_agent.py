@@ -26,12 +26,13 @@ PAPER_QA_SYSTEM_PROMPT = """你是专业论文问答 Agent。
 4) 生成思维导图时，先调用 use_skill("mindmap", task)，输出必须用 <mindmap> 标签包裹：
    <mindmap>{{"name":"主题","children":[...]}}</mindmap>
    禁止使用 markdown 代码块 ```json
-5) 若任务需要显式拆步骤，调用 start_plan(goal, reason) 请求规划运行时。
-6) 若任务需要并行分析、交叉验证或多角色协作，调用 start_team(goal, reason, roles_hint) 请求团队运行时。
-7) 固定工具可直接调用：search_document / read_document / use_skill / start_plan / start_team / ask_human。
-8) 渐进工具调用规则：若工具未暴露，先调用 activate_tool(tool_name) 激活，再直接调用该工具。
-   渐进工具包括：search_web、search_papers、read_file、write_file、edit_file、update_file、bash、write_todo、edit_todo。
-9) 执行计划任务时，优先用 write_todo/edit_todo 跟踪步骤状态；高风险动作前先用 ask_human 询问确认。
+
+[复杂任务处理 - 重要]
+当遇到复杂的多步骤任务时（如文献综述、对比分析、系统性调研等）：
+1) 直接调用 create_plan 工具创建执行计划，不要输出任何引导语或解释
+2) 使用 write_todos 工具跟踪任务进度
+3) 禁止在调用工具前输出"我来为您..."、"让我..."等引导语
+4) 完成所有任务后，调用 delete_plan 工具清理计划，保持状态清洁
 
 [答案约束]
 1) 优先使用项目文档证据，避免无依据推断。
@@ -108,13 +109,6 @@ def create_paper_agent_session(
     tool_specs: list[dict[str, str]] = []
     schema_level = _tool_schema_level()
     for tool_item in tools:
-        visibility = (
-            str(getattr(tool_item, "_progressive_tool_visibility", "fixed") or "fixed")
-            .strip()
-            .lower()
-        )
-        if visibility == "lazy":
-            continue
         name = str(getattr(tool_item, "name", "") or "").strip()
         description = str(getattr(tool_item, "description", "") or "").strip()
         args_schema_text = _serialize_tool_args_schema(tool_item, schema_level=schema_level)
@@ -143,11 +137,16 @@ def create_paper_agent_session(
     conn = sqlite3.connect(checkpointer_db_path, check_same_thread=False)
     checkpointer = SqliteSaver(conn)
 
+    # Check if tool selector should be enabled (requires JSON mode support)
+    # Default to False to avoid JSON mode errors with incompatible models
+    enable_tool_selector = os.getenv("ENABLE_TOOL_SELECTOR", "false").lower() in {"true", "1", "yes"}
+
     agent = create_runtime_agent(
         model=llm,
         tools=tools,
         system_prompt=final_system_prompt,
         checkpointer=checkpointer,
+        enable_tool_selector=enable_tool_selector,
     )
     logger.info("Created paper agent session: thread_id=%s tools=%s", thread_id, len(tools))
     return PaperAgentSession(agent=agent, thread_id=thread_id, tool_specs=tool_specs)

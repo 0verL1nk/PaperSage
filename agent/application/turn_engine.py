@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 from typing import Any
 
@@ -9,6 +10,8 @@ from ..orchestration.orchestrator import execute_orchestrated_turn
 from ..output_cleaner import replace_evidence_placeholders
 from .contracts import EventCallback, SearchDocumentFn, TurnCoreResult
 from .ports import AgentInvoker, EvidenceRetriever, OrchestratedTurnExecutor
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_evidence_items(raw_payload: Any) -> list[dict[str, Any]]:
@@ -45,21 +48,37 @@ def build_search_document_fn(
 def try_parse_mindmap(answer: str) -> dict[str, Any] | None:
     if not isinstance(answer, str) or not answer.strip():
         return None
+
+    # Check if mindmap tag exists
+    if "<mindmap>" not in answer.lower():
+        return None
+
     try:
         json_block = extract_json_string(answer)
-    except Exception:
+    except Exception as e:
+        logger.warning("Mindmap extraction failed: extract_json_string error: %s", e)
         return None
+
     try:
         payload = json.loads(json_block)
-    except Exception:
+    except Exception as e:
+        logger.warning("Mindmap parse failed: JSON decode error: %s, json_block=%s", e, json_block[:200])
         return None
+
     if not isinstance(payload, dict):
+        logger.warning("Mindmap parse failed: payload is not dict, type=%s", type(payload))
         return None
+
     if "name" not in payload:
+        logger.warning("Mindmap parse failed: missing 'name' field, keys=%s", list(payload.keys()))
         return None
+
     children = payload.get("children")
     if children is not None and not isinstance(children, list):
+        logger.warning("Mindmap parse failed: 'children' is not list, type=%s", type(children))
         return None
+
+    logger.info("Mindmap parsed successfully: name=%s, children_count=%s", payload.get("name"), len(children) if children else 0)
     return payload
 
 
@@ -110,7 +129,6 @@ def execute_turn_core(
             on_event(event)
 
     registered_tool_names: list[str] = []
-    schema_ready_names: set[str] = set()
     if isinstance(leader_tool_specs, list):
         for item in leader_tool_specs:
             if not isinstance(item, dict):
@@ -119,9 +137,6 @@ def execute_turn_core(
             if not name:
                 continue
             registered_tool_names.append(name)
-            args_schema = str(item.get("args_schema") or "").strip()
-            if args_schema:
-                schema_ready_names.add(name)
     if registered_tool_names and emit_tool_load_event:
         normalized_names = sorted({name for name in registered_tool_names})
         preview_limit = 6
@@ -130,14 +145,7 @@ def execute_turn_core(
         preview_text = ", ".join(preview_names)
         if remaining_count > 0:
             preview_text = f"{preview_text}, ... (+{remaining_count})"
-        schema_ready_count = len(schema_ready_names)
-        schema_lazy_count = max(0, len(normalized_names) - schema_ready_count)
-        load_summary = (
-            f"registered={len(normalized_names)}"
-            f" | schema_ready={schema_ready_count}"
-            f" | schema_lazy={schema_lazy_count}"
-            f" | tools={preview_text}"
-        )
+        load_summary = f"registered={len(normalized_names)} | tools={preview_text}"
         _collect_event(
             {
                 "sender": "runtime",
@@ -171,7 +179,14 @@ def execute_turn_core(
         on_event=_collect_event,
     )
 
-    answer = orchestrated.answer or "抱歉，我暂时没有生成有效回复。"
+    answer = orchestrated.answer
+    if not answer:
+        logger.warning(
+            "Empty answer from orchestrated turn. orchestrated_type=%s, has_answer=%s",
+            type(orchestrated).__name__,
+            hasattr(orchestrated, "answer"),
+        )
+        answer = "抱歉，我暂时没有生成有效回复。"
     policy_decision = orchestrated.policy_decision.to_dict()
     team_execution = orchestrated.team_execution.to_dict()
     trace_payload = event_logs if event_logs else orchestrated.trace_payload
@@ -213,4 +228,6 @@ def execute_turn_core(
         "phase_path": phase_path,
         "used_document_rag": used_document_rag,
         "ask_human_requests": list(getattr(orchestrated, "ask_human_requests", []) or []),
+        "todos": list(getattr(orchestrated, "todos", []) or []),
+        "agent_plan": getattr(orchestrated, "agent_plan", None),
     }

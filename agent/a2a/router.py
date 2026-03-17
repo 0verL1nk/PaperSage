@@ -2,7 +2,6 @@ import logging
 from typing import Any
 
 from ..domain.request_context import RequestContext
-from ..orchestration.policy_engine import intercept
 from .coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
 
 logger = logging.getLogger(__name__)
@@ -44,27 +43,12 @@ def auto_select_workflow_mode(
 ) -> tuple[str, str]:
     """根据 prompt 或 RequestContext 自动选择工作流模式。
 
-    - 传入 RequestContext：携带 context_digest 等上下文信号走拦截器路径。
-    - 传入 str（向下兼容）：包装为 RequestContext(prompt=...) 后走相同路径。
+    注意: 在agent-centric模式下,此函数已废弃。
+    Agent通过工具(create_plan, write_todos)自主决定工作流。
+    此函数保留仅为API兼容性,默认返回react模式。
     """
-    ctx = (
-        prompt_or_ctx
-        if isinstance(prompt_or_ctx, RequestContext)
-        else RequestContext(prompt=prompt_or_ctx)
+    logger.warning(
+        "auto_select_workflow_mode is deprecated in agent-centric mode. "
+        "Agent decides workflow via tools (create_plan, write_todos)."
     )
-
-    llm = None
-    if coordinator is not None:
-        llm = getattr(coordinator, "llm", None) or getattr(
-            getattr(coordinator, "planner_agent", None), "llm", None
-        )
-
-    decision = intercept(ctx, llm=llm)
-    mode = _policy_to_workflow_mode(decision.plan_enabled, decision.team_enabled)
-    logger.info(
-        "Workflow auto-selected: mode=%s source=%s reason=%s",
-        mode,
-        decision.source,
-        decision.reason,
-    )
-    return mode, decision.reason
+    return WORKFLOW_REACT, "agent-centric mode: agent decides via tools"

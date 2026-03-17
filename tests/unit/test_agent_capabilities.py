@@ -1,9 +1,6 @@
 import json
 from pathlib import Path
 
-from langchain.agents.middleware.types import ModelRequest, ModelResponse
-from langchain_core.messages import AIMessage
-
 from agent import capabilities
 
 
@@ -52,7 +49,6 @@ def test_build_agent_tools_exposes_structured_tools(monkeypatch):
         "ask_human",
         "bash",
         "edit_file",
-        "edit_todo",
         "read_file",
         "search_document",
         "search_papers",
@@ -62,7 +58,6 @@ def test_build_agent_tools_exposes_structured_tools(monkeypatch):
         "update_file",
         "use_skill",
         "write_file",
-        "write_todo",
     }
 
     tool_map = _tool_map(tools)
@@ -81,49 +76,6 @@ def test_build_agent_tools_exposes_structured_tools(monkeypatch):
     assert start_team_payload["mode"] == "team"
     _activate(tool_map, "search_papers")
     assert "paper:q3" in _invoke_tool(tool_map, "search_papers", {"query": "q3", "limit": 3})
-
-
-def test_progressive_tool_middleware_filters_unactivated_tools(monkeypatch):
-    monkeypatch.setattr(capabilities, "_build_brave_web_search_client", lambda: None)
-    monkeypatch.setattr(capabilities, "_build_searxng_web_search_client", lambda: None)
-    monkeypatch.setattr(capabilities, "_build_wikipedia_web_search_client", lambda: None)
-    monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
-    tools = capabilities.build_agent_tools(lambda query: query)
-    middleware = capabilities.build_progressive_tool_middleware(tools)
-    assert middleware
-    handler_calls: list[list[str]] = []
-
-    def _handler(request: ModelRequest):
-        handler_calls.append([tool.name for tool in request.tools])
-        return ModelResponse(result=[AIMessage(content="ok")])
-
-    request_initial = ModelRequest(
-        model=object(),  # type: ignore[arg-type]
-        messages=[{"role": "user", "content": "hi"}],
-        tools=tools,
-    )
-    middleware[0].wrap_model_call(request_initial, _handler)
-    assert handler_calls
-    first_names = set(handler_calls[0])
-    assert "search_document" in first_names
-    assert "search_tools" in first_names
-    assert "search_web" not in first_names
-
-    request_activated = ModelRequest(
-        model=object(),  # type: ignore[arg-type]
-        messages=[
-            {"role": "user", "content": "hi"},
-            {
-                "role": "tool",
-                "name": "search_tools",
-                "content": '{"type":"tool_search_result","tools":[{"tool_name":"search_web"}]}',
-            },
-        ],
-        tools=tools,
-    )
-    middleware[0].wrap_model_call(request_activated, _handler)
-    second_names = set(handler_calls[1])
-    assert "search_web" in second_names
 
 
 def test_use_skill_returns_known_and_unknown_guidance(monkeypatch):
@@ -405,65 +357,6 @@ def test_ask_human_returns_structured_payload(monkeypatch):
     assert payload["type"] == "ask_human"
     assert payload["question"] == "请确认是否继续发布"
     assert payload["urgency"] == "high"
-
-
-def test_write_and_edit_todo_tools(monkeypatch, tmp_path: Path):
-    monkeypatch.setenv("AGENT_FILE_TOOLS_ROOT", str(tmp_path))
-    monkeypatch.setattr(
-        capabilities,
-        "_build_brave_web_search_client",
-        lambda: type("Web", (), {"run": lambda self, q: "ok"})(),
-    )
-    monkeypatch.setattr(capabilities, "_build_searxng_web_search_client", lambda: None)
-    monkeypatch.setattr(capabilities, "_build_wikipedia_web_search_client", lambda: None)
-    monkeypatch.setattr(capabilities, "search_semantic_scholar", lambda query, limit=5: [])
-
-    tools = capabilities.build_agent_tools(lambda query: query)
-    tool_map = _tool_map(tools)
-    _activate(tool_map, "write_todo")
-    create_res = _invoke_tool(
-        tool_map,
-        "write_todo",
-        {
-            "action": "upsert",
-            "title": "整理对比实验",
-            "status": "todo",
-            "priority": "high",
-            "assignee": "researcher",
-            "dependencies": ["task a", "task a", ""],
-            "plan_id": "plan-1",
-            "step_ref": "1",
-            "file_path": ".agent/todo.json",
-        },
-    )
-    assert "Todo saved:" in create_res
-
-    todo_path = tmp_path / ".agent" / "todo.json"
-    records = json.loads(todo_path.read_text(encoding="utf-8"))
-    todo_id = records[0]["id"]
-    assert records[0]["assignee"] == "researcher"
-    assert records[0]["dependencies"] == ["task_a"]
-
-    _activate(tool_map, "edit_todo")
-    edit_res = _invoke_tool(
-        tool_map,
-        "edit_todo",
-        {
-            "todo_id": todo_id,
-            "status": "in_progress",
-            "assignee": "reviewer",
-            "dependencies": [],
-            "note": "已开始执行",
-            "file_path": ".agent/todo.json",
-        },
-    )
-    assert "Todo updated:" in edit_res
-
-    updated_records = json.loads(todo_path.read_text(encoding="utf-8"))
-    assert updated_records[0]["status"] == "in_progress"
-    assert updated_records[0]["assignee"] == "reviewer"
-    assert updated_records[0]["dependencies"] == []
-    assert updated_records[0]["history"][-1]["note"] == "已开始执行"
 
 
 def test_load_secret_reads_from_dotenv(monkeypatch, tmp_path: Path):

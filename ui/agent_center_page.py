@@ -165,6 +165,7 @@ def run_agent_center_page() -> None:
     )
     from ui.agent_center_sidebar import (
         render_pinned_human_requests_panel,
+        render_pinned_plan_panel,
         render_pinned_todo_panel,
     )
     from ui.agent_center_turn_view import build_status_event_line, render_turn_result
@@ -441,6 +442,35 @@ def run_agent_center_page() -> None:
                 selected_docs=len(scope_docs),
                 turn_in_progress=turn_in_progress,
             )
+
+            # Display current plan if exists
+            current_plan = st.session_state.get("current_plan")
+            if current_plan:
+                st.markdown("### 📋 执行计划")
+                with st.expander("查看计划详情", expanded=True):
+                    goal = current_plan.get("goal", "")
+                    description = current_plan.get("description", "")
+                    if goal:
+                        st.markdown(f"**目标:** {goal}")
+                    if description:
+                        st.markdown(f"**策略:**\n\n{description}")
+
+            # Display current todos if exists
+            current_todos = st.session_state.get("current_todos")
+            if current_todos and isinstance(current_todos, list):
+                st.markdown("### ✅ 任务列表")
+                with st.expander("查看任务详情", expanded=True):
+                    for idx, todo in enumerate(current_todos, 1):
+                        if isinstance(todo, dict):
+                            content = todo.get("content", "")
+                            status = todo.get("status", "pending")
+                            status_icon = {
+                                "pending": "⬜",
+                                "in_progress": "🟨",
+                                "completed": "✅"
+                            }.get(status, "⬜")
+                            st.markdown(f"{idx}. {status_icon} {content}")
+
         if not scope_docs:
             st.warning("当前项目还没有激活文档，请在文件中心或项目中心绑定文档。")
             return
@@ -492,6 +522,7 @@ def run_agent_center_page() -> None:
             render_output_archive_fn=_render_output_archive,
             render_workflow_metrics_fn=_render_workflow_metrics,
             render_context_usage_fn=_render_context_usage,
+            render_pinned_plan_panel_fn=render_pinned_plan_panel,
             render_pinned_todo_panel_fn=render_pinned_todo_panel,
             render_pinned_human_requests_panel_fn=render_pinned_human_requests_panel,
         )
@@ -624,6 +655,19 @@ def run_agent_center_page() -> None:
                         run_latency_ms=turn_result["run_latency_ms"],
                         phase_path=turn_result["phase_path"],
                     )
+
+                # Store agent_plan data in session state
+                agent_plan = turn_result.get("agent_plan")
+                if agent_plan:
+                    st.session_state["current_agent_plan"] = agent_plan
+                    logger.info("Stored agent_plan to session_state: %s", agent_plan)
+
+                # Store todos from turn_result in session state
+                todos = turn_result.get("todos")
+                if todos:
+                    st.session_state["current_todos"] = todos
+                    logger.info("Stored todos to session_state: count=%s", len(todos))
+
                 logger.info(
                     "Agent run finished: latency_ms=%.2f trace_events=%s evidence_items=%s team_rounds=%s",
                     float(turn_result["run_latency_ms"]),

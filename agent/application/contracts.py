@@ -24,3 +24,5 @@ class TurnCoreResult(TypedDict):
     ask_human_requests: list[dict[str, str]]
     plan: NotRequired[dict[str, Any] | None]
     runtime_state: NotRequired[dict[str, Any] | None]
+    todos: NotRequired[list[dict[str, Any]]]
+    agent_plan: NotRequired[dict[str, Any] | None]

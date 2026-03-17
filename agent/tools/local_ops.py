@@ -53,101 +53,6 @@ class UpdateFileInput(BaseModel):
     new_text: str = Field(description="Replacement text block.")
 
 
-class WriteTodoInput(BaseModel):
-    action: str = Field(
-        default="upsert",
-        description="Todo action: upsert, update_status, append_note, complete.",
-    )
-    todo_id: str = Field(
-        default="",
-        description="Stable todo id. Leave empty to auto-generate on first insert.",
-    )
-    title: str = Field(
-        default="",
-        description="Todo title (required for creating new todo).",
-    )
-    details: str = Field(
-        default="",
-        description="Detailed task description.",
-    )
-    status: str = Field(
-        default="todo",
-        description="Task status: todo, in_progress, done, blocked, canceled.",
-    )
-    priority: str = Field(
-        default="medium",
-        description="Task priority: low, medium, high.",
-    )
-    assignee: str = Field(
-        default="",
-        description="Optional assignee (agent/user identifier).",
-    )
-    dependencies: list[str] | None = Field(
-        default=None,
-        description="Optional dependency todo ids. Empty list clears dependencies.",
-    )
-    plan_id: str = Field(
-        default="",
-        description="Optional plan identifier for plan-mode grouping.",
-    )
-    step_ref: str = Field(
-        default="",
-        description="Optional step reference (e.g. 1, step_2).",
-    )
-    note: str = Field(
-        default="",
-        description="Optional note to append into history.",
-    )
-    file_path: str = Field(
-        default=".agent/todo.json",
-        description="Todo JSON file path under workspace root.",
-    )
-
-
-class EditTodoInput(BaseModel):
-    todo_id: str = Field(description="Existing todo id to edit.")
-    title: str = Field(
-        default="",
-        description="Optional updated title.",
-    )
-    details: str = Field(
-        default="",
-        description="Optional updated details.",
-    )
-    status: str = Field(
-        default="",
-        description="Optional updated status: todo, in_progress, done, blocked, canceled.",
-    )
-    priority: str = Field(
-        default="",
-        description="Optional updated priority: low, medium, high.",
-    )
-    assignee: str = Field(
-        default="",
-        description="Optional updated assignee.",
-    )
-    dependencies: list[str] | None = Field(
-        default=None,
-        description="Optional updated dependencies. Empty list clears dependencies.",
-    )
-    plan_id: str = Field(
-        default="",
-        description="Optional updated plan id.",
-    )
-    step_ref: str = Field(
-        default="",
-        description="Optional updated step ref.",
-    )
-    note: str = Field(
-        default="",
-        description="Optional note appended to history.",
-    )
-    file_path: str = Field(
-        default=".agent/todo.json",
-        description="Todo JSON file path under workspace root.",
-    )
-
-
 class BashInput(BaseModel):
     command: str = Field(description="Bash command to execute.")
     cwd: str = Field(
@@ -181,9 +86,6 @@ class AskHumanInput(BaseModel):
 
 
 DEFAULT_FILE_READ_LIMIT = 4000
-VALID_TODO_STATUSES = {"todo", "in_progress", "done", "blocked", "canceled"}
-VALID_TODO_PRIORITIES = {"low", "medium", "high"}
-_TODO_ID_PATTERN = re.compile(r"[^a-z0-9_-]+")
 _DANGEROUS_BASH_PATTERNS = [
     r"\brm\s+-rf\b",
     r"\bsudo\b",
@@ -198,36 +100,28 @@ _DANGEROUS_BASH_PATTERNS = [
 
 LOCAL_OPS_TOOL_METADATA = (
     ToolMetadata(
-        name="read_file",
-        description="Read file content from workspace file system with offset/limit.",
-    ),
-    ToolMetadata(
-        name="write_file",
-        description="Write or append text content to a workspace file.",
-    ),
-    ToolMetadata(
-        name="edit_file",
-        description="Edit a workspace file by replacing exact text snippets.",
-    ),
-    ToolMetadata(
-        name="update_file",
-        description="Update a workspace file by replacing a line range.",
-    ),
-    ToolMetadata(
-        name="write_todo",
-        description="Create or update structured todo items for plan-mode execution tracking.",
-    ),
-    ToolMetadata(
-        name="edit_todo",
-        description="Edit existing todo items by id with status/priority/notes updates.",
-    ),
-    ToolMetadata(
         name="bash",
         description="Run bounded bash commands inside workspace for engineering tasks.",
     ),
     ToolMetadata(
         name="ask_human",
         description="Ask user for clarification/confirmation when autonomous action is risky.",
+    ),
+    ToolMetadata(
+        name="read_file",
+        description="Read file content from workspace with offset and limit support.",
+    ),
+    ToolMetadata(
+        name="write_file",
+        description="Write or append content to file in workspace.",
+    ),
+    ToolMetadata(
+        name="edit_file",
+        description="Replace text in file with exact string matching.",
+    ),
+    ToolMetadata(
+        name="update_file",
+        description="Update specific line range in file.",
     ),
 )
 
@@ -280,90 +174,8 @@ def _display_workspace_path(path_obj: Path) -> str:
         return path_obj.as_posix()
 
 
-def _normalize_todo_status(status: str) -> str:
-    normalized = str(status or "").strip().lower()
-    if normalized in VALID_TODO_STATUSES:
-        return normalized
-    return "todo"
-
-
-def _normalize_todo_priority(priority: str) -> str:
-    normalized = str(priority or "").strip().lower()
-    if normalized in VALID_TODO_PRIORITIES:
-        return normalized
-    return "medium"
-
-
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _normalize_todo_id(raw_id: str) -> str:
-    normalized = _TODO_ID_PATTERN.sub("_", str(raw_id or "").strip().lower()).strip("_")
-    return normalized[:64]
-
-
-def _generate_todo_id(title: str) -> str:
-    stem = _normalize_todo_id(title) or "todo"
-    return f"{stem}_{int(datetime.now(timezone.utc).timestamp())}"
-
-
-def _normalize_todo_dependencies(
-    dependencies: list[str] | None,
-    *,
-    self_id: str = "",
-) -> list[str]:
-    if dependencies is None:
-        return []
-    normalized_self = _normalize_todo_id(self_id)
-    output: list[str] = []
-    seen: set[str] = set()
-    for raw in dependencies:
-        dep_id = _normalize_todo_id(raw)
-        if not dep_id:
-            continue
-        if normalized_self and dep_id == normalized_self:
-            continue
-        if dep_id in seen:
-            continue
-        seen.add(dep_id)
-        output.append(dep_id)
-    return output
-
-
-def _load_todo_store(path_obj: Path) -> list[dict[str, Any]]:
-    if not path_obj.exists():
-        return []
-    try:
-        payload = json.loads(path_obj.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    if not isinstance(payload, list):
-        return []
-    records: list[dict[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        records.append(item)
-    return records
-
-
-def _save_todo_store(path_obj: Path, records: list[dict[str, Any]]) -> None:
-    path_obj.parent.mkdir(parents=True, exist_ok=True)
-    path_obj.write_text(
-        json.dumps(records, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-def _find_todo_index(records: list[dict[str, Any]], todo_id: str) -> int:
-    normalized_id = _normalize_todo_id(todo_id)
-    if not normalized_id:
-        return -1
-    for idx, item in enumerate(records):
-        if str(item.get("id") or "").strip() == normalized_id:
-            return idx
-    return -1
 
 
 def _is_dangerous_bash_command(command: str) -> bool:
@@ -373,365 +185,6 @@ def _is_dangerous_bash_command(command: str) -> bool:
 
 def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
     tools: list[Any] = []
-
-    if "read_file" in enabled_tool_names:
-        @tool(
-            "read_file",
-            description="Read file content from workspace file system with offset/limit.",
-            args_schema=ReadFileInput,
-        )
-        def read_file(path: str, offset: int = 0, limit: int = DEFAULT_FILE_READ_LIMIT) -> str:
-            safe_limit = max(1, min(int(limit), 20000))
-            safe_offset = max(0, int(offset))
-            resolved_path, error_text = _resolve_workspace_path(path)
-            if resolved_path is None:
-                return str(error_text or "Invalid path.")
-            if not resolved_path.exists():
-                return f"File not found: {_display_workspace_path(resolved_path)}"
-            if not resolved_path.is_file():
-                return f"Not a file: {_display_workspace_path(resolved_path)}"
-            try:
-                content = resolved_path.read_text(encoding="utf-8")
-            except Exception as exc:
-                return f"Failed to read file: {exc}"
-            snippet = content[safe_offset : safe_offset + safe_limit]
-            return (
-                f"Path: {_display_workspace_path(resolved_path)}\n"
-                f"Total chars: {len(content)}\n"
-                f"Offset: {safe_offset}\n"
-                f"Limit: {safe_limit}\n\n"
-                f"{snippet}"
-            )
-
-        tools.append(read_file)
-
-    if "write_file" in enabled_tool_names:
-        @tool(
-            "write_file",
-            description="Write or append text content to a workspace file.",
-            args_schema=WriteFileInput,
-        )
-        def write_file(path: str, content: str, append: bool = False) -> str:
-            resolved_path, error_text = _resolve_workspace_path(path)
-            if resolved_path is None:
-                return str(error_text or "Invalid path.")
-            try:
-                resolved_path.parent.mkdir(parents=True, exist_ok=True)
-                if append:
-                    with resolved_path.open("a", encoding="utf-8") as handle:
-                        handle.write(content)
-                else:
-                    resolved_path.write_text(content, encoding="utf-8")
-            except Exception as exc:
-                return f"Failed to write file: {exc}"
-            action = "Appended" if append else "Wrote"
-            return (
-                f"{action} {len(content)} chars to "
-                f"{_display_workspace_path(resolved_path)}"
-            )
-
-        tools.append(write_file)
-
-    if "edit_file" in enabled_tool_names:
-        @tool(
-            "edit_file",
-            description="Edit a workspace file by replacing exact text snippets.",
-            args_schema=EditFileInput,
-        )
-        def edit_file(
-            path: str,
-            old_text: str,
-            new_text: str,
-            replace_all: bool = False,
-        ) -> str:
-            if not old_text:
-                return "old_text must not be empty."
-            resolved_path, error_text = _resolve_workspace_path(path)
-            if resolved_path is None:
-                return str(error_text or "Invalid path.")
-            if not resolved_path.exists() or not resolved_path.is_file():
-                return f"File not found: {_display_workspace_path(resolved_path)}"
-            try:
-                content = resolved_path.read_text(encoding="utf-8")
-            except Exception as exc:
-                return f"Failed to read file: {exc}"
-
-            matches = content.count(old_text)
-            if matches <= 0:
-                return (
-                    f"Target text not found in "
-                    f"{_display_workspace_path(resolved_path)}."
-                )
-            if replace_all:
-                updated = content.replace(old_text, new_text)
-                replaced = matches
-            else:
-                updated = content.replace(old_text, new_text, 1)
-                replaced = 1
-            try:
-                resolved_path.write_text(updated, encoding="utf-8")
-            except Exception as exc:
-                return f"Failed to write file: {exc}"
-            return (
-                f"Replaced {replaced} occurrence(s) in "
-                f"{_display_workspace_path(resolved_path)}."
-            )
-
-        tools.append(edit_file)
-
-    if "update_file" in enabled_tool_names:
-        @tool(
-            "update_file",
-            description="Update a workspace file by replacing a line range.",
-            args_schema=UpdateFileInput,
-        )
-        def update_file(path: str, start_line: int, end_line: int, new_text: str) -> str:
-            safe_start = int(start_line)
-            safe_end = int(end_line)
-            if safe_end < safe_start:
-                return "end_line must be greater than or equal to start_line."
-            resolved_path, error_text = _resolve_workspace_path(path)
-            if resolved_path is None:
-                return str(error_text or "Invalid path.")
-            if not resolved_path.exists() or not resolved_path.is_file():
-                return f"File not found: {_display_workspace_path(resolved_path)}"
-
-            try:
-                content = resolved_path.read_text(encoding="utf-8")
-            except Exception as exc:
-                return f"Failed to read file: {exc}"
-
-            lines = content.splitlines()
-            total_lines = len(lines)
-            if safe_start < 1 or safe_start > max(total_lines, 1):
-                return f"start_line out of range: {safe_start} (total lines: {total_lines})"
-            if safe_end < 1 or safe_end > max(total_lines, 1):
-                return f"end_line out of range: {safe_end} (total lines: {total_lines})"
-
-            replacement_lines = new_text.splitlines()
-            merged = lines[: safe_start - 1] + replacement_lines + lines[safe_end:]
-            new_content = "\n".join(merged)
-            if content.endswith("\n") and new_content:
-                new_content += "\n"
-            try:
-                resolved_path.write_text(new_content, encoding="utf-8")
-            except Exception as exc:
-                return f"Failed to write file: {exc}"
-            return (
-                f"Updated lines {safe_start}-{safe_end} in "
-                f"{_display_workspace_path(resolved_path)}."
-            )
-
-        tools.append(update_file)
-
-    if "write_todo" in enabled_tool_names:
-        @tool(
-            "write_todo",
-            description="Append or update structured todo items for plan-mode execution tracking.",
-            args_schema=WriteTodoInput,
-        )
-        def write_todo(
-            action: str = "upsert",
-            todo_id: str = "",
-            title: str = "",
-            details: str = "",
-            status: str = "todo",
-            priority: str = "medium",
-            assignee: str = "",
-            dependencies: list[str] | None = None,
-            plan_id: str = "",
-            step_ref: str = "",
-            note: str = "",
-            file_path: str = ".agent/todo.json",
-        ) -> str:
-            normalized_action = str(action or "upsert").strip().lower()
-            if normalized_action not in {"upsert", "update_status", "append_note", "complete"}:
-                return "Unsupported action. Use one of: upsert, update_status, append_note, complete."
-
-            resolved_path, error_text = _resolve_workspace_path(file_path)
-            if resolved_path is None:
-                return str(error_text or "Invalid file_path.")
-
-            records = _load_todo_store(resolved_path)
-            normalized_id = _normalize_todo_id(todo_id)
-            now = _now_iso()
-            index = -1
-            for idx, item in enumerate(records):
-                if str(item.get("id") or "").strip() == normalized_id and normalized_id:
-                    index = idx
-                    break
-
-            if normalized_action == "complete":
-                normalized_action = "update_status"
-                status = "done"
-
-            if index < 0 and normalized_action in {"update_status", "append_note"}:
-                return "Todo id not found. Use action=upsert to create first."
-
-            record: dict[str, Any]
-            if index < 0:
-                todo_title = str(title or "").strip()
-                if not todo_title:
-                    return "title is required when creating a todo item."
-                normalized_id = normalized_id or _generate_todo_id(todo_title)
-                record = {
-                    "id": normalized_id,
-                    "title": todo_title,
-                    "details": str(details or "").strip(),
-                    "status": _normalize_todo_status(status),
-                    "priority": _normalize_todo_priority(priority),
-                    "assignee": str(assignee or "").strip(),
-                    "dependencies": _normalize_todo_dependencies(
-                        dependencies,
-                        self_id=normalized_id,
-                    ),
-                    "plan_id": str(plan_id or "").strip(),
-                    "step_ref": str(step_ref or "").strip(),
-                    "created_at": now,
-                    "updated_at": now,
-                    "history": [],
-                }
-                records.append(record)
-                index = len(records) - 1
-            else:
-                record = dict(records[index])
-
-            if normalized_action == "upsert":
-                if str(title or "").strip():
-                    record["title"] = str(title).strip()
-                if str(details or "").strip():
-                    record["details"] = str(details).strip()
-                if str(plan_id or "").strip():
-                    record["plan_id"] = str(plan_id).strip()
-                if str(step_ref or "").strip():
-                    record["step_ref"] = str(step_ref).strip()
-                record["status"] = _normalize_todo_status(status)
-                record["priority"] = _normalize_todo_priority(priority)
-                if str(assignee or "").strip():
-                    record["assignee"] = str(assignee).strip()
-                if dependencies is not None:
-                    record["dependencies"] = _normalize_todo_dependencies(
-                        dependencies,
-                        self_id=str(record.get("id") or ""),
-                    )
-            elif normalized_action == "update_status":
-                record["status"] = _normalize_todo_status(status)
-                if str(step_ref or "").strip():
-                    record["step_ref"] = str(step_ref).strip()
-
-            history_raw = record.get("history")
-            history: list[dict[str, Any]]
-            if isinstance(history_raw, list):
-                history = [item for item in history_raw if isinstance(item, dict)]
-            else:
-                history = []
-            record["history"] = history
-
-            note_text = str(note or "").strip()
-            if normalized_action == "append_note" and not note_text:
-                return "note is required when action=append_note."
-            if note_text or normalized_action in {"update_status", "complete"}:
-                history.append(
-                    {
-                        "ts": now,
-                        "action": normalized_action,
-                        "note": note_text,
-                        "status": record.get("status", "todo"),
-                    }
-                )
-
-            record["updated_at"] = now
-            records[index] = record
-            try:
-                _save_todo_store(resolved_path, records)
-            except Exception as exc:
-                return f"Failed to persist todo store: {exc}"
-
-            return (
-                f"Todo saved: id={record.get('id')} status={record.get('status')} "
-                f"priority={record.get('priority')} file={_display_workspace_path(resolved_path)}"
-            )
-
-        tools.append(write_todo)
-
-    if "edit_todo" in enabled_tool_names:
-        @tool(
-            "edit_todo",
-            description="Edit existing todo items by id with status/priority/notes updates.",
-            args_schema=EditTodoInput,
-        )
-        def edit_todo(
-            todo_id: str,
-            title: str = "",
-            details: str = "",
-            status: str = "",
-            priority: str = "",
-            assignee: str = "",
-            dependencies: list[str] | None = None,
-            plan_id: str = "",
-            step_ref: str = "",
-            note: str = "",
-            file_path: str = ".agent/todo.json",
-        ) -> str:
-            resolved_path, error_text = _resolve_workspace_path(file_path)
-            if resolved_path is None:
-                return str(error_text or "Invalid file_path.")
-            records = _load_todo_store(resolved_path)
-            index = _find_todo_index(records, todo_id)
-            if index < 0:
-                return "Todo id not found."
-            record: dict[str, Any] = dict(records[index])
-            now = _now_iso()
-
-            if str(title or "").strip():
-                record["title"] = str(title).strip()
-            if str(details or "").strip():
-                record["details"] = str(details).strip()
-            if str(plan_id or "").strip():
-                record["plan_id"] = str(plan_id).strip()
-            if str(step_ref or "").strip():
-                record["step_ref"] = str(step_ref).strip()
-            if str(status or "").strip():
-                record["status"] = _normalize_todo_status(status)
-            if str(priority or "").strip():
-                record["priority"] = _normalize_todo_priority(priority)
-            if str(assignee or "").strip():
-                record["assignee"] = str(assignee).strip()
-            if dependencies is not None:
-                record["dependencies"] = _normalize_todo_dependencies(
-                    dependencies,
-                    self_id=str(record.get("id") or ""),
-                )
-
-            history_raw = record.get("history")
-            history: list[dict[str, Any]]
-            if isinstance(history_raw, list):
-                history = [item for item in history_raw if isinstance(item, dict)]
-            else:
-                history = []
-            record["history"] = history
-            note_text = str(note or "").strip()
-            if note_text:
-                history.append(
-                    {
-                        "ts": now,
-                        "action": "edit",
-                        "note": note_text,
-                        "status": record.get("status", "todo"),
-                    }
-                )
-            record["updated_at"] = now
-            records[index] = record
-            try:
-                _save_todo_store(resolved_path, records)
-            except Exception as exc:
-                return f"Failed to persist todo store: {exc}"
-            return (
-                f"Todo updated: id={record.get('id')} status={record.get('status')} "
-                f"priority={record.get('priority')} file={_display_workspace_path(resolved_path)}"
-            )
-
-        tools.append(edit_todo)
 
     if "bash" in enabled_tool_names:
         @tool(
@@ -815,5 +268,103 @@ def build_local_ops_tools(*, enabled_tool_names: set[str]) -> list[Any]:
             return json.dumps(payload, ensure_ascii=False)
 
         tools.append(ask_human)
+
+    if "read_file" in enabled_tool_names:
+        @tool(
+            "read_file",
+            description="Read file content from workspace.",
+            args_schema=ReadFileInput,
+        )
+        def read_file(path: str, offset: int = 0, limit: int = 4000) -> str:
+            resolved, error = _resolve_workspace_path(path)
+            if resolved is None:
+                return str(error or "Invalid path.")
+            if not resolved.exists():
+                return f"File not found: {_display_workspace_path(resolved)}"
+            if not resolved.is_file():
+                return f"Not a file: {_display_workspace_path(resolved)}"
+            try:
+                content = resolved.read_text(encoding="utf-8")
+            except Exception as exc:
+                return f"Failed to read file: {exc}"
+            safe_offset = max(0, int(offset))
+            safe_limit = max(1, min(int(limit), 20000))
+            return content[safe_offset:safe_offset + safe_limit]
+
+        tools.append(read_file)
+
+    if "write_file" in enabled_tool_names:
+        @tool(
+            "write_file",
+            description="Write content to file in workspace.",
+            args_schema=WriteFileInput,
+        )
+        def write_file(path: str, content: str, append: bool = False) -> str:
+            resolved, error = _resolve_workspace_path(path)
+            if resolved is None:
+                return str(error or "Invalid path.")
+            try:
+                resolved.parent.mkdir(parents=True, exist_ok=True)
+                mode = "a" if append else "w"
+                resolved.write_text(content, encoding="utf-8") if not append else resolved.open(mode, encoding="utf-8").write(content)
+                return f"Written to {_display_workspace_path(resolved)}"
+            except Exception as exc:
+                return f"Failed to write file: {exc}"
+
+        tools.append(write_file)
+
+    if "edit_file" in enabled_tool_names:
+        @tool(
+            "edit_file",
+            description="Replace text in file.",
+            args_schema=EditFileInput,
+        )
+        def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
+            resolved, error = _resolve_workspace_path(path)
+            if resolved is None:
+                return str(error or "Invalid path.")
+            if not resolved.exists():
+                return f"File not found: {_display_workspace_path(resolved)}"
+            try:
+                content = resolved.read_text(encoding="utf-8")
+            except Exception as exc:
+                return f"Failed to read file: {exc}"
+            if old_text not in content:
+                return "Text not found in file."
+            new_content = content.replace(old_text, new_text) if replace_all else content.replace(old_text, new_text, 1)
+            try:
+                resolved.write_text(new_content, encoding="utf-8")
+                return f"Edited {_display_workspace_path(resolved)}"
+            except Exception as exc:
+                return f"Failed to write file: {exc}"
+
+        tools.append(edit_file)
+
+    if "update_file" in enabled_tool_names:
+        @tool(
+            "update_file",
+            description="Update lines in file.",
+            args_schema=UpdateFileInput,
+        )
+        def update_file(path: str, start_line: int, end_line: int, new_text: str) -> str:
+            resolved, error = _resolve_workspace_path(path)
+            if resolved is None:
+                return str(error or "Invalid path.")
+            if not resolved.exists():
+                return f"File not found: {_display_workspace_path(resolved)}"
+            try:
+                lines = resolved.read_text(encoding="utf-8").splitlines(keepends=True)
+            except Exception as exc:
+                return f"Failed to read file: {exc}"
+            if start_line < 1 or end_line < start_line or end_line > len(lines):
+                return f"Invalid line range: {start_line}-{end_line} (file has {len(lines)} lines)"
+            new_lines = lines[:start_line-1] + [new_text if new_text.endswith("\n") else new_text + "\n"] + lines[end_line:]
+            try:
+                resolved.write_text("".join(new_lines), encoding="utf-8")
+                return f"Updated {_display_workspace_path(resolved)}"
+            except Exception as exc:
+                return f"Failed to write file: {exc}"
+
+        tools.append(update_file)
 
     return tools
