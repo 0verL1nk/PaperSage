@@ -45,11 +45,11 @@
 
 ## 7. 创建工具构建器
 
-- [ ] 7.1 将 _tool_enabled 移到 builder.py
-- [ ] 7.2 将 discover_available_tools 移到 builder.py
-- [ ] 7.3 实现 build_agent_tools 主函数，调用各个工具构建函数
-- [ ] 7.4 移除 start_plan 和 start_team 工具的构建逻辑
-- [ ] 7.5 移除渐进式工具加载相关代码（search_tools, _extract_tool_names_from_search_result, _extract_activated_tool_names, _resolve_fixed_tool_names, _parse_tool_name_set, _schema_manifest_for_tool）
+- [x] 7.1 将 _tool_enabled 移到 builder.py
+- [x] 7.2 将 discover_available_tools 移到 builder.py
+- [x] 7.3 实现 build_agent_tools 主函数，调用各个工具构建函数
+- [x] 7.4 移除 start_plan 和 start_team 工具的构建逻辑
+- [x] 7.5 移除渐进式工具加载相关代码（search_tools, _extract_tool_names_from_search_result, _extract_activated_tool_names, _resolve_fixed_tool_names, _parse_tool_name_set, _schema_manifest_for_tool）
 
 ## 8. 更新导入路径
 
