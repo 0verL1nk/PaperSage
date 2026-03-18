@@ -39,7 +39,7 @@ class TeamRuntime:
 
     def __init__(self, team_id: str, result_dir: Path | None = None):
         self.team_id = team_id
-        self.result_dir = result_dir or Path(f".claude/team/{team_id}")
+        self.result_dir = result_dir or Path(f".agent/team/{team_id}")
         self.result_dir.mkdir(parents=True, exist_ok=True)
         self.agents: dict[str, AgentInstance] = {}
         self.executor = ThreadPoolExecutor(max_workers=4)

@@ -48,9 +48,10 @@ class TodoGraph:
     def topological_sort(self) -> list[str]:
         """拓扑排序：返回可执行的 todo 顺序"""
         in_degree = {node: 0 for node in self.graph}
+
+        # 计算入度:如果 A depends_on B,则 A 的入度+1
         for node in self.graph:
-            for neighbor in self.graph[node]:
-                in_degree[neighbor] = in_degree.get(neighbor, 0) + 1
+            in_degree[node] = len(self.graph[node])
 
         queue = [node for node in self.graph if in_degree[node] == 0]
         result = []
@@ -59,10 +60,12 @@ class TodoGraph:
             node = queue.pop(0)
             result.append(node)
 
-            for neighbor in self.graph.get(node, []):
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
+            # 找到所有依赖当前节点的任务
+            for other_node in self.graph:
+                if node in self.graph[other_node]:
+                    in_degree[other_node] -= 1
+                    if in_degree[other_node] == 0:
+                        queue.append(other_node)
 
         return result if len(result) == len(self.graph) else []
 
