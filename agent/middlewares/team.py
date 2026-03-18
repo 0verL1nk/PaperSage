@@ -1,12 +1,14 @@
 """Team 中间件：提供 agent 团队管理能力"""
 
+from collections.abc import Sequence
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 from langgraph.runtime import Runtime
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import NotRequired
 
 from ..tools import team as team_tools
 from .types import AgentState
@@ -32,7 +34,7 @@ class TeamMiddleware(AgentMiddleware):
         self._needs_team = False
 
     def before_model(  # type: ignore[override]
-        self, state: TeamState, runtime: Runtime, config: RunnableConfig = None
+        self, state: TeamState, runtime: Runtime, config: RunnableConfig | None = None
     ) -> dict[str, Any] | None:
         """在模型调用前设置当前 session 并检测 needs_team 标志"""
         # 从 config 中提取 thread_id 并设置为当前 session
@@ -76,7 +78,7 @@ class TeamMiddleware(AgentMiddleware):
         return handler(request)
 
     @property
-    def tools(self) -> list[Any]:
+    def tools(self) -> Sequence[BaseTool]:  # type: ignore[override]
         """返回 team 工具"""
         return [
             team_tools.spawn_agent,

@@ -11,17 +11,16 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
-from langchain_core.messages import ToolMessage
-from langchain_core.tools import tool
-from langgraph.types import Command
-from pydantic import BaseModel, Field
-
 from langchain.agents.middleware.types import (
     AgentMiddleware,
     AgentState,
     OmitFromInput,
 )
 from langchain.tools import InjectedToolCallId
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import tool
+from langgraph.types import Command
+from pydantic import BaseModel, Field
 
 from ..domain.todo_graph import TodoGraph
 
@@ -38,7 +37,7 @@ class Todo(BaseModel):
 class PlanningState(AgentState):
     """State schema for the enhanced todo middleware."""
 
-    todos: Annotated[list[Todo] | None, OmitFromInput] = None
+    todos: Annotated[list[Todo] | None, OmitFromInput]
     """List of todo items with dependency tracking."""
 
 

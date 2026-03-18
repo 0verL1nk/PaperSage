@@ -1,10 +1,8 @@
 """重构后的多 Agent 系统集成测试"""
 
-import pytest
-
 from agent.domain.todo_graph import TodoGraph
 from agent.subagent.loader import load_subagent_configs
-from agent.team.runtime import TeamRuntime, AgentState
+from agent.team.runtime import TeamRuntime
 
 
 def test_subagent_loader_loads_configs():

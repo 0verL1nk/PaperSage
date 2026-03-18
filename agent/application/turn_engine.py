@@ -153,7 +153,6 @@ def execute_turn_core(
             registered_tool_names.append(name)
 
     run_started = time.perf_counter()
-    search_document_fn = build_search_document_fn(search_document_evidence_fn)
 
     # 构建 config,传递必要参数给 middleware
     config = leader_runtime_config if isinstance(leader_runtime_config, dict) else {}

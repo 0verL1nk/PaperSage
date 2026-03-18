@@ -13,7 +13,7 @@ class TraceMiddleware(AgentMiddleware):
     """Middleware that emits trace events during agent execution."""
 
     def before_model(  # type: ignore[override]
-        self, state: AgentState, runtime: Runtime, config: RunnableConfig = None
+        self, state: AgentState, runtime: Runtime, config: RunnableConfig | None = None
     ) -> dict[str, Any] | None:
         """Emit model_call event before model invocation."""
         import logging
@@ -31,7 +31,7 @@ class TraceMiddleware(AgentMiddleware):
         return None
 
     def after_model(  # type: ignore[override]
-        self, state: AgentState, runtime: Runtime, config: RunnableConfig = None
+        self, state: AgentState, runtime: Runtime, config: RunnableConfig | None = None
     ) -> dict[str, Any] | None:
         """Emit model_response event with tool call details."""
         if not config:
@@ -65,7 +65,7 @@ class TraceMiddleware(AgentMiddleware):
         return None
 
     def after_agent(  # type: ignore[override]
-        self, state: AgentState, runtime: Runtime, config: RunnableConfig = None
+        self, state: AgentState, runtime: Runtime, config: RunnableConfig | None = None
     ) -> dict[str, Any] | None:
         """Emit agent_complete event after agent finishes."""
         if not config:

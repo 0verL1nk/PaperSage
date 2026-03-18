@@ -3,10 +3,15 @@
 from typing import Any
 
 from deepagents.middleware.subagents import SubAgentMiddleware
-from langchain.agents.middleware import AgentMiddleware, ModelRetryMiddleware, SummarizationMiddleware
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    ModelRetryMiddleware,
+    SummarizationMiddleware,
+)
 from openai import RateLimitError
 
 from ..subagent.loader import load_subagent_configs
+from .llm_logger import llm_logger_middleware
 from .orchestration import OrchestrationMiddleware
 from .plan import plan_middleware
 from .team import TeamMiddleware
@@ -35,6 +40,9 @@ def build_middleware_list(
     # Trace middleware (first to record all middleware execution)
     middleware_list.append(TraceMiddleware())
 
+    # LLM logger middleware (logs complete LLM input/output)
+    middleware_list.append(llm_logger_middleware)
+
     # Model retry middleware (handles rate limits with exponential backoff)
     middleware_list.append(
         ModelRetryMiddleware(
@@ -54,7 +62,7 @@ def build_middleware_list(
     subagent_configs = load_subagent_configs()
     if subagent_configs:
         middleware_list.append(
-            SubAgentMiddleware(subagents=subagent_configs, default_model=model)
+            SubAgentMiddleware(subagents=subagent_configs, default_model=model)  # type: ignore[arg-type]
         )
 
     # Team middleware (provides team management tools)

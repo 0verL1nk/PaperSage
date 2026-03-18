@@ -35,7 +35,7 @@ class OrchestrationMiddleware(AgentMiddleware):
         self._last_analysis: dict[str, Any] | None = None
 
     def before_model(  # type: ignore[override]
-        self, state: AgentState, runtime: Runtime, config: RunnableConfig = None
+        self, state: AgentState, runtime: Runtime, config: RunnableConfig | None = None
     ) -> dict[str, Any] | None:
         """Analyze complexity and emit trace events before model invocation."""
         messages = state.get("messages", [])
@@ -50,10 +50,10 @@ class OrchestrationMiddleware(AgentMiddleware):
 
         # Get LLM and on_event from config
         llm = self.llm
-        if llm is None:
+        if llm is None and config:
             llm = config.get("configurable", {}).get("llm")
 
-        on_event = config.get("configurable", {}).get("on_event")
+        on_event = config.get("configurable", {}).get("on_event") if config else None
 
         if llm is None:
             return None
@@ -63,7 +63,7 @@ class OrchestrationMiddleware(AgentMiddleware):
         logger.info(f"Task complexity: is_complex={analysis['is_complex']}, needs_team={analysis.get('needs_team', False)}, reason={analysis['reason']}")
 
         # Check if plan already exists (from configurable state)
-        configurable_state = config.get("configurable", {}).get("state", {})
+        configurable_state = config.get("configurable", {}).get("state", {}) if config else {}
         existing_plan = configurable_state.get("plan")
         analysis["has_plan"] = existing_plan is not None
         logger.info(f"Plan check: has_plan={analysis['has_plan']}")

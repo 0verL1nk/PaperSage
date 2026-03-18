@@ -14,7 +14,7 @@ def load_subagent_configs(base_dir: str = "agent/subagent") -> list[dict[str, An
     Returns:
         SubAgent 配置字典列表
     """
-    configs = []
+    configs: list[dict[str, Any]] = []
     base_path = Path(base_dir)
 
     if not base_path.exists():
