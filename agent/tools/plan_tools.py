@@ -13,61 +13,58 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 
-class CreatePlanInput(BaseModel):
-    """Input for create_plan tool."""
+class WritePlanInput(BaseModel):
+    """Input for write_plan tool."""
 
-    goal: str = Field(description="The overall goal of this plan")
-    description: str = Field(description="Detailed strategy and approach written by the agent")
-
-
-class UpdatePlanInput(BaseModel):
-    """Input for update_plan tool."""
-
-    description: str = Field(description="Updated plan description")
+    goal: str | None = Field(default=None, description="The overall goal (required for new plan)")
+    description: str | None = Field(default=None, description="Plan description (empty to delete)")
 
 
-@tool("create_plan", args_schema=CreatePlanInput)
-def create_plan(
-    goal: str,
-    description: str,
+@tool("write_plan", args_schema=WritePlanInput)
+def write_plan(
+    goal: str | None,
+    description: str | None,
     tool_call_id: Annotated[str, InjectedToolCallId],
     state: Annotated[dict[str, Any], InjectedState],
 ) -> Command[Any]:
-    """Create a new execution plan.
+    """Write or delete execution plan.
 
-    This tool stores the plan you write based on your understanding of the task.
-    The plan content comes from you - this tool only stores it in agent state.
-
-    If a plan already exists, it will be replaced with the new one.
-
-    Use this when you need to organize a complex multi-step task.
-    Write your own strategy based on the conversation context.
-
-    Args:
-        goal: The overall goal you want to achieve
-        description: Your detailed strategy and approach
-
-    Returns:
-        Command to update state
+    - Empty description: delete plan
+    - With description: create/update plan (goal required for new plan)
     """
-    # Store plan in agent state (replace if exists)
-    plan_data = {"goal": goal, "description": description}
+    # Delete if description is empty
+    if not description or not description.strip():
+        if not state.get("plan"):
+            return Command(update={"messages": [ToolMessage("No plan to delete.", tool_call_id=tool_call_id)]})
+        return Command(
+            update={
+                "plan": None,
+                "messages": [ToolMessage("Plan deleted.", tool_call_id=tool_call_id)]
+            }
+        )
 
-    message = (
-        f"Plan created successfully. Goal: {goal}\n\n"
-        f"Now execute the plan step by step. Start with the first step immediately."
-    )
+    # Create/update plan
+    existing_plan = state.get("plan")
 
-    # Add note if replacing existing plan
-    if state.get("plan"):
-        message = f"Previous plan replaced. {message}"
+    # If no existing plan, goal is required
+    if not existing_plan and not goal:
+        return Command(
+            update={
+                "messages": [ToolMessage("Error: goal required for new plan.", tool_call_id=tool_call_id)]
+            }
+        )
+
+    # Use existing goal if not provided
+    final_goal = goal if goal else (existing_plan or {}).get("goal", "")
+
+    plan_data = {"goal": final_goal, "description": description.strip()}
+
+    message = "Plan created." if not existing_plan else "Plan updated."
 
     return Command(
         update={
             "plan": plan_data,
-            "messages": [
-                ToolMessage(message, tool_call_id=tool_call_id)
-            ],
+            "messages": [ToolMessage(message, tool_call_id=tool_call_id)]
         }
     )
 
@@ -83,7 +80,7 @@ def read_plan(state: Annotated[dict[str, Any], InjectedState]) -> str:
     """
     plan = state.get("plan")
     if not plan:
-        return "No active plan. Create one with create_plan if needed."
+        return "No active plan. Create one with write_plan if needed."
 
     goal = plan.get("goal", "")
     description = plan.get("description", "")
@@ -91,83 +88,5 @@ def read_plan(state: Annotated[dict[str, Any], InjectedState]) -> str:
     return f"**Goal:** {goal}\n\n**Strategy:**\n{description}"
 
 
-@tool("update_plan", args_schema=UpdatePlanInput)
-def update_plan(
-    description: str,
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    state: Annotated[dict[str, Any], InjectedState],
-) -> Command[Any]:
-    """Update the plan description.
-
-    Modify your plan based on new information or changed circumstances.
-    This updates the description while keeping the same goal.
-
-    Args:
-        description: Your updated strategy and approach
-
-    Returns:
-        Command to update state
-    """
-    plan = state.get("plan")
-
-    if not plan:
-        return Command(
-            update={
-                "messages": [
-                    ToolMessage(
-                        "Error: No active plan to update. Create one with create_plan first.",
-                        tool_call_id=tool_call_id,
-                    )
-                ],
-            }
-        )
-
-    # Update plan description
-    updated_plan = dict(plan)
-    updated_plan["description"] = description
-
-    return Command(
-        update={
-            "plan": updated_plan,
-            "messages": [
-                ToolMessage("Plan updated successfully.", tool_call_id=tool_call_id)
-            ],
-        }
-    )
-
-
-@tool("delete_plan")
-def delete_plan(
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    state: Annotated[dict[str, Any], InjectedState],
-) -> Command[Any]:
-    """Delete the current plan.
-
-    Remove the plan from agent state when the task is complete.
-    This keeps your working memory clean.
-
-    Returns:
-        Command to update state
-    """
-    if not state.get("plan"):
-        return Command(
-            update={
-                "messages": [
-                    ToolMessage("No plan to delete.", tool_call_id=tool_call_id)
-                ],
-            }
-        )
-
-    # Remove plan from state
-    return Command(
-        update={
-            "plan": None,
-            "messages": [
-                ToolMessage("Plan deleted successfully.", tool_call_id=tool_call_id)
-            ],
-        }
-    )
-
-
 # Export tools
-PLAN_TOOLS = [create_plan, read_plan, update_plan, delete_plan]
+PLAN_TOOLS = [write_plan, read_plan]

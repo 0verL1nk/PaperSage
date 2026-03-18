@@ -11,7 +11,6 @@ class AgentCenterTurnRequest:
     prompt: str
     hinted_prompt: str
     routing_context: str = ""
-    emit_tool_load_event: bool = True
 
 
 @dataclass(frozen=True)
@@ -39,7 +38,6 @@ def execute_agent_center_turn(
         policy_llm=deps.policy_llm,
         search_document_evidence_fn=deps.search_document_evidence_fn,
         leader_tool_specs=deps.leader_tool_specs,
-        emit_tool_load_event=request.emit_tool_load_event,
         routing_context=request.routing_context,
         on_event=on_event,
     )

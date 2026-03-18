@@ -1,12 +1,12 @@
 """Unit tests for plan management tools."""
 
-from agent.tools.plan_tools import create_plan, delete_plan, read_plan, update_plan
+from agent.tools.plan_tools import read_plan, write_plan
 
 
-def test_create_plan_new():
+def test_write_plan_create_new():
     """Test creating a new plan."""
     state = {}
-    result = create_plan.func(
+    result = write_plan.func(
         goal="Test goal",
         description="Test description",
         tool_call_id="test_id",
@@ -16,13 +16,41 @@ def test_create_plan_new():
     assert result.update["plan"]["goal"] == "Test goal"
     assert result.update["plan"]["description"] == "Test description"
     assert len(result.update["messages"]) == 1
-    assert "Plan created successfully" in result.update["messages"][0].content
+    assert "Plan created" in result.update["messages"][0].content
 
 
-def test_create_plan_replace_existing():
-    """Test replacing an existing plan."""
+def test_write_plan_create_without_goal():
+    """Test creating a new plan without goal fails."""
+    state = {}
+    result = write_plan.func(
+        goal=None,
+        description="Test description",
+        tool_call_id="test_id",
+        state=state,
+    )
+
+    assert "Error: goal required" in result.update["messages"][0].content
+
+
+def test_write_plan_update_existing():
+    """Test updating an existing plan."""
     state = {"plan": {"goal": "Old goal", "description": "Old description"}}
-    result = create_plan.func(
+    result = write_plan.func(
+        goal=None,
+        description="New description",
+        tool_call_id="test_id",
+        state=state,
+    )
+
+    assert result.update["plan"]["goal"] == "Old goal"
+    assert result.update["plan"]["description"] == "New description"
+    assert "Plan updated" in result.update["messages"][0].content
+
+
+def test_write_plan_replace_with_new_goal():
+    """Test replacing plan with new goal."""
+    state = {"plan": {"goal": "Old goal", "description": "Old description"}}
+    result = write_plan.func(
         goal="New goal",
         description="New description",
         tool_call_id="test_id",
@@ -31,7 +59,33 @@ def test_create_plan_replace_existing():
 
     assert result.update["plan"]["goal"] == "New goal"
     assert result.update["plan"]["description"] == "New description"
-    assert "Previous plan replaced" in result.update["messages"][0].content
+
+
+def test_write_plan_delete():
+    """Test deleting plan with empty description."""
+    state = {"plan": {"goal": "Test goal", "description": "Test description"}}
+    result = write_plan.func(
+        goal=None,
+        description="",
+        tool_call_id="test_id",
+        state=state,
+    )
+
+    assert result.update["plan"] is None
+    assert "Plan deleted" in result.update["messages"][0].content
+
+
+def test_write_plan_delete_no_plan():
+    """Test deleting when no plan exists."""
+    state = {}
+    result = write_plan.func(
+        goal=None,
+        description="",
+        tool_call_id="test_id",
+        state=state,
+    )
+
+    assert "No plan to delete" in result.update["messages"][0].content
 
 
 def test_read_plan_exists():
@@ -50,45 +104,3 @@ def test_read_plan_not_exists():
 
     assert "No active plan" in result
 
-
-def test_update_plan_success():
-    """Test updating an existing plan."""
-    state = {"plan": {"goal": "Test goal", "description": "Old description"}}
-    result = update_plan.func(
-        description="New description",
-        tool_call_id="test_id",
-        state=state,
-    )
-
-    assert result.update["plan"]["description"] == "New description"
-    assert result.update["plan"]["goal"] == "Test goal"
-    assert "Plan updated successfully" in result.update["messages"][0].content
-
-
-def test_update_plan_no_plan():
-    """Test updating when no plan exists."""
-    state = {}
-    result = update_plan.func(
-        description="New description",
-        tool_call_id="test_id",
-        state=state,
-    )
-
-    assert "Error: No active plan" in result.update["messages"][0].content
-
-
-def test_delete_plan_success():
-    """Test deleting an existing plan."""
-    state = {"plan": {"goal": "Test goal", "description": "Test description"}}
-    result = delete_plan.func(tool_call_id="test_id", state=state)
-
-    assert result.update["plan"] is None
-    assert "Plan deleted successfully" in result.update["messages"][0].content
-
-
-def test_delete_plan_no_plan():
-    """Test deleting when no plan exists."""
-    state = {}
-    result = delete_plan.func(tool_call_id="test_id", state=state)
-
-    assert "No plan to delete" in result.update["messages"][0].content

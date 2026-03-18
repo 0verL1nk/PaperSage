@@ -15,7 +15,7 @@ from ..domain.orchestration import (
     build_trace_event,
     create_trace_context,
 )
-from ..runtime_agent import SPAWN_TOOL_NAMES, build_runtime_tools, create_runtime_agent
+from ..runtime_agent import build_runtime_tools, create_runtime_agent
 from ..stream import (
     extract_result_text,
     extract_skill_activation_events_from_result,
@@ -872,7 +872,6 @@ def _invoke_role_agent(
     tools = build_runtime_tools(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
-        blocked_tools=SPAWN_TOOL_NAMES,
     )
     member_agent = create_runtime_agent(
         model=llm,

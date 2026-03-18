@@ -2,11 +2,9 @@ from types import SimpleNamespace
 
 from agent.application.agent_center.page_orchestrator import (
     apply_turn_result,
-    build_tool_load_signature,
     build_turn_execution_context,
     gate_prompt_and_enqueue,
     prepare_scope_runtime,
-    should_emit_tool_load_event,
 )
 
 
@@ -209,28 +207,3 @@ def test_apply_turn_result():
     assert warnings
 
 
-def test_tool_load_signature_and_emit_flag():
-    signature = build_tool_load_signature(
-        [
-            {"name": "search", "schema_level": "STRICT", "args_schema": "{}"},
-            {"name": "calc", "schema_level": "", "args_schema": ""},
-            {"name": ""},
-            "invalid",
-        ]
-    )
-    assert signature == '[["calc","",false],["search","strict",true]]'
-    assert should_emit_tool_load_event(
-        signature_map={},
-        conversation_key="p1:s1",
-        tool_load_signature=signature,
-    )
-    assert not should_emit_tool_load_event(
-        signature_map={"p1:s1": signature},
-        conversation_key="p1:s1",
-        tool_load_signature=signature,
-    )
-    assert should_emit_tool_load_event(
-        signature_map=[],
-        conversation_key="p1:s1",
-        tool_load_signature=signature,
-    )

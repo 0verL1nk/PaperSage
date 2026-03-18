@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
@@ -71,11 +71,6 @@ class OrchestrationMiddleware(AgentMiddleware):
         # Store analysis result for wrap_model_call to use
         self._last_analysis = analysis
 
-        # If complex task, inject tool activation message to expose orchestration tools
-        if analysis.get("is_complex"):
-            activation_msg = self._create_tool_activation_message()
-            return {"messages": [activation_msg]}
-
         return None
 
     def _analyze_complexity(self, messages: list[Any], llm: Any, on_event: Any = None) -> dict[str, Any]:
@@ -125,75 +120,63 @@ class OrchestrationMiddleware(AgentMiddleware):
                 "content": "分析任务复杂度",
             })
 
-        try:
-            response = llm.invoke(prompt)
-            response_text = response.content if hasattr(response, "content") else str(response)
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                response = llm.invoke(prompt)
+                response_text = response.content if hasattr(response, "content") else str(response)
 
-            # Extract JSON from response
-            response_text = response_text.strip()
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            if response_text.startswith("```"):
-                response_text = response_text[3:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
-            response_text = response_text.strip()
+                # Extract JSON from response
+                response_text = response_text.strip()
+                if response_text.startswith("```json"):
+                    response_text = response_text[7:]
+                if response_text.startswith("```"):
+                    response_text = response_text[3:]
+                if response_text.endswith("```"):
+                    response_text = response_text[:-3]
+                response_text = response_text.strip()
 
-            result = json.loads(response_text)
-            analysis_result = {
-                "is_complex": bool(result.get("is_complex", False)),
-                "reason": str(result.get("reason", ""))
-            }
+                if not response_text:
+                    raise ValueError("Empty response from LLM")
 
-            # Emit trace event after analysis
-            if callable(on_event):
-                on_event({
-                    "sender": "evaluator",
-                    "receiver": "orchestration",
-                    "performative": "complexity_result",
-                    "content": f"is_complex={analysis_result['is_complex']}, reason={analysis_result['reason']}",
-                })
+                result = json.loads(response_text)
+                analysis_result = {
+                    "is_complex": bool(result.get("is_complex", False)),
+                    "reason": str(result.get("reason", ""))
+                }
 
-            return analysis_result
-        except Exception as e:
-            logger.warning(f"Failed to analyze complexity with LLM: {e}, using fallback")
-            # Fallback: simple heuristic on last message
-            last_content = str(getattr(messages[-1], "content", ""))
-            fallback_result = {
-                "is_complex": len(last_content) > COMPLEXITY_FALLBACK_LENGTH_THRESHOLD or any(kw in last_content for kw in ["步骤", "规划", "对比", "分析"]),
-                "reason": "fallback heuristic"
-            }
+                # Emit trace event after analysis
+                if callable(on_event):
+                    on_event({
+                        "sender": "evaluator",
+                        "receiver": "orchestration",
+                        "performative": "complexity_result",
+                        "content": f"is_complex={analysis_result['is_complex']}, reason={analysis_result['reason']}",
+                    })
 
-            if callable(on_event):
-                on_event({
-                    "sender": "orchestration",
-                    "receiver": "orchestration",
-                    "performative": "complexity_fallback",
-                    "content": f"使用fallback: is_complex={fallback_result['is_complex']}",
-                })
+                return analysis_result
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.info(f"Complexity analysis attempt {attempt + 1} failed: {e}, retrying...")
+                    continue
+                logger.warning(f"Failed to analyze complexity with LLM after {max_retries + 1} attempts: {e}, using fallback")
 
-            return fallback_result
+        # Fallback: simple heuristic on last message
+        last_content = str(getattr(messages[-1], "content", ""))
+        fallback_result = {
+            "is_complex": len(last_content) > COMPLEXITY_FALLBACK_LENGTH_THRESHOLD or any(kw in last_content for kw in ["步骤", "规划", "对比", "分析"]),
+            "reason": "fallback heuristic"
+        }
 
-    def _create_tool_activation_message(self) -> ToolMessage:
-        """Create a tool activation message to expose orchestration tools."""
-        orchestration_tools = [
-            {"tool_name": "create_plan", "description": "创建执行计划"},
-            {"tool_name": "read_plan", "description": "读取执行计划"},
-            {"tool_name": "update_plan", "description": "更新执行计划"},
-            {"tool_name": "delete_plan", "description": "删除执行计划"},
-            {"tool_name": "write_todos", "description": "写入待办任务列表"},
-        ]
+        if callable(on_event):
+            on_event({
+                "sender": "orchestration",
+                "receiver": "orchestration",
+                "performative": "complexity_fallback",
+                "content": f"使用fallback: is_complex={fallback_result['is_complex']}",
+            })
 
-        content = json.dumps(
-            {
-                "type": "tool_search_result",
-                "query": "orchestration planning tools",
-                "tools": orchestration_tools,
-            },
-            ensure_ascii=False,
-        )
-
-        return ToolMessage(content=content, name="search_tools", tool_call_id="auto_orchestration")
+        return fallback_result
 
     def _inject_guidance(self, messages: list[Any]) -> list[Any]:
         """Inject guidance prompt suggesting orchestration tools.
@@ -214,7 +197,7 @@ class OrchestrationMiddleware(AgentMiddleware):
         else:
             guidance = (
                 "【重要提示】这是一个复杂的多步骤任务,需要使用规划工具:\n\n"
-                "1. 首先使用 create_plan 工具创建执行计划,明确任务步骤和策略\n"
+                "1. 首先使用 write_plan 工具创建执行计划,明确任务步骤和策略\n"
                 "2. 使用 write_todos 工具跟踪任务进度\n\n"
                 "请先调用相应的工具进行规划,不要直接回答。"
             )
