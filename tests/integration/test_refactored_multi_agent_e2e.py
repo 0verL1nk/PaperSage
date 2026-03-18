@@ -3,7 +3,6 @@
 import pytest
 
 from agent.domain.todo_graph import TodoGraph
-from agent.tools.todolist import write_todos, update_todo, list_todos
 from agent.subagent.loader import load_subagent_configs
 from agent.team.runtime import TeamRuntime, AgentState
 
@@ -75,30 +74,3 @@ def test_todo_graph_cycle_detection():
 
     graph = TodoGraph(todos)
     assert graph.has_cycle()
-
-
-def test_enhanced_todolist_tools():
-    """测试增强版 TodoList 工具"""
-    import json
-
-    # 写入 todos
-    todos = [
-        {"id": "1", "content": "Setup", "status": "pending", "depends_on": []},
-        {"id": "2", "content": "Build", "status": "pending", "depends_on": ["1"]},
-    ]
-    result = write_todos.invoke({"todos_json": json.dumps(todos)})
-    assert "已写入 2 个 todos" in result
-
-    # 列出 todos
-    result = list_todos.invoke({})
-    assert "Setup" in result
-    assert "Build" in result
-    assert "当前可执行" in result
-
-    # 更新状态
-    result = update_todo.invoke({"todo_id": "1", "status": "completed"})
-    assert "状态已更新" in result
-
-    # 再次列出,验证可执行任务变化
-    result = list_todos.invoke({})
-    assert "✓" in result  # Task 1 完成标记

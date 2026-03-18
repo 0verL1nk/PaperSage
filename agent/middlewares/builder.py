@@ -6,10 +6,10 @@ from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 
 from ..subagent.loader import load_subagent_configs
-from .enhanced_todolist import EnhancedTodoListMiddleware
 from .orchestration import OrchestrationMiddleware
 from .plan import plan_middleware
 from .team import TeamMiddleware
+from .todolist import todolist_middleware
 from .tool_selector import build_tool_selector_middleware
 from .trace import TraceMiddleware
 
@@ -48,7 +48,7 @@ def build_middleware_list(
     middleware_list.append(TeamMiddleware(default_model=model))
 
     # Enhanced TodoList middleware (supports dependencies)
-    middleware_list.append(EnhancedTodoListMiddleware())
+    middleware_list.append(todolist_middleware)
 
     # Plan middleware (extends state to support plan field)
     middleware_list.append(plan_middleware)
