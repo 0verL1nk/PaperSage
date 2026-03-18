@@ -1,25 +1,38 @@
 """Team 工具：提供 agent 团队管理能力"""
 
 import uuid
+from contextvars import ContextVar
 
 from langchain_core.tools import tool
 
 from ..team.runtime import TeamRuntime
 
-# 全局 team runtime 实例
-_team_runtime: TeamRuntime | None = None
+# 全局 team runtime 实例字典(按 session 隔离)
+_team_runtimes: dict[str, TeamRuntime] = {}
 
 # 默认模型（由 TeamMiddleware 注入）
 _default_model = None
 
+# 当前 session ID (通过 context var 传递)
+_current_session: ContextVar[str | None] = ContextVar("current_session", default=None)
+
+
+def set_current_session(session_id: str) -> None:
+    """设置当前 session ID"""
+    _current_session.set(session_id)
+
 
 def get_team_runtime() -> TeamRuntime:
-    """获取或创建 team runtime"""
-    global _team_runtime
-    if _team_runtime is None:
-        team_id = str(uuid.uuid4())
-        _team_runtime = TeamRuntime(team_id)
-    return _team_runtime
+    """获取或创建当前 session 的 team runtime"""
+    session_id = _current_session.get()
+    if session_id is None:
+        session_id = "default"
+
+    if session_id not in _team_runtimes:
+        team_id = f"{session_id}-{uuid.uuid4().hex[:8]}"
+        _team_runtimes[session_id] = TeamRuntime(team_id)
+
+    return _team_runtimes[session_id]
 
 
 @tool

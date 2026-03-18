@@ -17,6 +17,12 @@ class TeamMiddleware:
 
     def __call__(self, state: dict, config: RunnableConfig) -> dict:
         """中间件处理逻辑"""
+        # 从 config 中提取 thread_id 并设置为当前 session
+        if config and "configurable" in config:
+            thread_id = config["configurable"].get("thread_id")
+            if thread_id:
+                team_tools.set_current_session(thread_id)
+
         return state
 
     @property

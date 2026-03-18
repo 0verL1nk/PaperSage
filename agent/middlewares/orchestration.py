@@ -106,10 +106,11 @@ class OrchestrationMiddleware(AgentMiddleware):
 
 判断标准:
 - 简单任务: 单一问答、事实查询、简单操作
-- 复杂任务: 多步骤分析、需要规划、需要对比研究、需要团队协作
+- 复杂任务: 多步骤分析、需要规划、需要对比研究
+- 需要团队: 任务需要多个专业角色协作(如研究+审查、前端+后端、分析+验证等)
 
 只返回JSON格式,不要其他内容:
-{{"is_complex": true/false, "reason": "简短原因"}}"""
+{{"is_complex": true/false, "needs_team": true/false, "reason": "简短原因"}}"""
 
         # Emit trace event before analysis
         if callable(on_event):
@@ -142,6 +143,7 @@ class OrchestrationMiddleware(AgentMiddleware):
                 result = json.loads(response_text)
                 analysis_result = {
                     "is_complex": bool(result.get("is_complex", False)),
+                    "needs_team": bool(result.get("needs_team", False)),
                     "reason": str(result.get("reason", ""))
                 }
 
@@ -188,8 +190,19 @@ class OrchestrationMiddleware(AgentMiddleware):
             Messages with guidance injected
         """
         has_plan = self._last_analysis and self._last_analysis.get("has_plan", False)
+        needs_team = self._last_analysis and self._last_analysis.get("needs_team", False)
 
-        if has_plan:
+        if needs_team:
+            guidance = (
+                "【重要提示】这是一个需要多角色协作的复杂任务,建议使用团队模式:\n\n"
+                "1. 使用 spawn_agent 工具创建专业 agent(如 researcher, reviewer, writer 等)\n"
+                "2. 使用 send_message 工具分配任务给各个 agent\n"
+                "3. 使用 get_agent_result 工具获取执行结果\n"
+                "4. 使用 list_agents 工具查看团队状态\n"
+                "5. 完成后使用 close_agent 工具关闭 agent\n\n"
+                "请先创建团队并分配任务,不要直接回答。"
+            )
+        elif has_plan:
             guidance = (
                 "【提示】这是一个复杂任务,你已经创建了执行计划。\n\n"
                 "建议使用 write_todos 工具跟踪任务进度,或使用 read_plan 查看计划。"
