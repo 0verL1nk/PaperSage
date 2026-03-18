@@ -180,8 +180,8 @@ class EnhancedTodoListMiddleware(AgentMiddleware):
 
         self.tools = [write_todos_impl]
 
-    def before_model(
-        self, state: PlanningState, runtime: Runtime, config: Any
+    def before_model(  # type: ignore[override]
+        self, state: PlanningState, runtime: Runtime, config: Any = None
     ) -> dict[str, Any] | None:
         """Inject system prompt before model invocation."""
         messages = state.get("messages", [])

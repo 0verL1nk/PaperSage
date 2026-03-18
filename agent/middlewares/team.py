@@ -32,7 +32,7 @@ class TeamMiddleware(AgentMiddleware):
         self._needs_team = False
 
     def before_model(  # type: ignore[override]
-        self, state: TeamState, runtime: Runtime, config: RunnableConfig
+        self, state: TeamState, runtime: Runtime, config: RunnableConfig = None
     ) -> dict[str, Any] | None:
         """在模型调用前设置当前 session 并检测 needs_team 标志"""
         # 从 config 中提取 thread_id 并设置为当前 session

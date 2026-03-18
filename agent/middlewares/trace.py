@@ -13,23 +13,26 @@ class TraceMiddleware(AgentMiddleware):
     """Middleware that emits trace events during agent execution."""
 
     def before_model(  # type: ignore[override]
-        self, state: AgentState, runtime: Runtime, config: RunnableConfig
+        self, state: AgentState, runtime: Runtime, config: RunnableConfig = None
     ) -> dict[str, Any] | None:
         """Emit model_call event before model invocation."""
-        on_event = config.get("configurable", {}).get("on_event")
-        if callable(on_event):
-            on_event({
-                "sender": "agent",
-                "receiver": "model",
-                "performative": "model_call",
-                "content": "调用模型",
-            })
+        if config:
+            on_event = config.get("configurable", {}).get("on_event")
+            if callable(on_event):
+                on_event({
+                    "sender": "agent",
+                    "receiver": "model",
+                    "performative": "model_call",
+                    "content": "调用模型",
+                })
         return None
 
     def after_model(  # type: ignore[override]
-        self, state: AgentState, runtime: Runtime, config: RunnableConfig
+        self, state: AgentState, runtime: Runtime, config: RunnableConfig = None
     ) -> dict[str, Any] | None:
         """Emit model_response event with tool call details."""
+        if not config:
+            return None
         on_event = config.get("configurable", {}).get("on_event")
         if not callable(on_event):
             return None
@@ -59,9 +62,11 @@ class TraceMiddleware(AgentMiddleware):
         return None
 
     def after_agent(  # type: ignore[override]
-        self, state: AgentState, runtime: Runtime, config: RunnableConfig
+        self, state: AgentState, runtime: Runtime, config: RunnableConfig = None
     ) -> dict[str, Any] | None:
         """Emit agent_complete event after agent finishes."""
+        if not config:
+            return None
         on_event = config.get("configurable", {}).get("on_event")
         if callable(on_event):
             on_event({

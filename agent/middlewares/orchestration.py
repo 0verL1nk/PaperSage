@@ -35,7 +35,7 @@ class OrchestrationMiddleware(AgentMiddleware):
         self._last_analysis: dict[str, Any] | None = None
 
     def before_model(  # type: ignore[override]
-        self, state: AgentState, runtime: Runtime, config: RunnableConfig
+        self, state: AgentState, runtime: Runtime, config: RunnableConfig = None
     ) -> dict[str, Any] | None:
         """Analyze complexity and emit trace events before model invocation."""
         messages = state.get("messages", [])
