@@ -18,6 +18,7 @@ from langchain.agents.middleware.types import (
 )
 from langchain.tools import InjectedToolCallId
 from langchain_core.messages import ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -142,7 +143,7 @@ class EnhancedTodoListMiddleware(AgentMiddleware):
         self.tools = [write_todos]
 
     def before_model(  # type: ignore[override]
-        self, state: PlanningState, runtime: Runtime, config: Any = None
+        self, state: PlanningState, runtime: Runtime, config: RunnableConfig | None = None
     ) -> dict[str, Any] | None:
         """Inject system prompt before model invocation."""
         messages = state.get("messages", [])
