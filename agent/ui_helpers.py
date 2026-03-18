@@ -113,22 +113,6 @@ def _render_trace_by_mode(
 ) -> None:
     if not isinstance(trace_payload, list) or not trace_payload:
         return
-    if _is_react_mode(policy_decision):
-        allowed = {
-            "tool_load",
-            "tool_call",
-            "tool_result",
-            "tool_activate",
-            "skill_activate",
-        }
-        filtered = [
-            item
-            for item in trace_payload
-            if isinstance(item, dict) and str(item.get("performative") or "").strip() in allowed
-        ]
-        if filtered:
-            _render_acp_trace(filtered, expander_title="查看工具执行轨迹")
-        return
     _render_acp_trace(trace_payload)
 
 

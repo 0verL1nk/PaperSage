@@ -3,17 +3,11 @@ import logging
 import time
 from typing import Any
 
-from ..domain.orchestration import (
-    OrchestratedTurn,
-    PolicyDecision,
-    TeamExecution,
-    TraceEvent,
-)
+from ..domain.orchestration import TraceEvent
 from ..domain.trace import phase_label_from_performative, phase_summary
 from ..method_compare_parser import extract_json_string, parse_method_compare_payload
-from ..output_cleaner import replace_evidence_placeholders
 from .contracts import EventCallback, SearchDocumentFn, TurnCoreResult
-from .ports import AgentInvoker, EvidenceRetriever, OrchestratedTurnExecutor
+from .ports import AgentInvoker, EvidenceRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +92,23 @@ def _maybe_to_dict(payload: Any) -> dict[str, Any] | None:
     return result
 
 
+def extract_evidence_chunk_ids(answer: str) -> list[str]:
+    """从 answer 中提取所有 <evidence> 标签中的 chunk_id。
+
+    格式: <evidence>chunk_id|p页码|o起止偏移</evidence>
+    返回: ['chunk_id1', 'chunk_id2', ...]
+    """
+    if not isinstance(answer, str):
+        return []
+    import re
+    pattern = re.compile(
+        r"<evidence>([^<|]+)(?:\|[^<]*)?</evidence>",
+        flags=re.IGNORECASE,
+    )
+    matches = pattern.findall(answer)
+    return [chunk_id.strip() for chunk_id in matches if chunk_id.strip()]
+
+
 def execute_turn_core(
     *,
     prompt: str,
@@ -110,7 +121,6 @@ def execute_turn_core(
     leader_tool_specs: list[dict[str, Any]] | None = None,
     routing_context: str = "",
     on_event: EventCallback | None = None,
-    orchestrated_turn_executor: OrchestratedTurnExecutor | None = None,
 ) -> TurnCoreResult:
     if leader_agent is None:
         raise ValueError("Leader agent is not initialized")
@@ -119,6 +129,7 @@ def execute_turn_core(
     phase_labels: list[str] = []
 
     def _collect_event(item: TraceEvent) -> None:
+        logger.info(f"_collect_event called: performative={item.get('performative')}, content={item.get('content')}")
         phase = phase_label_from_performative(str(item.get("performative", "")))
         phase_labels.append(phase)
         event: TraceEvent = dict(item)
@@ -144,88 +155,87 @@ def execute_turn_core(
     run_started = time.perf_counter()
     search_document_fn = build_search_document_fn(search_document_evidence_fn)
 
-    # 直接调用 leader_agent 或使用提供的 executor
-    if orchestrated_turn_executor is not None:
-        orchestrated = orchestrated_turn_executor(
-            prompt=prompt,
-            hinted_prompt=hinted_prompt,
-            leader_agent=leader_agent,
-            leader_runtime_config=(
-                leader_runtime_config if isinstance(leader_runtime_config, dict) else {}
-            ),
-            llm=leader_llm,
-            policy_llm=policy_llm,
-            search_document_fn=search_document_fn,
-            search_document_evidence_fn=(
-                search_document_evidence_fn if callable(search_document_evidence_fn) else None
-            ),
-            routing_context=routing_context,
-            on_event=_collect_event,
-        )
-    else:
-        # 直接调用 leader_agent
-        result = leader_agent.invoke(
-            {"messages": [{"role": "user", "content": hinted_prompt}]},
-            config=leader_runtime_config if isinstance(leader_runtime_config, dict) else {},
-        )
+    # 构建 config,传递必要参数给 middleware
+    config = leader_runtime_config if isinstance(leader_runtime_config, dict) else {}
+    if "configurable" not in config:
+        config["configurable"] = {}
 
-        # 提取 answer
-        answer = ""
-        if isinstance(result, dict):
-            messages = result.get("messages", [])
-            if messages:
-                last_msg = messages[-1]
-                if hasattr(last_msg, "content"):
-                    answer = str(last_msg.content)
-                elif isinstance(last_msg, dict):
-                    answer = str(last_msg.get("content", ""))
+    # 传递 on_event 回调给 middleware
+    config["configurable"]["on_event"] = _collect_event
+    # 传递 llm 给 OrchestrationMiddleware
+    if leader_llm is not None:
+        config["configurable"]["llm"] = leader_llm
+    # 确保有 thread_id 用于 session 隔离
+    if "thread_id" not in config["configurable"]:
+        config["configurable"]["thread_id"] = "default"
 
-        # 构造简化的 OrchestratedTurn
-        orchestrated = OrchestratedTurn(
-            answer=answer,
-            policy_decision=PolicyDecision(decision="direct", reason="simplified"),
-            team_execution=TeamExecution(rounds=0, members=[]),
-            trace_payload=[],
-        )
+    # 直接调用 leader_agent
+    result = leader_agent.invoke(
+        {"messages": [{"role": "user", "content": hinted_prompt}]},
+        config=config,
+    )
 
-    answer = orchestrated.answer
+    # 提取 answer
+    answer = ""
+    if isinstance(result, dict):
+        messages = result.get("messages", [])
+        if messages:
+            last_msg = messages[-1]
+            if hasattr(last_msg, "content"):
+                answer = str(last_msg.content)
+            elif isinstance(last_msg, dict):
+                answer = str(last_msg.get("content", ""))
+
     if not answer:
-        logger.warning(
-            "Empty answer from orchestrated turn. orchestrated_type=%s, has_answer=%s",
-            type(orchestrated).__name__,
-            hasattr(orchestrated, "answer"),
-        )
+        logger.warning("Empty answer from agent execution")
         answer = "抱歉，我暂时没有生成有效回复。"
-    policy_decision = orchestrated.policy_decision.to_dict()
-    team_execution = orchestrated.team_execution.to_dict()
-    trace_payload = event_logs if event_logs else orchestrated.trace_payload
-    plan_payload = getattr(orchestrated, "plan", None)
-    runtime_state_payload = getattr(orchestrated, "runtime_state", None)
 
-    leader_tool_names = {
-        str(name).strip()
-        for name in getattr(orchestrated, "leader_tool_names", [])
-        if str(name).strip()
-    }
-    used_document_rag = "search_document" in leader_tool_names
+    # 从result中提取信息（如果有的话）
+    trace_payload = event_logs
+    plan_payload = result.get("plan") if isinstance(result, dict) else None
+    runtime_state_payload = result.get("runtime_state") if isinstance(result, dict) else None
+
+    # 检测是否使用了document RAG
+    used_document_rag = False
+    if isinstance(result, dict):
+        messages = result.get("messages", [])
+        for msg in messages:
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for call in msg.tool_calls:
+                    if isinstance(call, dict) and call.get("name") == "search_document":
+                        used_document_rag = True
+                        break
+
+    # 从 answer 中提取 agent 引用的 chunk_id
+    referenced_chunk_ids = extract_evidence_chunk_ids(answer)
+
     evidence_items: list[dict[str, Any]] = []
-    if used_document_rag and callable(search_document_evidence_fn):
+    if referenced_chunk_ids and used_document_rag and callable(search_document_evidence_fn):
         try:
+            # 获取所有相关证据
             evidence_payload = search_document_evidence_fn(prompt)
-            evidence_items = normalize_evidence_items(evidence_payload)
+            all_evidence = normalize_evidence_items(evidence_payload)
+
+            # 筛选出 agent 实际引用的证据
+            for item in all_evidence:
+                chunk_id = str(item.get("chunk_id", "")).strip()
+                if chunk_id in referenced_chunk_ids:
+                    evidence_items.append(item)
         except Exception:
             evidence_items = []
-
-    answer = replace_evidence_placeholders(answer, evidence_items)
     method_compare_data = parse_method_compare_payload(answer)
     mindmap_data = try_parse_mindmap(answer)
     run_latency_ms = (time.perf_counter() - run_started) * 1000.0
     phase_path = phase_summary(phase_labels)
 
+    # 从 result 中提取 middleware 添加的 state
+    todos = result.get("todos", []) if isinstance(result, dict) else []
+    agent_plan = result.get("agent_plan") if isinstance(result, dict) else None
+
     return {
         "answer": answer,
-        "policy_decision": policy_decision,
-        "team_execution": team_execution,
+        "policy_decision": {"plan_enabled": False, "team_enabled": False, "reason": "middleware-based"},
+        "team_execution": {"enabled": False, "rounds": 0},
         "trace_payload": trace_payload,
         "plan": _maybe_to_dict(plan_payload),
         "runtime_state": _maybe_to_dict(runtime_state_payload),
@@ -233,10 +243,11 @@ def execute_turn_core(
         "mindmap_data": mindmap_data,
         "method_compare_data": method_compare_data,
         "run_latency_ms": run_latency_ms,
-        "team_rounds": int(team_execution.get("rounds", 0)),
+        "team_rounds": 0,
         "phase_path": phase_path,
         "used_document_rag": used_document_rag,
-        "ask_human_requests": list(getattr(orchestrated, "ask_human_requests", []) or []),
-        "todos": list(getattr(orchestrated, "todos", []) or []),
-        "agent_plan": getattr(orchestrated, "agent_plan", None),
+        "ask_human_requests": [],
+        "todos": todos,
+        "agent_plan": agent_plan,
+        "leader_tool_names": registered_tool_names,
     }

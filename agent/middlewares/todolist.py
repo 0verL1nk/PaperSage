@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.types import Command
-from typing_extensions import NotRequired, TypedDict
+from pydantic import BaseModel, Field
 
 from langchain.agents.middleware.types import (
     AgentMiddleware,
@@ -26,26 +26,19 @@ from langchain.tools import InjectedToolCallId
 from ..domain.todo_graph import TodoGraph
 
 
-class Todo(TypedDict):
+class Todo(BaseModel):
     """A single todo item with content, status, and optional dependencies."""
 
-    id: str
-    """Unique identifier for the todo item."""
-
-    content: str
-    """The content/description of the todo item."""
-
-    status: Literal["pending", "in_progress", "completed"]
-    """The current status of the todo item."""
-
-    depends_on: NotRequired[list[str]]
-    """Optional list of todo IDs that this todo depends on."""
+    id: str = Field(description="Unique identifier for the todo item")
+    content: str = Field(description="The content/description of the todo item")
+    status: Literal["pending", "in_progress", "completed"] = Field(description="The current status of the todo item")
+    depends_on: list[str] | None = Field(default=None, description="Optional list of todo IDs that this todo depends on")
 
 
 class PlanningState(AgentState):
     """State schema for the enhanced todo middleware."""
 
-    todos: Annotated[NotRequired[list[Todo]], OmitFromInput]
+    todos: Annotated[list[Todo] | None, OmitFromInput] = None
     """List of todo items with dependency tracking."""
 
 
@@ -97,8 +90,11 @@ def write_todos(
     todos: list[Todo], tool_call_id: Annotated[str, InjectedToolCallId]
 ) -> Command[Any]:
     """Create and manage a structured task list with dependencies."""
+    # Convert Pydantic models to dicts for TodoGraph
+    todos_dict = [t.model_dump() for t in todos]
+
     # Validate no circular dependencies
-    graph = TodoGraph(todos)
+    graph = TodoGraph(todos_dict)
     if graph.has_cycle():
         return Command(
             update={
@@ -144,41 +140,7 @@ class EnhancedTodoListMiddleware(AgentMiddleware):
         super().__init__()
         self.system_prompt = system_prompt
         self.tool_description = tool_description
-
-        @tool(description=self.tool_description)
-        def write_todos_impl(
-            todos: list[Todo], tool_call_id: Annotated[str, InjectedToolCallId]
-        ) -> Command[Any]:
-            """Create and manage a structured task list with dependencies."""
-            graph = TodoGraph(todos)
-            if graph.has_cycle():
-                return Command(
-                    update={
-                        "messages": [
-                            ToolMessage(
-                                "Error: Circular dependency detected. Check depends_on fields.",
-                                tool_call_id=tool_call_id,
-                            )
-                        ]
-                    }
-                )
-
-            executable = graph.get_executable_todos()
-            executable_ids = [t["id"] for t in executable]
-
-            return Command(
-                update={
-                    "todos": todos,
-                    "messages": [
-                        ToolMessage(
-                            f"Updated todo list. Executable: {executable_ids}",
-                            tool_call_id=tool_call_id,
-                        )
-                    ],
-                }
-            )
-
-        self.tools = [write_todos_impl]
+        self.tools = [write_todos]
 
     def before_model(  # type: ignore[override]
         self, state: PlanningState, runtime: Runtime, config: Any = None
