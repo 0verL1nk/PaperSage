@@ -3,7 +3,7 @@ from typing import Any
 
 from langchain.agents import create_agent
 
-from .middlewares import build_middleware_list, todolist_middleware
+from .middlewares import build_middleware_list
 from .tools.builder import build_agent_tools
 
 
@@ -30,15 +30,18 @@ def create_runtime_agent(
     enable_auto_summarization: bool = True,
     enable_tool_selector: bool = True,
 ) -> Any:
-    # Add TodoListMiddleware tools to the tools list
-    all_tools = list(tools) + list(todolist_middleware.tools)
-
     # Build middleware list
     middleware_list = build_middleware_list(
         model=model,
         enable_auto_summarization=enable_auto_summarization,
         enable_tool_selector=enable_tool_selector,
     )
+
+    # Collect tools from all middleware
+    all_tools = list(tools)
+    for middleware in middleware_list:
+        if hasattr(middleware, "tools"):
+            all_tools.extend(middleware.tools)
 
     create_kwargs: dict[str, Any] = {
         "model": model,

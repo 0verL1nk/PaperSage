@@ -4,7 +4,7 @@ version = "1.0.5"
 description = "AI-powered literature reading assistant with multi-agent orchestration and hybrid RAG"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "0verL1nk" },
 ]
@@ -37,6 +37,7 @@ dependencies = [
     "langchain-core>=1.0.0,<2.0.0",
     "langchain-openai>=1.0.0,<2.0.0",
     "chromadb>=0.5.23,<1.0.0",
+    "deepagents>=0.4.11,<0.5.0",
     "langgraph>=0.3.0",
     "langgraph-checkpoint-sqlite>=2.0.0,<3.0.0",
     "fastembed>=0.7.1,<1.0.0",
@@ -154,7 +155,7 @@ min_confidence = 60
 sort_by_size = true
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 pretty = true
 show_error_codes = true
 ignore_missing_imports = true

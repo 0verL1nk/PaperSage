@@ -3,7 +3,6 @@ from agent.application.turn_engine import (
     build_search_document_fn,
     execute_turn_core,
 )
-from agent.domain.orchestration import OrchestratedTurn, PolicyDecision, TeamExecution
 
 
 def test_build_search_document_fn_joins_evidence_text():
@@ -14,91 +13,61 @@ def test_build_search_document_fn_joins_evidence_text():
 
 
 def test_execute_turn_core_with_injected_executor_replaces_evidence():
-    events = []
+    from unittest.mock import Mock
 
-    def _fake_executor(**kwargs):
-        on_event = kwargs.get("on_event")
-        if callable(on_event):
-            on_event(
-                {
-                    "sender": "policy_engine",
-                    "receiver": "leader",
-                    "performative": "policy",
-                    "content": "plan=False, team=False",
-                }
+    events = []
+    mock_agent = Mock()
+    mock_agent.invoke.return_value = {
+        "messages": [
+            Mock(
+                content="结论 <evidence>c1|p1|o0-10</evidence>",
+                tool_calls=[{"name": "search_document", "args": {"query": "test"}}],
             )
-            on_event(
-                {
-                    "sender": "leader",
-                    "receiver": "user",
-                    "performative": "final",
-                    "content": "结论 [证据]",
-                }
-            )
-        return OrchestratedTurn(
-            answer="结论 [证据]",
-            policy_decision=PolicyDecision(
-                plan_enabled=False,
-                team_enabled=False,
-                reason="heuristic",
-                confidence=None,
-                source="heuristic",
-            ),
-            team_execution=TeamExecution(enabled=False),
-            trace_payload=[],
-            leader_tool_names=["search_document"],
-        )
+        ]
+    }
 
     result = execute_turn_core(
         prompt="请给结论",
         hinted_prompt="请给结论",
-        leader_agent=object(),
+        leader_agent=mock_agent,
         leader_runtime_config={},
         search_document_evidence_fn=lambda _query: {
             "evidences": [{"chunk_id": "c1", "text": "证据文本", "page_no": 1}]
         },
-        orchestrated_turn_executor=_fake_executor,
         on_event=lambda item: events.append(item),
     )
 
     assert result["used_document_rag"] is True
     assert result["evidence_items"]
-    assert result["plan"] is None
-    assert result["runtime_state"] is None
-    assert "[c1|p1]" in result["answer"]
-    assert result["trace_payload"]
-    assert events
+    assert len(result["evidence_items"]) == 1
+    assert result["evidence_items"][0]["chunk_id"] == "c1"
 
 
 def test_execute_turn_core_without_document_rag_skips_evidence():
-    called = {"evidence": 0}
+    from unittest.mock import Mock
 
-    def _fake_executor(**_kwargs):
-        return OrchestratedTurn(
-            answer='{"name":"主题","children":[]}',
-            policy_decision=PolicyDecision(
-                plan_enabled=True,
-                team_enabled=False,
-                reason="llm",
-                confidence=0.8,
-                source="llm",
-            ),
-            team_execution=TeamExecution(enabled=False, rounds=0),
-            trace_payload=[],
-            leader_tool_names=["search_web"],
-        )
+    called = {"evidence": 0}
 
     def _evidence_fn(_query: str):
         called["evidence"] += 1
         return {"evidences": [{"chunk_id": "c2", "text": "x"}]}
 
+    mock_agent = Mock()
+    mock_agent.invoke.return_value = {
+        "messages": [
+            Mock(
+                content='{"name":"主题","children":[]}',
+                tool_calls=[{"name": "search_web", "args": {"query": "test"}}],
+            )
+        ]
+    }
+
     result = execute_turn_core(
         prompt="最新进展",
         hinted_prompt="最新进展",
-        leader_agent=object(),
+        leader_agent=mock_agent,
         leader_runtime_config={},
         search_document_evidence_fn=_evidence_fn,
-        orchestrated_turn_executor=_fake_executor,
     )
 
     assert called["evidence"] == 0

@@ -35,7 +35,7 @@ class OrchestrationMiddleware(AgentMiddleware):
         self._last_analysis: dict[str, Any] | None = None
 
     def before_model(  # type: ignore[override]
-        self, state: AgentState, runtime: Runtime, config: RunnableConfig
+        self, state: AgentState, runtime: Runtime, config: RunnableConfig | None = None
     ) -> dict[str, Any] | None:
         """Analyze complexity and emit trace events before model invocation."""
         messages = state.get("messages", [])
@@ -50,20 +50,20 @@ class OrchestrationMiddleware(AgentMiddleware):
 
         # Get LLM and on_event from config
         llm = self.llm
-        if llm is None:
+        if llm is None and config:
             llm = config.get("configurable", {}).get("llm")
 
-        on_event = config.get("configurable", {}).get("on_event")
+        on_event = config.get("configurable", {}).get("on_event") if config else None
 
         if llm is None:
             return None
 
         # Analyze complexity
         analysis = self._analyze_complexity(messages, llm, on_event)
-        logger.info(f"Task complexity: is_complex={analysis['is_complex']}, reason={analysis['reason']}")
+        logger.info(f"Task complexity: is_complex={analysis['is_complex']}, needs_team={analysis.get('needs_team', False)}, reason={analysis['reason']}")
 
         # Check if plan already exists (from configurable state)
-        configurable_state = config.get("configurable", {}).get("state", {})
+        configurable_state = config.get("configurable", {}).get("state", {}) if config else {}
         existing_plan = configurable_state.get("plan")
         analysis["has_plan"] = existing_plan is not None
         logger.info(f"Plan check: has_plan={analysis['has_plan']}")
@@ -71,7 +71,8 @@ class OrchestrationMiddleware(AgentMiddleware):
         # Store analysis result for wrap_model_call to use
         self._last_analysis = analysis
 
-        return None
+        # Return needs_team flag to state for TeamMiddleware to use
+        return {"needs_team": analysis.get("needs_team", False)}
 
     def _analyze_complexity(self, messages: list[Any], llm: Any, on_event: Any = None) -> dict[str, Any]:
         """Use LLM to analyze task complexity with full context.
@@ -106,10 +107,11 @@ class OrchestrationMiddleware(AgentMiddleware):
 
 判断标准:
 - 简单任务: 单一问答、事实查询、简单操作
-- 复杂任务: 多步骤分析、需要规划、需要对比研究、需要团队协作
+- 复杂任务: 多步骤分析、需要规划、需要对比研究
+- 需要团队: 任务需要多个专业角色协作(如研究+审查、前端+后端、分析+验证等)
 
 只返回JSON格式,不要其他内容:
-{{"is_complex": true/false, "reason": "简短原因"}}"""
+{{"is_complex": true/false, "needs_team": true/false, "reason": "简短原因"}}"""
 
         # Emit trace event before analysis
         if callable(on_event):
@@ -126,22 +128,18 @@ class OrchestrationMiddleware(AgentMiddleware):
                 response = llm.invoke(prompt)
                 response_text = response.content if hasattr(response, "content") else str(response)
 
-                # Extract JSON from response
+                # Extract JSON from response (find first { to last })
                 response_text = response_text.strip()
-                if response_text.startswith("```json"):
-                    response_text = response_text[7:]
-                if response_text.startswith("```"):
-                    response_text = response_text[3:]
-                if response_text.endswith("```"):
-                    response_text = response_text[:-3]
-                response_text = response_text.strip()
-
-                if not response_text:
-                    raise ValueError("Empty response from LLM")
+                start_idx = response_text.find("{")
+                end_idx = response_text.rfind("}")
+                if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
+                    raise ValueError("No valid JSON object found in response")
+                response_text = response_text[start_idx:end_idx + 1]
 
                 result = json.loads(response_text)
                 analysis_result = {
                     "is_complex": bool(result.get("is_complex", False)),
+                    "needs_team": bool(result.get("needs_team", False)),
                     "reason": str(result.get("reason", ""))
                 }
 
@@ -157,7 +155,7 @@ class OrchestrationMiddleware(AgentMiddleware):
                 return analysis_result
             except Exception as e:
                 if attempt < max_retries:
-                    logger.info(f"Complexity analysis attempt {attempt + 1} failed: {e}, retrying...")
+                    logger.warning(f"Complexity analysis attempt {attempt + 1} failed: {e}, response_text={response_text[:500] if 'response_text' in locals() else 'N/A'}, retrying...")
                     continue
                 logger.warning(f"Failed to analyze complexity with LLM after {max_retries + 1} attempts: {e}, using fallback")
 

@@ -7,14 +7,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-from .a2a.coordinator import (
-    PLANNER_SYSTEM_PROMPT,
-    REACT_SYSTEM_PROMPT,
-    RESEARCHER_SYSTEM_PROMPT,
-    REVIEWER_SYSTEM_PROMPT,
-)
-from .a2a.router import ROUTER_INSTRUCTION
 from .paper_agent import PAPER_QA_SYSTEM_PROMPT
+from .subagent.loader import load_subagent_configs
 
 COMPACT_SUMMARY_HEADER = "【自动压缩摘要】"
 BOOTSTRAP_PREFIX = "已加载文档《"
@@ -547,13 +541,18 @@ def build_context_usage_snapshot(
     max_input = model_context_window_tokens()
     reserve_output = reserved_output_tokens()
 
-    system_tokens = estimate_tokens(PAPER_QA_SYSTEM_PROMPT) + estimate_tokens(ROUTER_INSTRUCTION)
-    custom_agents_tokens = (
-        estimate_tokens(PLANNER_SYSTEM_PROMPT)
-        + estimate_tokens(RESEARCHER_SYSTEM_PROMPT)
-        + estimate_tokens(REVIEWER_SYSTEM_PROMPT)
-        + estimate_tokens(REACT_SYSTEM_PROMPT)
-    )
+    system_tokens = estimate_tokens(PAPER_QA_SYSTEM_PROMPT)
+
+    # 统计 subagent 元信息的 token 数
+    custom_agents_tokens = 0
+    try:
+        subagent_configs = load_subagent_configs()
+        for config in subagent_configs:
+            custom_agents_tokens += estimate_tokens(config.get("name", ""))
+            custom_agents_tokens += estimate_tokens(config.get("description", ""))
+            custom_agents_tokens += estimate_tokens(config.get("system_prompt", ""))
+    except Exception:
+        custom_agents_tokens = 0
     memory_tokens = estimate_tokens(compact_summary)
     _ = active_skills  # Deprecated: skills now use progressive runtime-loaded context only.
     skills_tokens = _estimate_skills_tokens(skill_context_texts=skill_context_texts)

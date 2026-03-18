@@ -48,7 +48,27 @@ def build_search_document_tool(
 
     @tool(
         "search_document",
-        description="Search uploaded paper content for relevant evidence snippets using RAG.",
+        description="""Search uploaded paper content for relevant evidence snippets using RAG.
+
+Returns: JSON object with structure:
+{
+  "evidences": [
+    {
+      "chunk_id": "unique_chunk_identifier",
+      "text": "evidence text content",
+      "score": 0.95,
+      "page_no": 5,
+      "offset_start": 100,
+      "offset_end": 200,
+      "doc_name": "document.pdf"
+    }
+  ]
+}
+
+IMPORTANT: When citing evidence in your answer, use the format:
+<evidence>chunk_id|p{page_no}|o{offset_start}-{offset_end}</evidence>
+
+Example: Based on the research<evidence>chunk_abc123|p5|o100-200</evidence>, the method is effective.""",
         args_schema=SearchDocumentInput,
     )
     def search_document(query: str) -> str:
