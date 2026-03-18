@@ -160,22 +160,23 @@ class OrchestrationMiddleware(AgentMiddleware):
                     logger.info(f"Complexity analysis attempt {attempt + 1} failed: {e}, retrying...")
                     continue
                 logger.warning(f"Failed to analyze complexity with LLM after {max_retries + 1} attempts: {e}, using fallback")
-            # Fallback: simple heuristic on last message
-            last_content = str(getattr(messages[-1], "content", ""))
-            fallback_result = {
-                "is_complex": len(last_content) > COMPLEXITY_FALLBACK_LENGTH_THRESHOLD or any(kw in last_content for kw in ["步骤", "规划", "对比", "分析"]),
-                "reason": "fallback heuristic"
-            }
 
-            if callable(on_event):
-                on_event({
-                    "sender": "orchestration",
-                    "receiver": "orchestration",
-                    "performative": "complexity_fallback",
-                    "content": f"使用fallback: is_complex={fallback_result['is_complex']}",
-                })
+        # Fallback: simple heuristic on last message
+        last_content = str(getattr(messages[-1], "content", ""))
+        fallback_result = {
+            "is_complex": len(last_content) > COMPLEXITY_FALLBACK_LENGTH_THRESHOLD or any(kw in last_content for kw in ["步骤", "规划", "对比", "分析"]),
+            "reason": "fallback heuristic"
+        }
 
-            return fallback_result
+        if callable(on_event):
+            on_event({
+                "sender": "orchestration",
+                "receiver": "orchestration",
+                "performative": "complexity_fallback",
+                "content": f"使用fallback: is_complex={fallback_result['is_complex']}",
+            })
+
+        return fallback_result
 
     def _inject_guidance(self, messages: list[Any]) -> list[Any]:
         """Inject guidance prompt suggesting orchestration tools.
