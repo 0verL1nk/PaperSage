@@ -48,7 +48,7 @@ class TodoGraph:
     def topological_sort(self) -> list[str]:
         """拓扑排序：返回可执行的 todo 顺序"""
         in_degree = {node: 0 for node in self.graph}
-        adj = {node: [] for node in self.graph}
+        adj: dict[str, list[str]] = {node: [] for node in self.graph}
 
         # 计算入度和构建邻接表
         for node, dependencies in self.graph.items():
