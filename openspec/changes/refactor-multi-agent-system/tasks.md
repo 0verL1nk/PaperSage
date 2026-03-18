@@ -40,10 +40,10 @@
 
 ## Phase 4: 增强 TodoList
 
-- [ ] 创建 `agent/domain/todo_graph.py`（拓扑排序）
-- [ ] 创建 `agent/middlewares/enhanced_todolist.py`
-- [ ] 在 `builder.py` 中替换旧中间件
-- [ ] 编写单元测试
+- [x] 创建 `agent/domain/todo_graph.py`（拓扑排序）
+- [x] 创建 `agent/middlewares/enhanced_todolist.py`
+- [x] 在 `builder.py` 中替换旧中间件
+- [x] 编写单元测试
 
 ## Phase 5: 集成测试
 
