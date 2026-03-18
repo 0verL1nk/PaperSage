@@ -154,7 +154,7 @@ min_confidence = 60
 sort_by_size = true
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 pretty = true
 show_error_codes = true
 ignore_missing_imports = true
