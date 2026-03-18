@@ -8,13 +8,13 @@ def extract_json_string(text: str) -> str:
     if not isinstance(text, str):
         raise ValueError("input must be string")
 
-    # Try <mindmap> tags first (higher priority)
-    mindmap_match = re.search(r"<mindmap>\s*(\{.*?\})\s*</mindmap>", text, re.DOTALL)
+    # Try <mindmap> tags first (higher priority) - use greedy match for nested JSON
+    mindmap_match = re.search(r"<mindmap>\s*(\{.*\})\s*</mindmap>", text, re.DOTALL)
     if mindmap_match:
         return mindmap_match.group(1)
 
-    # Try <json> tags
-    json_match = re.search(r"<json>\s*(\{.*?\})\s*</json>", text, re.DOTALL)
+    # Try <json> tags - use greedy match for nested JSON
+    json_match = re.search(r"<json>\s*(\{.*\})\s*</json>", text, re.DOTALL)
     if json_match:
         return json_match.group(1)
 
