@@ -3,10 +3,14 @@ import logging
 import time
 from typing import Any
 
-from ..domain.orchestration import TraceEvent
+from ..domain.orchestration import (
+    OrchestratedTurn,
+    PolicyDecision,
+    TeamExecution,
+    TraceEvent,
+)
 from ..domain.trace import phase_label_from_performative, phase_summary
 from ..method_compare_parser import extract_json_string, parse_method_compare_payload
-from ..orchestration.orchestrator import execute_orchestrated_turn
 from ..output_cleaner import replace_evidence_placeholders
 from .contracts import EventCallback, SearchDocumentFn, TurnCoreResult
 from .ports import AgentInvoker, EvidenceRetriever, OrchestratedTurnExecutor
@@ -139,27 +143,50 @@ def execute_turn_core(
 
     run_started = time.perf_counter()
     search_document_fn = build_search_document_fn(search_document_evidence_fn)
-    orchestrator = (
-        execute_orchestrated_turn
-        if orchestrated_turn_executor is None
-        else orchestrated_turn_executor
-    )
-    orchestrated = orchestrator(
-        prompt=prompt,
-        hinted_prompt=hinted_prompt,
-        leader_agent=leader_agent,
-        leader_runtime_config=(
-            leader_runtime_config if isinstance(leader_runtime_config, dict) else {}
-        ),
-        llm=leader_llm,
-        policy_llm=policy_llm,
-        search_document_fn=search_document_fn,
-        search_document_evidence_fn=(
-            search_document_evidence_fn if callable(search_document_evidence_fn) else None
-        ),
-        routing_context=routing_context,
-        on_event=_collect_event,
-    )
+
+    # 直接调用 leader_agent 或使用提供的 executor
+    if orchestrated_turn_executor is not None:
+        orchestrated = orchestrated_turn_executor(
+            prompt=prompt,
+            hinted_prompt=hinted_prompt,
+            leader_agent=leader_agent,
+            leader_runtime_config=(
+                leader_runtime_config if isinstance(leader_runtime_config, dict) else {}
+            ),
+            llm=leader_llm,
+            policy_llm=policy_llm,
+            search_document_fn=search_document_fn,
+            search_document_evidence_fn=(
+                search_document_evidence_fn if callable(search_document_evidence_fn) else None
+            ),
+            routing_context=routing_context,
+            on_event=_collect_event,
+        )
+    else:
+        # 直接调用 leader_agent
+        result = leader_agent.invoke(
+            {"messages": [{"role": "user", "content": hinted_prompt}]},
+            config=leader_runtime_config if isinstance(leader_runtime_config, dict) else {},
+        )
+
+        # 提取 answer
+        answer = ""
+        if isinstance(result, dict):
+            messages = result.get("messages", [])
+            if messages:
+                last_msg = messages[-1]
+                if hasattr(last_msg, "content"):
+                    answer = str(last_msg.content)
+                elif isinstance(last_msg, dict):
+                    answer = str(last_msg.get("content", ""))
+
+        # 构造简化的 OrchestratedTurn
+        orchestrated = OrchestratedTurn(
+            answer=answer,
+            policy_decision=PolicyDecision(decision="direct", reason="simplified"),
+            team_execution=TeamExecution(rounds=0, members=[]),
+            trace_payload=[],
+        )
 
     answer = orchestrated.answer
     if not answer:

@@ -2,11 +2,11 @@
 
 ## Phase 1: 清理旧代码
 
-- [ ] 删除 `agent/a2a/` 目录
-- [ ] 删除 `agent/orchestration/` 目录
-- [ ] 清理 `agent/__init__.py` 中的 A2A 导出
+- [x] 删除 `agent/a2a/` 目录
+- [x] 删除 `agent/orchestration/` 目录
+- [x] 清理 `agent/__init__.py` 中的 A2A 导出
 - [ ] 简化 `agent/application/turn_engine.py`（移除 orchestrator 调用）
-- [ ] 删除相关测试文件
+- [x] 删除相关测试文件
 
 ## Phase 2: 实现 SubAgent Middleware
 

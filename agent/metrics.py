@@ -1,18 +1,9 @@
 from typing import Any
 
-from .a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
-
-VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
-
 
 def create_session_metrics() -> dict[str, Any]:
     return {
         "total_queries": 0,
-        "workflow_counts": {
-            WORKFLOW_REACT: 0,
-            WORKFLOW_PLAN_ACT: 0,
-            WORKFLOW_PLAN_ACT_REPLAN: 0,
-        },
         "plan_enabled_count": 0,
         "team_enabled_count": 0,
         "team_rounds_total": 0,
@@ -136,9 +127,6 @@ def summarize_session_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
         metrics = create_session_metrics()
 
     total_queries = int(metrics.get("total_queries", 0))
-    workflow_counts = metrics.get("workflow_counts", {})
-    if not isinstance(workflow_counts, dict):
-        workflow_counts = {}
 
     average_latency_ms = (
         float(metrics.get("total_latency_ms", 0.0)) / total_queries if total_queries > 0 else 0.0
@@ -150,11 +138,6 @@ def summarize_session_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
         float(metrics.get("team_rounds_total", 0)) / total_queries if total_queries > 0 else 0.0
     )
 
-    workflow_ratios: dict[str, float] = {}
-    for workflow in VALID_WORKFLOWS:
-        count = int(workflow_counts.get(workflow, 0))
-        workflow_ratios[workflow] = (count / total_queries) if total_queries > 0 else 0.0
-
     plan_enabled_count = int(metrics.get("plan_enabled_count", 0))
     team_enabled_count = int(metrics.get("team_enabled_count", 0))
     plan_enabled_ratio = (plan_enabled_count / total_queries) if total_queries > 0 else 0.0
@@ -162,12 +145,6 @@ def summarize_session_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "total_queries": total_queries,
-        "workflow_counts": {
-            WORKFLOW_REACT: int(workflow_counts.get(WORKFLOW_REACT, 0)),
-            WORKFLOW_PLAN_ACT: int(workflow_counts.get(WORKFLOW_PLAN_ACT, 0)),
-            WORKFLOW_PLAN_ACT_REPLAN: int(workflow_counts.get(WORKFLOW_PLAN_ACT_REPLAN, 0)),
-        },
-        "workflow_ratios": workflow_ratios,
         "plan_enabled_count": plan_enabled_count,
         "plan_enabled_ratio": plan_enabled_ratio,
         "team_enabled_count": team_enabled_count,

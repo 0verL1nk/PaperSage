@@ -2,8 +2,10 @@
 
 from typing import Any
 
+from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 
+from ..subagent.loader import load_subagent_configs
 from .orchestration import OrchestrationMiddleware
 from .plan import plan_middleware
 from .todolist import todolist_middleware
@@ -33,6 +35,13 @@ def build_middleware_list(
 
     # Orchestration middleware (for complex task guidance)
     middleware_list.append(OrchestrationMiddleware(llm=model))
+
+    # SubAgent middleware (provides task tool for spawning subagents)
+    subagent_configs = load_subagent_configs()
+    if subagent_configs:
+        middleware_list.append(
+            SubAgentMiddleware(subagents=subagent_configs, default_model=model)
+        )
 
     # TodoList middleware (from LangChain)
     middleware_list.append(todolist_middleware)
