@@ -3,7 +3,8 @@
 from typing import Any
 
 from deepagents.middleware.subagents import SubAgentMiddleware
-from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
+from langchain.agents.middleware import AgentMiddleware, ModelRetryMiddleware, SummarizationMiddleware
+from openai import RateLimitError
 
 from ..subagent.loader import load_subagent_configs
 from .orchestration import OrchestrationMiddleware
@@ -33,6 +34,18 @@ def build_middleware_list(
 
     # Trace middleware (first to record all middleware execution)
     middleware_list.append(TraceMiddleware())
+
+    # Model retry middleware (handles rate limits with exponential backoff)
+    middleware_list.append(
+        ModelRetryMiddleware(
+            max_retries=3,
+            retry_on=(RateLimitError,),
+            backoff_factor=2.0,
+            initial_delay=1.0,
+            max_delay=60.0,
+            jitter=True,
+        )
+    )
 
     # Orchestration middleware (for complex task guidance)
     middleware_list.append(OrchestrationMiddleware(llm=model))

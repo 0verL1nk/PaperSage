@@ -76,15 +76,8 @@ def record_query_metrics(
     if not isinstance(metrics, dict):
         metrics = create_session_metrics()
 
-    if "workflow_counts" not in metrics or not isinstance(metrics["workflow_counts"], dict):
-        metrics["workflow_counts"] = {}
-    for workflow in VALID_WORKFLOWS:
-        metrics["workflow_counts"].setdefault(workflow, 0)
-
+    # 简化: 不再跟踪 workflow_counts (旧编排系统已移除)
     metrics["total_queries"] = int(metrics.get("total_queries", 0)) + 1
-
-    if isinstance(workflow_mode, str) and workflow_mode in VALID_WORKFLOWS:
-        metrics["workflow_counts"][workflow_mode] += 1
 
     if isinstance(policy_decision, dict):
         if bool(policy_decision.get("plan_enabled", False)):

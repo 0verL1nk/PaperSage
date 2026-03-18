@@ -114,7 +114,7 @@ def replace_evidence_placeholders(
         return answer
 
     placeholder_pattern = re.compile(
-        r"(?:\[\s*(?:文档证据|证据|document evidence)(?:\s*#?\d+)?\s*\]|【\s*(?:文档证据|证据)(?:\s*#?\d+)?\s*】)",
+        r"(?:\[\s*(?:文档证据|证据|document evidence)(?:\s*#?\d+)?\s*\]|【\s*(?:文档证据|证据)(?:\s*#?\d+)?\s*】|<evidence\s*/?>|<evidence>.*?</evidence>)",
         flags=re.IGNORECASE,
     )
     if not placeholder_pattern.search(answer):

@@ -16,6 +16,9 @@ class TraceMiddleware(AgentMiddleware):
         self, state: AgentState, runtime: Runtime, config: RunnableConfig = None
     ) -> dict[str, Any] | None:
         """Emit model_call event before model invocation."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"TraceMiddleware.before_model called: config={config is not None}, has_on_event={config.get('configurable', {}).get('on_event') is not None if config else False}")
         if config:
             on_event = config.get("configurable", {}).get("on_event")
             if callable(on_event):

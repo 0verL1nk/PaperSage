@@ -128,18 +128,13 @@ class OrchestrationMiddleware(AgentMiddleware):
                 response = llm.invoke(prompt)
                 response_text = response.content if hasattr(response, "content") else str(response)
 
-                # Extract JSON from response
+                # Extract JSON from response (find first { to last })
                 response_text = response_text.strip()
-                if response_text.startswith("```json"):
-                    response_text = response_text[7:]
-                if response_text.startswith("```"):
-                    response_text = response_text[3:]
-                if response_text.endswith("```"):
-                    response_text = response_text[:-3]
-                response_text = response_text.strip()
-
-                if not response_text:
-                    raise ValueError("Empty response from LLM")
+                start_idx = response_text.find("{")
+                end_idx = response_text.rfind("}")
+                if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
+                    raise ValueError("No valid JSON object found in response")
+                response_text = response_text[start_idx:end_idx + 1]
 
                 result = json.loads(response_text)
                 analysis_result = {
@@ -160,7 +155,7 @@ class OrchestrationMiddleware(AgentMiddleware):
                 return analysis_result
             except Exception as e:
                 if attempt < max_retries:
-                    logger.info(f"Complexity analysis attempt {attempt + 1} failed: {e}, retrying...")
+                    logger.warning(f"Complexity analysis attempt {attempt + 1} failed: {e}, response_text={response_text[:500] if 'response_text' in locals() else 'N/A'}, retrying...")
                     continue
                 logger.warning(f"Failed to analyze complexity with LLM after {max_retries + 1} attempts: {e}, using fallback")
 

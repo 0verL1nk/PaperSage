@@ -597,6 +597,10 @@ def run_agent_center_page() -> None:
                 with st.chat_message("assistant"):
                     runtime_deps = build_runtime_deps_from_session_state(st.session_state)
                     event_count = [0]
+
+                    # 初始化 trace events 收集
+                    st.session_state["current_turn_trace_events"] = []
+
                     with st.status("执行策略编排中...", expanded=True) as status:
 
                         def _on_event(item: dict[str, str]) -> None:
@@ -608,6 +612,14 @@ def run_agent_center_page() -> None:
                             status.update(label=label, state="running", expanded=True)
                             status.write(line)
 
+                            # 保存到 session_state
+                            st.session_state["current_turn_trace_events"].append({
+                                "index": event_count[0],
+                                "label": label,
+                                "line": line,
+                                "item": item,
+                            })
+
                         turn_result = execute_agent_center_turn(
                             request=AgentCenterTurnRequest(
                                 prompt=prompt,
@@ -618,6 +630,13 @@ def run_agent_center_page() -> None:
                             on_event=_on_event,
                         )
                         status.update(label="执行完成", state="complete", expanded=False)
+
+                    # 在 status 外持久化展示 trace events
+                    trace_events = st.session_state.get("current_turn_trace_events", [])
+                    if trace_events:
+                        with st.expander(f"📋 执行轨迹 ({len(trace_events)} 个事件)", expanded=True):
+                            for evt in trace_events:
+                                st.text(evt["line"])
 
                     mindmap_data = turn_result["mindmap_data"]
                     mindmap_html = None
