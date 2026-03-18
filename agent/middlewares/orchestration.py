@@ -60,7 +60,7 @@ class OrchestrationMiddleware(AgentMiddleware):
 
         # Analyze complexity
         analysis = self._analyze_complexity(messages, llm, on_event)
-        logger.info(f"Task complexity: is_complex={analysis['is_complex']}, reason={analysis['reason']}")
+        logger.info(f"Task complexity: is_complex={analysis['is_complex']}, needs_team={analysis.get('needs_team', False)}, reason={analysis['reason']}")
 
         # Check if plan already exists (from configurable state)
         configurable_state = config.get("configurable", {}).get("state", {})
@@ -71,7 +71,8 @@ class OrchestrationMiddleware(AgentMiddleware):
         # Store analysis result for wrap_model_call to use
         self._last_analysis = analysis
 
-        return None
+        # Return needs_team flag to state for TeamMiddleware to use
+        return {"needs_team": analysis.get("needs_team", False)}
 
     def _analyze_complexity(self, messages: list[Any], llm: Any, on_event: Any = None) -> dict[str, Any]:
         """Use LLM to analyze task complexity with full context.
@@ -190,19 +191,8 @@ class OrchestrationMiddleware(AgentMiddleware):
             Messages with guidance injected
         """
         has_plan = self._last_analysis and self._last_analysis.get("has_plan", False)
-        needs_team = self._last_analysis and self._last_analysis.get("needs_team", False)
 
-        if needs_team:
-            guidance = (
-                "【重要提示】这是一个需要多角色协作的复杂任务,建议使用团队模式:\n\n"
-                "1. 使用 spawn_agent 工具创建专业 agent(如 researcher, reviewer, writer 等)\n"
-                "2. 使用 send_message 工具分配任务给各个 agent\n"
-                "3. 使用 get_agent_result 工具获取执行结果\n"
-                "4. 使用 list_agents 工具查看团队状态\n"
-                "5. 完成后使用 close_agent 工具关闭 agent\n\n"
-                "请先创建团队并分配任务,不要直接回答。"
-            )
-        elif has_plan:
+        if has_plan:
             guidance = (
                 "【提示】这是一个复杂任务,你已经创建了执行计划。\n\n"
                 "建议使用 write_todos 工具跟踪任务进度,或使用 read_plan 查看计划。"
