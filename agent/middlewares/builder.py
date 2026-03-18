@@ -8,6 +8,7 @@ from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 from ..subagent.loader import load_subagent_configs
 from .orchestration import OrchestrationMiddleware
 from .plan import plan_middleware
+from .team import TeamMiddleware
 from .todolist import todolist_middleware
 from .tool_selector import build_tool_selector_middleware
 from .trace import TraceMiddleware
@@ -42,6 +43,9 @@ def build_middleware_list(
         middleware_list.append(
             SubAgentMiddleware(subagents=subagent_configs, default_model=model)
         )
+
+    # Team middleware (provides team management tools)
+    middleware_list.append(TeamMiddleware(default_model=model))
 
     # TodoList middleware (from LangChain)
     middleware_list.append(todolist_middleware)
