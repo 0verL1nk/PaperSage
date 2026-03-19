@@ -13,7 +13,10 @@ from agent.adapters.sqlite.project_repository import (
 )
 from agent.memory.store import (
     get_project_session_compact_memory,
+    get_project_memory_episode,
     list_project_memory_items,
+    query_long_term_memory,
+    save_project_memory_episode,
     save_project_session_compact_memory,
     search_project_memory_items,
     upsert_project_memory_item,
@@ -267,6 +270,36 @@ def test_project_memory_item_upsert_and_search(tmp_path: Path) -> None:
     assert "方法A优于方法B" in matched[0]["content"]
 
 
+def test_project_memory_episode_roundtrip(tmp_path: Path) -> None:
+    db_path, project_uid = _prepare_project(tmp_path)
+    session_uid = ensure_default_project_session(
+        project_uid=project_uid,
+        uuid="local-user",
+        db_name=str(db_path),
+    )
+
+    episode_uid = save_project_memory_episode(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        prompt="请记住以后默认输出中文摘要",
+        answer="好的，后续我会默认输出中文摘要。",
+        db_name=str(db_path),
+    )
+    assert episode_uid
+
+    episode = get_project_memory_episode(
+        episode_uid=episode_uid,
+        db_name=str(db_path),
+    )
+    assert episode["episode_uid"] == episode_uid
+    assert episode["uuid"] == "local-user"
+    assert episode["project_uid"] == project_uid
+    assert episode["session_uid"] == session_uid
+    assert episode["prompt"] == "请记住以后默认输出中文摘要"
+    assert episode["answer"] == "好的，后续我会默认输出中文摘要。"
+
+
 def test_project_memory_expired_items_are_filtered(tmp_path: Path) -> None:
     db_path, project_uid = _prepare_project(tmp_path)
     session_uid = ensure_default_project_session(
@@ -307,3 +340,131 @@ def test_project_memory_expired_items_are_filtered(tmp_path: Path) -> None:
     )
     assert len(items) == 1
     assert items[0]["title"] == "有效记忆"
+
+
+def test_project_memory_item_structured_fields_roundtrip(tmp_path: Path) -> None:
+    db_path, project_uid = _prepare_project(tmp_path)
+    session_uid = ensure_default_project_session(
+        project_uid=project_uid,
+        uuid="local-user",
+        db_name=str(db_path),
+    )
+    episode_uid = save_project_memory_episode(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        prompt="用户说以后都用项目符号回答",
+        answer="收到，后续默认使用项目符号回答。",
+        db_name=str(db_path),
+    )
+
+    memory_uid = upsert_project_memory_item(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        memory_type="procedural",
+        title="回答偏好",
+        content="以后默认使用项目符号回答",
+        canonical_text="默认使用项目符号回答",
+        dedup_key="pref:bullet-style",
+        status="active",
+        confidence=0.92,
+        source_episode_uid=episode_uid,
+        evidence=[{"episode_uid": episode_uid, "quote": "以后都用项目符号回答"}],
+        db_name=str(db_path),
+    )
+    assert memory_uid
+
+    items = list_project_memory_items(
+        uuid="local-user",
+        project_uid=project_uid,
+        limit=10,
+        db_name=str(db_path),
+    )
+    assert len(items) == 1
+    assert items[0]["canonical_text"] == "默认使用项目符号回答"
+    assert items[0]["dedup_key"] == "pref:bullet-style"
+    assert items[0]["status"] == "active"
+    assert items[0]["confidence"] == 0.92
+    assert items[0]["source_episode_uid"] == episode_uid
+    assert items[0]["evidence"] == [{"episode_uid": episode_uid, "quote": "以后都用项目符号回答"}]
+
+
+def test_query_long_term_memory_filters_active_typed_memories(tmp_path: Path) -> None:
+    db_path, project_uid = _prepare_project(tmp_path)
+    session_uid = ensure_default_project_session(
+        project_uid=project_uid,
+        uuid="local-user",
+        db_name=str(db_path),
+    )
+    episode_uid = save_project_memory_episode(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        prompt="请记住以后默认用中文回答",
+        answer="收到，后续默认用中文回答。",
+        db_name=str(db_path),
+    )
+    upsert_project_memory_item(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        memory_type="user_memory",
+        title="语言偏好",
+        content="默认用中文回答",
+        canonical_text="默认用中文回答",
+        dedup_key="user:response_preferences",
+        status="active",
+        source_episode_uid=episode_uid,
+        db_name=str(db_path),
+    )
+    upsert_project_memory_item(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        memory_type="knowledge_memory",
+        title="旧结论",
+        content="方法A不如方法B",
+        canonical_text="方法A不如方法B",
+        dedup_key="knowledge:main-conclusion-old",
+        status="superseded",
+        source_episode_uid=episode_uid,
+        db_name=str(db_path),
+    )
+    upsert_project_memory_item(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        memory_type="knowledge_memory",
+        title="新结论",
+        content="方法A优于方法B",
+        canonical_text="方法A优于方法B",
+        dedup_key="knowledge:main-conclusion",
+        status="active",
+        source_episode_uid=episode_uid,
+        db_name=str(db_path),
+    )
+
+    knowledge = query_long_term_memory(
+        uuid="local-user",
+        project_uid=project_uid,
+        query="主要结论",
+        memory_type="knowledge_memory",
+        status="active",
+        limit=5,
+        db_name=str(db_path),
+    )
+    user_items = query_long_term_memory(
+        uuid="local-user",
+        project_uid=project_uid,
+        query="",
+        memory_type="user_memory",
+        status="active",
+        limit=5,
+        db_name=str(db_path),
+    )
+
+    assert len(knowledge) == 1
+    assert knowledge[0]["canonical_text"] == "方法A优于方法B"
+    assert len(user_items) == 1
+    assert user_items[0]["memory_type"] == "user_memory"

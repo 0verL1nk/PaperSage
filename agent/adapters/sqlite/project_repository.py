@@ -133,7 +133,39 @@ def ensure_projects_tables(db_name: str = "./database.sqlite") -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             last_accessed_at TEXT,
-            expires_at TEXT DEFAULT ''
+            expires_at TEXT DEFAULT '',
+            canonical_text TEXT DEFAULT '',
+            dedup_key TEXT DEFAULT '',
+            status TEXT DEFAULT 'active',
+            confidence REAL DEFAULT 0,
+            source_episode_uid TEXT DEFAULT '',
+            evidence_json TEXT DEFAULT '[]',
+            superseded_by TEXT DEFAULT ''
+        )
+    """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS memory_episodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            episode_uid TEXT UNIQUE NOT NULL,
+            uuid TEXT NOT NULL,
+            project_uid TEXT NOT NULL,
+            session_uid TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS memory_item_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            memory_uid TEXT NOT NULL,
+            episode_uid TEXT NOT NULL,
+            evidence_json TEXT DEFAULT '{}',
+            created_at TEXT NOT NULL
         )
     """
     )
@@ -141,6 +173,20 @@ def ensure_projects_tables(db_name: str = "./database.sqlite") -> None:
     memory_columns = {row[1] for row in cursor.fetchall()}
     if "expires_at" not in memory_columns:
         cursor.execute("ALTER TABLE memory_items ADD COLUMN expires_at TEXT DEFAULT ''")
+    if "canonical_text" not in memory_columns:
+        cursor.execute("ALTER TABLE memory_items ADD COLUMN canonical_text TEXT DEFAULT ''")
+    if "dedup_key" not in memory_columns:
+        cursor.execute("ALTER TABLE memory_items ADD COLUMN dedup_key TEXT DEFAULT ''")
+    if "status" not in memory_columns:
+        cursor.execute("ALTER TABLE memory_items ADD COLUMN status TEXT DEFAULT 'active'")
+    if "confidence" not in memory_columns:
+        cursor.execute("ALTER TABLE memory_items ADD COLUMN confidence REAL DEFAULT 0")
+    if "source_episode_uid" not in memory_columns:
+        cursor.execute("ALTER TABLE memory_items ADD COLUMN source_episode_uid TEXT DEFAULT ''")
+    if "evidence_json" not in memory_columns:
+        cursor.execute("ALTER TABLE memory_items ADD COLUMN evidence_json TEXT DEFAULT '[]'")
+    if "superseded_by" not in memory_columns:
+        cursor.execute("ALTER TABLE memory_items ADD COLUMN superseded_by TEXT DEFAULT ''")
 
     cursor.execute("PRAGMA table_info(project_sessions)")
     session_columns = {row[1] for row in cursor.fetchall()}
@@ -176,6 +222,21 @@ def ensure_projects_tables(db_name: str = "./database.sqlite") -> None:
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_memory_items_expire ON memory_items(expires_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memory_episodes_scope ON memory_episodes(uuid, project_uid, session_uid, created_at DESC)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memory_items_active_lookup ON memory_items(uuid, project_uid, status, updated_at DESC)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memory_items_dedup_key ON memory_items(dedup_key)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memory_items_episode ON memory_items(source_episode_uid, updated_at DESC)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memory_item_evidence_memory ON memory_item_evidence(memory_uid, episode_uid)"
     )
 
     cursor.execute(

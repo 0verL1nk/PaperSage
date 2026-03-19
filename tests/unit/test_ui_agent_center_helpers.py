@@ -77,17 +77,40 @@ def test_build_routing_context_keeps_stable_prefix_under_limit(monkeypatch):
 
 def test_persist_turn_memory(monkeypatch):
     captured = {}
+    queued = {}
     monkeypatch.setattr(
-        "agent.application.agent_center.memory.classify_turn_memory_type",
-        lambda _q, _a: "semantic",
+        "agent.application.agent_center.memory.save_project_memory_episode",
+        lambda **kwargs: captured.update(kwargs) or "episode-1",
     )
     monkeypatch.setattr(
-        "agent.application.agent_center.memory.ttl_for_memory_type",
-        lambda _t: "2099-01-01T00:00:00",
+        "agent.application.agent_center.memory.create_task",
+        lambda task_id, uid, content_type, db_name="./database.sqlite": queued.update(
+            {"task_id": task_id, "uid": uid, "content_type": content_type, "db_name": db_name}
+        ),
     )
     monkeypatch.setattr(
-        "agent.application.agent_center.memory.upsert_project_memory_item",
-        lambda **kwargs: captured.update(kwargs),
+        "agent.application.agent_center.memory.enqueue_task",
+        lambda task_func, task_id, episode_uid, user_uuid, db_name="./database.sqlite": queued.update(
+            {
+                "task_func": getattr(task_func, "__name__", ""),
+                "enqueue_task_id": task_id,
+                "episode_uid": episode_uid,
+                "user_uuid": user_uuid,
+                "enqueue_db_name": db_name,
+            }
+        )
+        or {"mode": "queued", "job_id": "job-1"},
+    )
+    monkeypatch.setattr(
+        "agent.application.agent_center.memory.update_task_status",
+        lambda task_id, status, job_id=None, db_name="./database.sqlite": queued.update(
+            {
+                "status_task_id": task_id,
+                "status": getattr(status, "value", status),
+                "job_id": job_id,
+                "status_db_name": db_name,
+            }
+        ),
     )
     persist_turn_memory(
         user_uuid="u1",
@@ -99,3 +122,12 @@ def test_persist_turn_memory(monkeypatch):
     assert captured["uuid"] == "u1"
     assert captured["project_uid"] == "p1"
     assert captured["session_uid"] == "s1"
+    assert captured["prompt"] == "question"
+    assert captured["answer"] == "answer"
+    assert queued["uid"] == "episode-1"
+    assert queued["content_type"] == "memory_writer"
+    assert queued["task_func"] == "task_memory_writer"
+    assert queued["episode_uid"] == "episode-1"
+    assert queued["user_uuid"] == "u1"
+    assert queued["status"] == "queued"
+    assert queued["job_id"] == "job-1"

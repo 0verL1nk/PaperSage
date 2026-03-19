@@ -42,7 +42,15 @@ def test_load_scope_docs_with_text_and_cache_caption():
 
 
 def test_build_hinted_prompt_and_runtime_helpers():
-    memories = [{"memory_type": "semantic", "content": "m1"}]
+    def fake_search(**kwargs):
+        if kwargs["memory_type"] == "user_memory":
+            assert kwargs["status"] == "active"
+            return [{"memory_type": "user_memory", "content": "pref-zh"}]
+        if kwargs["memory_type"] == "knowledge_memory":
+            assert kwargs["status"] == "active"
+            return [{"memory_type": "knowledge_memory", "content": "fact-a"}]
+        return []
+
     hinted = build_hinted_prompt(
         prompt="hello",
         compact_summary="summary",
@@ -50,14 +58,15 @@ def test_build_hinted_prompt_and_runtime_helpers():
         project_uid="p1",
         detect_language_fn=lambda _text: "en",
         with_language_hint_fn=lambda text, _detector: f"{text}::lang",
-        search_project_memory_items_fn=lambda **_kwargs: memories,
+        search_project_memory_items_fn=fake_search,
         inject_long_term_memory_fn=lambda text, mem: f"{text}::{len(mem)}",
         memory_limit=4,
     )
     assert hinted.startswith("CTXv1\n")
     assert "\nI:sys=paper_qa,col=a2a,tools=-,skills=-\n" in hinted
+    assert "\nP:user_memory:pref-zh\n" in hinted
     assert "\nS:summary\n" in hinted
-    assert "\nM:semantic:m1\n" in hinted
+    assert "\nM:knowledge_memory:fact-a\n" in hinted
     assert "\nL:lang\n" in hinted
     assert hinted.endswith("\nQ:hello")
     assert resolve_runtime_session_id({"configurable": {"thread_id": "tid"}}) == "tid"

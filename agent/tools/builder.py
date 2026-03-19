@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .document import build_list_document_tool, build_read_document_tool, build_search_document_tool
+from .memory import build_query_memory_tool, build_write_memory_tool
 from .paper_search import search_papers
 from .plan_tools import read_plan, write_plan
 from .skill import use_skill
@@ -42,6 +43,8 @@ def build_agent_tools(
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
     read_document_fn: Callable[[int, int], tuple[str, int]] | None = None,
     list_documents_fn: Callable[[], list[dict[str, Any]]] | None = None,
+    query_memory_fn: Callable[[str, str | None, int], list[dict[str, Any]]] | None = None,
+    write_memory_fn: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
 ):
     """构建 Agent 工具集"""
     runtime_tools: list[Any] = []
@@ -52,6 +55,10 @@ def build_agent_tools(
         runtime_tools.append(build_list_document_tool(list_documents_fn))
     if read_document_fn:
         runtime_tools.append(build_read_document_tool(read_document_fn, search_document_fn))
+    if query_memory_fn:
+        runtime_tools.append(build_query_memory_tool(query_memory_fn))
+    if write_memory_fn:
+        runtime_tools.append(build_write_memory_tool(write_memory_fn))
 
     # 静态工具(直接使用)
     runtime_tools.extend([search_web, search_papers, use_skill, write_plan, read_plan])

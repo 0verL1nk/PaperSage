@@ -45,6 +45,29 @@ from langchain_core.prompts import ChatPromptTemplate
 from openai import OpenAI
 
 try:
+    from agent.memory.extraction import extract_memory_candidates
+except ImportError:
+    from agent.memory.extraction import extract_memory_candidates
+
+try:
+    from agent.memory.reconcile import apply_memory_candidates
+except ImportError:
+    from agent.memory.reconcile import apply_memory_candidates
+
+try:
+    from agent.memory.store import (
+        get_project_memory_episode,
+        list_project_memory_episodes,
+        list_project_memory_items,
+    )
+except ImportError:
+    from agent.memory.store import (
+        get_project_memory_episode,
+        list_project_memory_episodes,
+        list_project_memory_items,
+    )
+
+try:
     from agent.llm_provider import build_openai_compatible_chat_model
     from agent.settings import load_agent_settings
 except ImportError:
@@ -374,3 +397,66 @@ def task_generate_mindmap(task_id: str, file_path: str, uid: str, user_uuid: str
         update_task_status(task_id, TaskStatus.FAILED, error_message=error_msg)
         logger.exception("Worker failed mindmap: task_id=%s", task_id)
         return False, None
+
+
+def task_memory_writer(
+    task_id: str,
+    episode_uid: str,
+    user_uuid: str,
+    *,
+    db_name: str = "./database.sqlite",
+    context_limit: int = 5,
+):
+    try:
+        logger.info("Worker start memory_writer: task_id=%s episode_uid=%s", task_id, episode_uid)
+        update_task_status(task_id, TaskStatus.STARTED, db_name=db_name)
+
+        episode = get_project_memory_episode(episode_uid=episode_uid, db_name=db_name)
+        if not episode:
+            error_msg = "memory episode not found"
+            update_task_status(task_id, TaskStatus.FAILED, error_message=error_msg, db_name=db_name)
+            return False, error_msg
+
+        recent_episodes = list_project_memory_episodes(
+            uuid=user_uuid,
+            project_uid=str(episode.get("project_uid") or ""),
+            session_uid=str(episode.get("session_uid") or ""),
+            limit=max(1, int(context_limit)),
+            db_name=db_name,
+        )
+        active_memories = list_project_memory_items(
+            uuid=user_uuid,
+            project_uid=str(episode.get("project_uid") or ""),
+            status="active",
+            limit=20,
+            db_name=db_name,
+        )
+        candidates = extract_memory_candidates(
+            episode=episode,
+            recent_episodes=recent_episodes,
+            active_memories=active_memories,
+            user_uuid=user_uuid,
+            db_name=db_name,
+        )
+        reconcile_results = apply_memory_candidates(
+            uuid=user_uuid,
+            project_uid=str(episode.get("project_uid") or ""),
+            session_uid=str(episode.get("session_uid") or ""),
+            candidates=candidates,
+            db_name=db_name,
+        )
+        payload = {
+            "episode": episode,
+            "recent_episodes": recent_episodes,
+            "active_memories": active_memories,
+            "candidates": candidates,
+            "reconcile_results": reconcile_results,
+        }
+        update_task_status(task_id, TaskStatus.FINISHED, db_name=db_name)
+        logger.info("Worker finish memory_writer: task_id=%s episode_uid=%s", task_id, episode_uid)
+        return True, payload
+    except Exception as e:
+        error_msg = str(e)
+        update_task_status(task_id, TaskStatus.FAILED, error_message=error_msg, db_name=db_name)
+        logger.exception("Worker failed memory_writer: task_id=%s episode_uid=%s", task_id, episode_uid)
+        return False, error_msg
