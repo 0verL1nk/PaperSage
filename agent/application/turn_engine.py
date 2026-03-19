@@ -29,6 +29,67 @@ def normalize_evidence_items(raw_payload: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _message_content(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("content") or "")
+    return str(getattr(message, "content", "") or "")
+
+
+def _message_name(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("name") or "").strip()
+    return str(getattr(message, "name", "") or "").strip()
+
+
+def _message_role(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("role") or message.get("type") or "").strip().lower()
+    return str(getattr(message, "type", getattr(message, "role", "")) or "").strip().lower()
+
+
+def _message_tool_calls(message: Any) -> list[dict[str, Any]]:
+    if isinstance(message, dict):
+        tool_calls = message.get("tool_calls")
+    else:
+        tool_calls = getattr(message, "tool_calls", None)
+    if not isinstance(tool_calls, list):
+        return []
+    return [item for item in tool_calls if isinstance(item, dict)]
+
+
+def _parse_tool_json_payload(content: str) -> dict[str, Any] | None:
+    text = str(content or "").strip()
+    if not text:
+        return None
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _extract_search_document_evidence_items(
+    messages: list[Any],
+    *,
+    referenced_chunk_ids: list[str],
+) -> list[dict[str, Any]]:
+    referenced = {item.strip() for item in referenced_chunk_ids if item.strip()}
+    if not referenced:
+        return []
+    collected: list[dict[str, Any]] = []
+    for message in messages:
+        if _message_role(message) != "tool" or _message_name(message) != "search_document":
+            continue
+        payload = _parse_tool_json_payload(_message_content(message))
+        if payload is None:
+            continue
+        collected.extend(normalize_evidence_items(payload))
+    return [
+        item for item in collected
+        if str(item.get("chunk_id", "")).strip() in referenced
+    ]
+
+
 def build_search_document_fn(
     search_document_evidence_fn: EvidenceRetriever | None,
 ) -> SearchDocumentFn:
@@ -201,17 +262,26 @@ def execute_turn_core(
     # 检测是否使用了document RAG
     used_document_rag = False
     for msg in messages:
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            for call in msg.tool_calls:
-                if isinstance(call, dict) and call.get("name") == "search_document":
-                    used_document_rag = True
-                    break
+        for call in _message_tool_calls(msg):
+            if call.get("name") == "search_document":
+                used_document_rag = True
+                break
+        if used_document_rag:
+            break
 
     # 从 answer 中提取 agent 引用的 chunk_id
     referenced_chunk_ids = extract_evidence_chunk_ids(answer)
 
-    evidence_items: list[dict[str, Any]] = []
-    if referenced_chunk_ids and used_document_rag and callable(search_document_evidence_fn):
+    evidence_items = _extract_search_document_evidence_items(
+        messages,
+        referenced_chunk_ids=referenced_chunk_ids,
+    )
+    if (
+        not evidence_items
+        and referenced_chunk_ids
+        and used_document_rag
+        and callable(search_document_evidence_fn)
+    ):
         try:
             # 获取所有相关证据
             evidence_payload = search_document_evidence_fn(prompt)
