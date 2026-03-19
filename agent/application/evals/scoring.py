@@ -7,7 +7,28 @@ from .feedback import build_case_feedback
 
 
 def _stable_dict(payload: Any) -> dict[str, Any] | None:
-    return payload if isinstance(payload, dict) else None
+    if isinstance(payload, dict):
+        return payload
+    model_dump = getattr(payload, "model_dump", None)
+    if callable(model_dump):
+        value = model_dump()
+        return value if isinstance(value, dict) else None
+    to_dict = getattr(payload, "to_dict", None)
+    if callable(to_dict):
+        value = to_dict()
+        return value if isinstance(value, dict) else None
+    return None
+
+
+def _stable_list_of_dicts(payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(payload, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for item in payload:
+        stable_item = _stable_dict(item)
+        if stable_item is not None:
+            normalized.append(stable_item)
+    return normalized
 
 
 def compute_execution_completion_ratio(
@@ -57,9 +78,9 @@ def compute_execution_completion_ratio(
 def normalize_turn_result(turn_result: dict[str, Any]) -> dict[str, Any]:
     answer = str(turn_result.get("answer") or "").strip()
     evidence_items = turn_result.get("evidence_items")
-    normalized_evidence = evidence_items if isinstance(evidence_items, list) else []
+    normalized_evidence = _stable_list_of_dicts(evidence_items)
     todos = turn_result.get("todos")
-    normalized_todos = todos if isinstance(todos, list) else []
+    normalized_todos = _stable_list_of_dicts(todos)
     plan = _stable_dict(turn_result.get("plan"))
     runtime_state = _stable_dict(turn_result.get("runtime_state"))
     agent_plan = _stable_dict(turn_result.get("agent_plan"))

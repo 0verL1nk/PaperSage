@@ -12,6 +12,7 @@ from agent.application.evals import (
     run_agent_evals,
     select_eval_cases,
 )
+from agent.middlewares.todolist import Todo
 
 
 def test_load_eval_cases_supports_stable_process_contracts(tmp_path: Path) -> None:
@@ -266,6 +267,36 @@ def test_build_eval_report_summarizes_case_results() -> None:
     assert report["average_execution_completion_ratio"] == 0.75
     assert report["failed_case_ids"] == ["b"]
     assert report["remediation_area_counts"] == {"prompt": 1, "retrieval/tooling": 1}
+
+
+def test_evaluate_case_result_supports_pydantic_todos() -> None:
+    case = AgentEvalCase.from_dict(
+        {
+            "id": "todos_001",
+            "category": "multi_step",
+            "prompt": "请按步骤完成任务",
+            "expected_answer_all_of": ["完成"],
+            "require_todos": True,
+            "min_execution_completion_ratio": 1.0,
+        }
+    )
+
+    turn_result = {
+        "answer": "任务完成",
+        "todos": [
+            Todo(id="t1", content="第一步", status="completed"),
+            Todo(id="t2", content="第二步", status="completed"),
+        ],
+        "phase_path": "规划 -> 输出最终答案",
+        "trace_payload": [],
+        "run_latency_ms": 5.0,
+    }
+
+    result = evaluate_case_result(case, turn_result, judge=None)
+
+    assert result["completed"] is True
+    assert result["execution_completion_ratio"] == 1.0
+    assert result["process_checks"]["todo_passed"] is True
 
 
 def test_select_eval_cases_supports_case_ids_and_limit() -> None:
