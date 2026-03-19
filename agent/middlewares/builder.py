@@ -62,7 +62,10 @@ def build_middleware_list(
     subagent_configs = load_subagent_configs()
     if subagent_configs:
         middleware_list.append(
-            SubAgentMiddleware(subagents=subagent_configs)  # type: ignore[arg-type]
+            SubAgentMiddleware(
+                default_model=model,
+                subagents=subagent_configs,
+            )  # type: ignore[arg-type]
         )
 
     # Team middleware (provides team management tools)

@@ -49,6 +49,9 @@ DEFAULT_AGENT_PLANNER_MAX_STEPS = 4
 DEFAULT_AGENT_POLICY_ROUTER_MODEL_NAME = ""
 DEFAULT_AGENT_POLICY_ROUTER_BASE_URL = ""
 DEFAULT_AGENT_POLICY_ROUTER_TEMPERATURE = 0.0
+# Deprecated compatibility knobs for the removed async policy interceptor path.
+# They remain loadable so persisted user settings and legacy env files do not
+# break, but the current middleware-driven runtime no longer consumes them.
 DEFAULT_AGENT_POLICY_ASYNC_ENABLED = True
 DEFAULT_AGENT_POLICY_ASYNC_REFRESH_SECONDS = 4.0
 DEFAULT_AGENT_POLICY_ASYNC_MIN_CONFIDENCE = 0.6

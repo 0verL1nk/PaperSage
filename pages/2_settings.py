@@ -58,7 +58,7 @@ def main() -> None:
     )
 
     st.markdown("### 策略路由小模型（可选）")
-    st.caption("用于模式选择与异步拦截；留空则回退主模型配置。")
+    st.caption("用于独立策略分析模型配置；留空则回退主模型配置。")
     policy_router_model_name = st.text_input(
         "路由模型名称",
         value=saved_policy_router_model_name,
@@ -75,49 +75,8 @@ def main() -> None:
         type="password",
         placeholder="留空则复用主 API Key",
     )
-    st.markdown("### 异步策略与内存控制")
-    st.caption("用于异步模式拦截、RAG 建索引批量与文档缓存上限。")
-    async_enabled_default = settings.agent_policy_async_enabled
-    async_enabled = st.checkbox(
-        "启用异步策略拦截",
-        value=(
-            saved_runtime_tuning["agent_policy_async_enabled"]
-            if saved_runtime_tuning["agent_policy_async_enabled"] is not None
-            else async_enabled_default
-        ),
-    )
-    async_refresh_seconds = st.number_input(
-        "异步刷新间隔（秒）",
-        min_value=0.5,
-        step=0.5,
-        value=float(
-            saved_runtime_tuning["agent_policy_async_refresh_seconds"]
-            if saved_runtime_tuning["agent_policy_async_refresh_seconds"] is not None
-            else settings.agent_policy_async_refresh_seconds
-        ),
-    )
-    async_min_confidence = st.number_input(
-        "异步最低置信度（0-1）",
-        min_value=0.0,
-        max_value=1.0,
-        step=0.05,
-        value=float(
-            saved_runtime_tuning["agent_policy_async_min_confidence"]
-            if saved_runtime_tuning["agent_policy_async_min_confidence"] is not None
-            else settings.agent_policy_async_min_confidence
-        ),
-    )
-    async_max_staleness_seconds = st.number_input(
-        "异步结果最大过期时间（秒）",
-        min_value=1.0,
-        step=1.0,
-        value=float(
-            saved_runtime_tuning["agent_policy_async_max_staleness_seconds"]
-            if saved_runtime_tuning["agent_policy_async_max_staleness_seconds"] is not None
-            else settings.agent_policy_async_max_staleness_seconds
-        ),
-    )
-
+    st.markdown("### 运行时与内存控制")
+    st.caption("用于 RAG 建索引批量、项目范围和文档缓存上限。")
     rag_index_batch_size = st.number_input(
         "向量索引批大小",
         min_value=1,
@@ -181,10 +140,10 @@ def main() -> None:
         )
         save_runtime_tuning_settings_for_user(
             user_uuid,
-            agent_policy_async_enabled=async_enabled,
-            agent_policy_async_refresh_seconds=float(async_refresh_seconds),
-            agent_policy_async_min_confidence=float(async_min_confidence),
-            agent_policy_async_max_staleness_seconds=float(async_max_staleness_seconds),
+            agent_policy_async_enabled=None,
+            agent_policy_async_refresh_seconds=None,
+            agent_policy_async_min_confidence=None,
+            agent_policy_async_max_staleness_seconds=None,
             rag_index_batch_size=int(rag_index_batch_size),
             agent_document_text_cache_max_chars=int(document_text_cache_max_chars),
             local_rag_project_max_chars=int(local_rag_project_max_chars),

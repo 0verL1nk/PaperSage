@@ -4,12 +4,46 @@ import time
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
-from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
-from agent.a2a.router import auto_select_workflow_mode
+from langchain_core.messages import HumanMessage
+
+from agent.middlewares.orchestration import OrchestrationMiddleware
+
+WORKFLOW_REACT = "react"
+WORKFLOW_PLAN_ACT = "plan_act"
+WORKFLOW_PLAN_ACT_REPLAN = "plan_act_replan"
 
 VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
+
+
+class _FixtureRouterLLM:
+    def invoke(self, prompt: str) -> SimpleNamespace:
+        prompt_text = str(prompt)
+        is_complex = len(prompt_text) > 100 or "请完成" in prompt_text or "任务" in prompt_text
+        needs_team = any(token in prompt_text for token in ("协作", "多角色", "对比", "比较"))
+        payload = {
+            "is_complex": is_complex or needs_team,
+            "needs_team": needs_team,
+            "reason": "middleware baseline heuristic",
+        }
+        return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False))
+
+
+def _predict_workflow_mode(prompt: str) -> tuple[str, str]:
+    middleware = OrchestrationMiddleware(llm=_FixtureRouterLLM())
+    middleware.before_model(
+        {"messages": [HumanMessage(content=prompt)]},
+        runtime=None,
+        config={"configurable": {"state": {}}},
+    )
+    analysis = middleware._last_analysis or {}
+    if analysis.get("needs_team"):
+        return WORKFLOW_PLAN_ACT_REPLAN, str(analysis.get("reason") or "")
+    if analysis.get("is_complex"):
+        return WORKFLOW_PLAN_ACT, str(analysis.get("reason") or "")
+    return WORKFLOW_REACT, str(analysis.get("reason") or "")
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -43,7 +77,7 @@ def run_router_baseline(records: list[dict[str, Any]]) -> dict[str, Any]:
         prompt = record["prompt"]
         expected = record["expected_workflow"]
         started = time.perf_counter()
-        predicted, reason = auto_select_workflow_mode(prompt)
+        predicted, reason = _predict_workflow_mode(prompt)
         latency_ms = (time.perf_counter() - started) * 1000.0
         latency_ms_values.append(latency_ms)
         distribution[predicted] += 1
@@ -124,4 +158,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

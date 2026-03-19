@@ -4,19 +4,19 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from langchain_core.messages import HumanMessage
 
-from agent.a2a.coordinator import (
-    WORKFLOW_PLAN_ACT,
-    WORKFLOW_PLAN_ACT_REPLAN,
-    WORKFLOW_REACT,
-    create_multi_agent_a2a_session,
-)
-from agent.a2a.router import auto_select_workflow_mode
+from agent.application.turn_engine import execute_turn_core
 from agent.archive import list_agent_outputs, save_agent_output
 from agent.llm_provider import build_openai_compatible_chat_model
+from agent.middlewares.orchestration import OrchestrationMiddleware
 from agent.paper_agent import create_paper_agent_session
 from agent.stream import iter_agent_response_deltas
 from utils.utils import extract_json_string
+
+WORKFLOW_REACT = "react"
+WORKFLOW_PLAN_ACT = "plan_act"
+WORKFLOW_PLAN_ACT_REPLAN = "plan_act_replan"
 
 
 def _load_env_file(env_path: Path) -> None:
@@ -27,7 +27,7 @@ def _load_env_file(env_path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ[key.strip()] = value.strip()
+        os.environ.setdefault(key.strip(), value.strip())
 
 
 def _build_live_llm(
@@ -95,6 +95,21 @@ def _result_has_tool_call(result: dict, tool_name: str) -> bool:
     return False
 
 
+def _predict_workflow_mode(prompt: str, llm) -> tuple[str, str]:
+    middleware = OrchestrationMiddleware(llm=llm)
+    middleware.before_model(
+        {"messages": [HumanMessage(content=prompt)]},
+        runtime=None,
+        config={"configurable": {"state": {}, "llm": llm}},
+    )
+    analysis = middleware._last_analysis or {}
+    if analysis.get("needs_team"):
+        return WORKFLOW_PLAN_ACT_REPLAN, str(analysis.get("reason") or "")
+    if analysis.get("is_complex"):
+        return WORKFLOW_PLAN_ACT, str(analysis.get("reason") or "")
+    return WORKFLOW_REACT, str(analysis.get("reason") or "")
+
+
 @pytest.fixture(scope="module")
 def live_config() -> dict[str, str]:
     _load_env_file(Path(".env"))
@@ -148,64 +163,37 @@ def test_live_agent_roundtrip(live_config: dict[str, str]) -> None:
 
 
 def test_live_router_roundtrip(live_config: dict[str, str]) -> None:
-    a2a = create_multi_agent_a2a_session(
-        llm=_build_live_llm(live_config),
-        search_document_fn=_doc_search,
-    )
-    mode, reason = auto_select_workflow_mode(
+    llm = _build_live_llm(live_config)
+    mode, reason = _predict_workflow_mode(
         "请比较两种方法的优缺点并给出 trade-off 建议。",
-        coordinator=a2a.coordinator,
+        llm,
     )
     assert mode in {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
     assert reason
 
 
-def test_live_a2a_react_mode_roundtrip(live_config: dict[str, str]) -> None:
-    a2a = create_multi_agent_a2a_session(
-        llm=_build_live_llm(live_config),
+def test_live_turn_engine_emits_middleware_events(live_config: dict[str, str]) -> None:
+    llm = _build_live_llm(live_config)
+    session = create_paper_agent_session(
+        llm=llm,
         search_document_fn=_doc_search,
     )
-    answer, trace = a2a.coordinator.run(
-        "文档中的代号是什么？只返回代号。",
-        workflow_mode=WORKFLOW_REACT,
-    )
-    assert answer
-    assert "427" in answer
-    assert [item.performative for item in trace] == ["request", "final"]
+    events: list[dict] = []
 
-
-def test_live_a2a_plan_act_mode_roundtrip(live_config: dict[str, str]) -> None:
-    a2a = create_multi_agent_a2a_session(
-        llm=_build_live_llm(live_config),
-        search_document_fn=_doc_search,
+    result = execute_turn_core(
+        prompt="请比较方法A和方法B的优缺点，并给出 trade-off 建议。",
+        hinted_prompt="请比较方法A和方法B的优缺点，并给出 trade-off 建议。",
+        leader_agent=session.agent,
+        leader_runtime_config=session.runtime_config,
+        leader_llm=llm,
+        on_event=lambda item: events.append(dict(item)),
     )
-    answer, trace = a2a.coordinator.run(
-        "请先规划再回答：文档中的代号是什么，并补一句说明。",
-        workflow_mode=WORKFLOW_PLAN_ACT,
-    )
-    assert answer
-    assert [item.performative for item in trace] == ["request", "plan", "final"]
 
-
-def test_live_a2a_plan_act_replan_mode_roundtrip(
-    live_config: dict[str, str],
-) -> None:
-    a2a = create_multi_agent_a2a_session(
-        llm=_build_live_llm(live_config),
-        search_document_fn=_doc_search,
+    assert result["answer"]
+    assert any(
+        str(item.get("performative") or "") in {"complexity_analysis", "complexity_result"}
+        for item in events
     )
-    answer, trace = a2a.coordinator.run(
-        "请先规划、执行、复核后回答：对比方法A和方法B并给出代号。",
-        workflow_mode=WORKFLOW_PLAN_ACT_REPLAN,
-    )
-    assert answer
-
-    performatives = [item.performative for item in trace]
-    assert performatives[0] == "request"
-    assert "plan" in performatives
-    assert "draft" in performatives
-    assert "review" in performatives
-    assert performatives[-1] == "final"
 
 
 def test_live_mindmap_and_archive_roundtrip(

@@ -4,6 +4,7 @@ from agent.application.runtime_tuning import apply_runtime_tuning_env
 def test_apply_runtime_tuning_env_sets_and_clears_values():
     environ = {
         "AGENT_POLICY_ASYNC_ENABLED": "false",
+        "AGENT_POLICY_ASYNC_REFRESH_SECONDS": "9.0",
         "RAG_INDEX_BATCH_SIZE": "128",
     }
     applied = apply_runtime_tuning_env(
@@ -20,9 +21,9 @@ def test_apply_runtime_tuning_env_sets_and_clears_values():
         environ=environ,
     )
 
-    assert environ["AGENT_POLICY_ASYNC_ENABLED"] == "true"
-    assert environ["AGENT_POLICY_ASYNC_REFRESH_SECONDS"] == "2.0"
+    assert "AGENT_POLICY_ASYNC_ENABLED" not in environ
+    assert "AGENT_POLICY_ASYNC_REFRESH_SECONDS" not in environ
     assert "RAG_INDEX_BATCH_SIZE" not in environ
     assert environ["AGENT_DOCUMENT_TEXT_CACHE_MAX_CHARS"] == "1000"
     assert environ["LOCAL_RAG_PROJECT_MAX_CHUNKS"] == "50"
-    assert applied["AGENT_POLICY_ASYNC_ENABLED"] == "true"
+    assert "AGENT_POLICY_ASYNC_ENABLED" not in applied

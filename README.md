@@ -93,39 +93,24 @@
 
 ## 🏗️ 架构设计
 
-### 工作流路由与调度
+### 当前执行链路与模式提示
 
 ```mermaid
 flowchart TD
-    A[用户提问] --> B{Policy Engine}
-    B -->|LLM 决策| C{plan_enabled?}
-    B -->|置信度| D{team_enabled?}
-    
-    C -->|false| E[ReAct 模式]
-    E --> F[单 Agent + Tool 直接回答]
-    
-    C -->|true| G{team_enabled?}
-    G -->|false| H[Plan-Act 模式]
-    H --> I[Planner 生成计划]
-    I --> J[Leader 顺序执行步骤]
-    J --> K{step_verify}
-    K -->|失败| L[revision 循环]
-    
-    G -->|true| M[Plan-Act-RePlan 模式]
-    M --> N[Team Runtime]
-    N --> O[动态生成角色]
-    O --> P[researcher / reviewer / writer]
-    P --> Q[多轮执行]
-    Q --> R{A2A Review}
-    R -->|通过| S[Finalizing]
-    R -->|需修订| T[RePlan]
-    T -->|循环| N
-    
+    A[用户提问] --> B[ui/agent_center_page]
+    B --> C[agent.application.agent_center.facade]
+    C --> D[agent.application.turn_engine]
+    D --> E[agent.runtime_agent]
+    E --> F[OrchestrationMiddleware]
+    F --> G[Leader Agent]
+    G --> H[Tools / RAG / Memory]
+    H --> I[最终回答 + trace + evidence]
+
     style A fill:#f9f,stroke:#333
-    style F fill:#9f9,stroke:#333
-    style S fill:#9f9,stroke:#333
-    style T fill:#ff9,stroke:#333
+    style I fill:#9f9,stroke:#333
 ```
+
+当前版本不再使用独立的 `policy_engine` / `async interceptor` 作为主入口前路由器。复杂度分析、计划/团队提示和 trace 事件由 middleware 链负责，canonical 入口是 `turn_engine + runtime_agent + middlewares`。
 
 ### Hybrid RAG 检索管线
 
