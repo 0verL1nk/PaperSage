@@ -15,21 +15,21 @@
 
 ## 3. Retrieval And Prompt Injection Cutover
 
-- [ ] 3.1 Replace keyword-first long-term memory lookup with typed retrieval for active user memory and semantic recall for knowledge memory
-- [ ] 3.2 Refactor prompt construction so user memory is injected through policy/system context and knowledge memory through evidence-aware context
-- [ ] 3.3 Add controlled fallback behavior for degraded retrieval without keeping the old keyword path as the canonical implementation
-- [ ] 3.4 Ensure rejected, deleted, and superseded memories are excluded from default prompt injection
+- [x] 3.1 Replace keyword-first long-term memory lookup with typed retrieval for active user memory and semantic recall for knowledge memory
+- [x] 3.2 Refactor prompt construction so user memory is injected through policy/system context and knowledge memory through evidence-aware context
+- [x] 3.3 Add controlled fallback behavior for degraded retrieval without keeping the old keyword path as the canonical implementation
+- [x] 3.4 Ensure rejected, deleted, and superseded memories are excluded from default prompt injection
 
 ## 4. Legacy Path Retirement
 
-- [ ] 4.1 Remove the old synchronous fragment-writing flow that stores truncated `Q/A` text as canonical long-term memory
-- [ ] 4.2 Remove or demote the old keyword-scoring retrieval path so it is no longer the default long-term memory search implementation
-- [ ] 4.3 Delete legacy memory wrappers and facade exports that only forward calls without preserving a necessary boundary
-- [ ] 4.4 Update call sites to use the new canonical repository/service entrypoints instead of legacy memory helpers
+- [x] 4.1 Remove the old synchronous fragment-writing flow that stores truncated `Q/A` text as canonical long-term memory
+- [x] 4.2 Remove or demote the old keyword-scoring retrieval path so it is no longer the default long-term memory search implementation
+- [x] 4.3 Delete legacy memory wrappers and facade exports that only forward calls without preserving a necessary boundary
+- [x] 4.4 Update call sites to use the new canonical repository/service entrypoints instead of legacy memory helpers
 
 ## 5. Verification, Migration, And Documentation
 
 - [x] 5.1 Add unit tests for episode persistence, candidate extraction normalization, reconcile actions, lifecycle transitions, and dedup behavior
-- [ ] 5.2 Add integration tests covering async memory job execution, typed retrieval, prompt injection, and legacy-path retirement
-- [ ] 5.3 Add migration coverage for existing memory data compatibility and rollback-safe reads during the transition window
-- [ ] 5.4 Update README and architecture docs to describe the new async agentic memory pipeline and removed legacy behavior
+- [x] 5.2 Add integration tests covering async memory job execution, typed retrieval, prompt injection, and legacy-path retirement
+- [x] 5.3 Add migration coverage for existing memory data compatibility and rollback-safe reads during the transition window
+- [x] 5.4 Update README and architecture docs to describe the new async agentic memory pipeline and removed legacy behavior

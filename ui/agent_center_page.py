@@ -132,7 +132,7 @@ def run_agent_center_page() -> None:
     )
     from agent.memory.store import (
         get_project_session_compact_memory,
-        search_project_memory_items,
+        query_long_term_memory,
     )
     from agent.metrics import record_query_metrics
     from agent.mindmap_renderer import render_mindmap_html_with_cli
@@ -576,7 +576,7 @@ def run_agent_center_page() -> None:
                 **kwargs,
                 detect_language_fn=detect_language,
                 with_language_hint_fn=with_language_hint,
-                search_project_memory_items_fn=search_project_memory_items,
+                search_project_memory_items_fn=query_long_term_memory,
                 inject_long_term_memory_fn=inject_long_term_memory,
                 memory_limit=4,
             ),

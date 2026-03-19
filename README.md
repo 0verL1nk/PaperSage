@@ -39,7 +39,7 @@
 | 🤝 **会话级 Team 运行时** | `TeamMiddleware + TeamRuntime` 提供 `spawn_agent / send_message / get_agent_result / list_agents / close_agent` 协作能力 |
 | 🔍 **项目级 Hybrid RAG** | 作用域文档切分、Dense + BM25 + RRF、可选 FlashRank Rerank、邻域 Chunk 扩展、结构化证据回传 |
 | 💾 **可持久化向量存储** | `AGENT_VECTORSTORE_BACKEND=auto` 优先使用 Chroma，本地不可用时自动回退 `InMemoryVectorStore` |
-| 🧠 **上下文治理与记忆** | `SqliteSaver` 会话记忆、自动压缩摘要、项目级长期记忆（episodic / semantic / procedural） |
+| 🧠 **上下文治理与记忆** | `SqliteSaver` 会话记忆、自动压缩摘要、异步 Agentic 长期记忆（episode / user memory / knowledge memory / reconcile） |
 | 🛠️ **运行时工具集** | 文档检索/阅读、学术搜索、联网搜索、技能调用、计划/Todo、Team 工具按运行时装配 |
 | 📝 **可插拔技能体系** | 内置 `summary` / `critical_reading` / `method_compare` / `translation` / `mindmap` / `agentic_search` 六类技能 |
 | 🗂️ **项目化工作区** | 多项目隔离、文档绑定、独立会话、会话消息与线程 ID 持久化 |
@@ -151,16 +151,19 @@ flowchart TB
     C --> D[auto_compact_messages]
     D --> E[LLM 摘要 + 事实锚点]
     E --> F[(session_compact_memory)]
-    G[当前用户问题] --> H[search_project_memory_items]
-    H --> I[episodic<br/>TTL 30 天]
-    H --> J[semantic<br/>长期保留]
-    H --> K[procedural<br/>TTL 90 天]
-    I --> L[词项匹配 + 时效分数]
-    J --> L
-    K --> L
-    F --> M[build_hinted_prompt]
-    L --> M
-    M --> N[注入 execute_turn_core]
+    A --> G[对话完成]
+    G --> H[(memory_episodes)]
+    H --> I[async memory_writer]
+    I --> J[extract candidates]
+    J --> K[reconcile<br/>ADD / UPDATE / DELETE / NONE / SUPERSEDE]
+    K --> L[(memory_items + evidence)]
+    M[当前用户问题] --> N[query_long_term_memory]
+    N --> O[user_memory<br/>policy channel]
+    N --> P[knowledge_memory<br/>context channel]
+    F --> Q[build_hinted_prompt]
+    O --> Q
+    P --> Q
+    Q --> R[注入 execute_turn_core]
 ```
 
 ---

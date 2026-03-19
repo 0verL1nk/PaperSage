@@ -20,24 +20,6 @@ from agent.application.language import detect_language as _detect_language
 from agent.application.runtime_tuning import apply_runtime_tuning_env
 from agent.llm_provider import build_openai_compatible_chat_model
 from agent.logging_utils import configure_application_logging
-from agent.memory.store import (
-    get_project_session_compact_memory as _memory_store_get_project_session_compact_memory,
-)
-from agent.memory.store import (
-    list_project_memory_items as _memory_store_list_project_memory_items,
-)
-from agent.memory.store import (
-    save_project_session_compact_memory as _memory_store_save_project_session_compact_memory,
-)
-from agent.memory.store import (
-    search_project_memory_items as _memory_store_search_project_memory_items,
-)
-from agent.memory.store import (
-    touch_memory_items as _memory_store_touch_memory_items,
-)
-from agent.memory.store import (
-    upsert_project_memory_item as _memory_store_upsert_project_memory_item,
-)
 from agent.settings import load_agent_settings
 
 from .schemas import FileRecord
@@ -389,109 +371,6 @@ def save_project_session_messages(
         project_uid=project_uid,
         uuid=uuid,
         messages=messages,
-        db_name=db_name,
-    )
-
-
-def get_project_session_compact_memory(
-    session_uid: str,
-    project_uid: str,
-    uuid: str,
-    db_name: str = "./database.sqlite",
-) -> dict[str, Any]:
-    return _memory_store_get_project_session_compact_memory(
-        session_uid=session_uid,
-        project_uid=project_uid,
-        uuid=uuid,
-        db_name=db_name,
-    )
-
-
-def save_project_session_compact_memory(
-    session_uid: str,
-    project_uid: str,
-    uuid: str,
-    compact_summary: str,
-    anchors: list[dict[str, Any]] | None = None,
-    db_name: str = "./database.sqlite",
-) -> None:
-    _memory_store_save_project_session_compact_memory(
-        session_uid=session_uid,
-        project_uid=project_uid,
-        uuid=uuid,
-        compact_summary=compact_summary,
-        anchors=anchors,
-        db_name=db_name,
-    )
-
-
-def upsert_project_memory_item(
-    *,
-    uuid: str,
-    project_uid: str,
-    session_uid: str | None,
-    memory_type: str,
-    content: str,
-    title: str = "",
-    source_prompt: str = "",
-    source_answer: str = "",
-    expires_at: str = "",
-    db_name: str = "./database.sqlite",
-) -> str:
-    return _memory_store_upsert_project_memory_item(
-        uuid=uuid,
-        project_uid=project_uid,
-        session_uid=session_uid,
-        memory_type=memory_type,
-        content=content,
-        title=title,
-        source_prompt=source_prompt,
-        source_answer=source_answer,
-        expires_at=expires_at,
-        db_name=db_name,
-    )
-
-
-def list_project_memory_items(
-    *,
-    uuid: str,
-    project_uid: str,
-    memory_type: str | None = None,
-    limit: int = 100,
-    include_expired: bool = False,
-    db_name: str = "./database.sqlite",
-) -> list[dict[str, Any]]:
-    return _memory_store_list_project_memory_items(
-        uuid=uuid,
-        project_uid=project_uid,
-        memory_type=memory_type,
-        limit=limit,
-        include_expired=include_expired,
-        db_name=db_name,
-    )
-
-
-def touch_memory_items(
-    *,
-    memory_uids: list[str],
-    db_name: str = "./database.sqlite",
-) -> None:
-    _memory_store_touch_memory_items(memory_uids=memory_uids, db_name=db_name)
-
-
-def search_project_memory_items(
-    *,
-    uuid: str,
-    project_uid: str,
-    query: str,
-    limit: int = 5,
-    db_name: str = "./database.sqlite",
-) -> list[dict[str, Any]]:
-    return _memory_store_search_project_memory_items(
-        uuid=uuid,
-        project_uid=project_uid,
-        query=query,
-        limit=limit,
         db_name=db_name,
     )
 

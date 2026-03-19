@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 
+from agent.memory.store import query_long_term_memory
 from utils.page_helpers import check_api_key_configured
 from utils.utils import (
     ensure_local_user,
@@ -213,3 +214,42 @@ def test_init_database_migrates_agentic_memory_tables_and_columns(tmp_path: Path
     assert has_episode_table
     assert has_evidence_table
     assert has_active_index
+
+
+def test_legacy_memory_items_remain_readable_via_typed_query_after_migration(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "legacy_readable.sqlite"
+    _create_legacy_db_without_agentic_memory_columns(db_path)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO memory_items (
+            memory_uid, uuid, project_uid, session_uid, memory_type, title, content,
+            source_prompt, source_answer, access_count, created_at, updated_at, last_accessed_at, expires_at
+        )
+        VALUES (
+            'm1', 'local-user', 'project-1', 'session-1', 'knowledge_memory', '结论',
+            '方法A优于方法B', '', '', 0, '2026-03-01 00:00:00', '2026-03-01 00:00:00', '', ''
+        )
+    """
+    )
+    conn.commit()
+    conn.close()
+
+    init_database(str(db_path))
+
+    items = query_long_term_memory(
+        uuid="local-user",
+        project_uid="project-1",
+        query="结论",
+        memory_type="knowledge_memory",
+        status="active",
+        limit=5,
+        db_name=str(db_path),
+    )
+
+    assert len(items) == 1
+    assert items[0]["content"] == "方法A优于方法B"

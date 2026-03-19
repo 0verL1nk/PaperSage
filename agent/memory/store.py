@@ -38,6 +38,8 @@ def query_long_term_memory(
     uuid: str,
     project_uid: str,
     query: str,
+    memory_type: str | None = None,
+    status: str | None = "active",
     limit: int = 5,
     db_name: str = "./database.sqlite",
 ) -> list[dict[str, Any]]:
@@ -45,6 +47,8 @@ def query_long_term_memory(
         uuid=uuid,
         project_uid=project_uid,
         query=query,
+        memory_type=memory_type,
+        status=status,
         limit=limit,
         db_name=db_name,
     )

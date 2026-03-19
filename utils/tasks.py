@@ -55,9 +55,17 @@ except ImportError:
     from agent.memory.reconcile import apply_memory_candidates
 
 try:
-    from agent.memory.store import get_project_memory_episode, list_project_memory_episodes
+    from agent.memory.store import (
+        get_project_memory_episode,
+        list_project_memory_episodes,
+        list_project_memory_items,
+    )
 except ImportError:
-    from agent.memory.store import get_project_memory_episode, list_project_memory_episodes
+    from agent.memory.store import (
+        get_project_memory_episode,
+        list_project_memory_episodes,
+        list_project_memory_items,
+    )
 
 try:
     from agent.llm_provider import build_openai_compatible_chat_model
@@ -416,9 +424,18 @@ def task_memory_writer(
             limit=max(1, int(context_limit)),
             db_name=db_name,
         )
+        active_memories = list_project_memory_items(
+            uuid=user_uuid,
+            project_uid=str(episode.get("project_uid") or ""),
+            status="active",
+            limit=20,
+            db_name=db_name,
+        )
         candidates = extract_memory_candidates(
             episode=episode,
             recent_episodes=recent_episodes,
+            active_memories=active_memories,
+            user_uuid=user_uuid,
         )
         reconcile_results = apply_memory_candidates(
             uuid=user_uuid,
@@ -430,6 +447,7 @@ def task_memory_writer(
         payload = {
             "episode": episode,
             "recent_episodes": recent_episodes,
+            "active_memories": active_memories,
             "candidates": candidates,
             "reconcile_results": reconcile_results,
         }

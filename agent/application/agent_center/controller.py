@@ -2,6 +2,7 @@ from typing import Any
 
 PROMPT_LAYOUT_VERSION = "CTXv1"
 PROMPT_INVENTORY_TAG = "I"
+PROMPT_POLICY_TAG = "P"
 PROMPT_SUMMARY_TAG = "S"
 PROMPT_MEMORY_TAG = "M"
 PROMPT_LANGUAGE_TAG = "L"
@@ -74,14 +75,25 @@ def build_hinted_prompt(
         prompt_with_language=str(prompt_with_language or base_prompt),
     )
 
-    long_term_memories = search_project_memory_items_fn(
+    user_memories = search_project_memory_items_fn(
+        uuid=user_uuid,
+        project_uid=project_uid,
+        query="",
+        memory_type="user_memory",
+        status="active",
+        limit=max(1, min(3, memory_limit)),
+    )
+    knowledge_memories = search_project_memory_items_fn(
         uuid=user_uuid,
         project_uid=project_uid,
         query=base_prompt,
+        memory_type="knowledge_memory",
+        status="active",
         limit=memory_limit,
     )
     compact_summary_text = _collapse_inline_text(compact_summary, limit=1400)
-    memory_text = _serialize_memory_items(long_term_memories, max_chars=1600)
+    policy_text = _serialize_memory_items(user_memories, max_chars=480)
+    memory_text = _serialize_memory_items(knowledge_memories, max_chars=1600)
     language_text = _normalize_language_note(language_note)
     inventory_line = _build_inventory_line(
         system_prompt_id=system_prompt_id,
@@ -93,6 +105,7 @@ def build_hinted_prompt(
         [
             PROMPT_LAYOUT_VERSION,
             inventory_line,
+            f"{PROMPT_POLICY_TAG}:{policy_text or '-'}",
             f"{PROMPT_SUMMARY_TAG}:{compact_summary_text or '-'}",
             f"{PROMPT_MEMORY_TAG}:{memory_text or '-'}",
             f"{PROMPT_LANGUAGE_TAG}:{language_text or '-'}",

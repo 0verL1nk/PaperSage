@@ -13,7 +13,28 @@ def _prepare_db(tmp_path: Path) -> Path:
     return db_path
 
 
-def test_task_memory_writer_reads_episode_and_bounded_context(tmp_path: Path) -> None:
+def _fake_candidates(*, episode, recent_episodes, active_memories, user_uuid):
+    del recent_episodes, active_memories, user_uuid
+    prompt = str(episode["prompt"])
+    answer = str(episode["answer"])
+    canonical = answer.replace("收到，后续默认用", "").replace("回答。", "").strip("。")
+    return [
+        {
+            "action": "ADD",
+            "memory_type": "user_memory",
+            "title": prompt,
+            "content": f"{prompt}\n{answer}",
+            "canonical_text": canonical or answer,
+            "dedup_key": "user:response_preferences",
+            "confidence": 0.9,
+            "source_episode_uid": str(episode["episode_uid"]),
+            "evidence": [{"episode_uid": str(episode["episode_uid"]), "quote": prompt}],
+        }
+    ]
+
+
+def test_task_memory_writer_reads_episode_and_bounded_context(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("utils.tasks.extract_memory_candidates", _fake_candidates)
     db_path = _prepare_db(tmp_path)
     project_uid = "project-1"
     session_uid = ensure_default_project_session(
@@ -53,7 +74,8 @@ def test_task_memory_writer_reads_episode_and_bounded_context(tmp_path: Path) ->
     assert isinstance(payload["candidates"], list)
 
 
-def test_task_memory_writer_is_idempotent_for_same_episode(tmp_path: Path) -> None:
+def test_task_memory_writer_is_idempotent_for_same_episode(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("utils.tasks.extract_memory_candidates", _fake_candidates)
     db_path = _prepare_db(tmp_path)
     project_uid = "project-1"
     session_uid = ensure_default_project_session(
@@ -86,7 +108,8 @@ def test_task_memory_writer_is_idempotent_for_same_episode(tmp_path: Path) -> No
     assert active_items[0]["memory_type"] == "user_memory"
 
 
-def test_task_memory_writer_supersedes_old_user_memory(tmp_path: Path) -> None:
+def test_task_memory_writer_supersedes_old_user_memory(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("utils.tasks.extract_memory_candidates", _fake_candidates)
     db_path = _prepare_db(tmp_path)
     project_uid = "project-1"
     session_uid = ensure_default_project_session(

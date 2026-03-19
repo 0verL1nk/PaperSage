@@ -39,7 +39,7 @@
 | 🤝 **Session-Scoped Team Runtime** | `TeamMiddleware + TeamRuntime` expose `spawn_agent / send_message / get_agent_result / list_agents / close_agent` for lightweight collaboration |
 | 🔍 **Project-Scoped Hybrid RAG** | Scoped document chunking, Dense + BM25 + RRF, optional FlashRank rerank, neighbour chunk expansion, and structured evidence payloads |
 | 💾 **Persistent Vector Store with Fallback** | `AGENT_VECTORSTORE_BACKEND=auto` prefers local Chroma persistence and falls back to `InMemoryVectorStore` when unavailable |
-| 🧠 **Context Governance & Memory** | `SqliteSaver` session memory, auto-compacted summaries, and project-level long-term memory (`episodic / semantic / procedural`) |
+| 🧠 **Context Governance & Memory** | `SqliteSaver` session memory, auto-compacted summaries, and async agentic long-term memory (`episode / user memory / knowledge memory / reconcile`) |
 | 🛠️ **Runtime Tooling** | Document retrieval/reading, academic search, web search, skills, plan/Todo utilities, and Team tools are assembled at runtime |
 | 📝 **Pluggable Skills** | Six packaged skills: `summary`, `critical_reading`, `method_compare`, `translation`, `mindmap`, and `agentic_search` |
 | 🗂️ **Project Workspaces** | Multi-project isolation, document binding, independent sessions, and persisted thread/session state |
@@ -145,16 +145,19 @@ flowchart TB
     C --> D[auto_compact_messages]
     D --> E[LLM summary + fact anchors]
     E --> F[(session_compact_memory)]
-    G[Current user query] --> H[search_project_memory_items]
-    H --> I[episodic<br/>TTL 30 days]
-    H --> J[semantic<br/>retained]
-    H --> K[procedural<br/>TTL 90 days]
-    I --> L[term overlap + recency score]
-    J --> L
-    K --> L
-    F --> M[build_hinted_prompt]
-    L --> M
-    M --> N[injected into execute_turn_core]
+    A --> G[Turn completed]
+    G --> H[(memory_episodes)]
+    H --> I[async memory_writer]
+    I --> J[extract candidates]
+    J --> K[reconcile<br/>ADD / UPDATE / DELETE / NONE / SUPERSEDE]
+    K --> L[(memory_items + evidence)]
+    M[Current user query] --> N[query_long_term_memory]
+    N --> O[user_memory<br/>policy channel]
+    N --> P[knowledge_memory<br/>context channel]
+    F --> Q[build_hinted_prompt]
+    O --> Q
+    P --> Q
+    Q --> R[injected into execute_turn_core]
 ```
 
 ---
