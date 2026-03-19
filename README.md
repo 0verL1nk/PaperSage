@@ -4,8 +4,8 @@
 
 **面向科研阅读与写作的 AI 智能体工作台**
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.1.0-informational)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-1.0.5-informational)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![LangChain](https://img.shields.io/badge/LangChain-1.x-blueviolet?logo=langchain)](https://python.langchain.com/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.3%2B-orange)](https://langchain-ai.github.io/langgraph/)
@@ -35,14 +35,14 @@
 
 | 能力 | 说明 |
 |------|------|
-| 🔀 **多模式 Agent 工作流** | ReAct / Plan-Act / Plan-Act-RePlan 三级工作流，智能路由自动选择 |
-| 🤝 **Multi-Agent 团队协作** | Leader 中心调度，LLM 动态生成角色，依赖拓扑派发，多轮 review-replan |
-| 🔍 **本地 Hybrid RAG** | Dense + BM25 + RRF + Rerank 四阶检索，结构化证据可追溯至原文 |
-| 💾 **轻量持久化向量库** | 默认 `auto` 优先使用 Chroma 本地持久化（不可用时自动回退内存向量存储） |
-| 🧠 **长短期记忆系统** | episodic / semantic / procedural 三类记忆，差异化 TTL，时效衰减检索 |
-| 🛠️ **14+ 内置工具** | RAG 检索、文件读写、学术搜索、网络检索、Todo 管理、人工确认等 |
-| 📝 **可插拔技能体系** | 论文总结、批判性阅读、方法对比、翻译、思维导图，从 SKILL.md 动态加载 |
-| 🗂️ **项目化工作区** | 多项目隔离、文档绑定、独立会话与上下文 |
+| 🔀 **中间件驱动编排** | `OrchestrationMiddleware` 基于对话复杂度注入计划或 Team 提示，主链路由 `turn_engine + runtime_agent` 驱动 |
+| 🤝 **会话级 Team 运行时** | `TeamMiddleware + TeamRuntime` 提供 `spawn_agent / send_message / get_agent_result / list_agents / close_agent` 协作能力 |
+| 🔍 **项目级 Hybrid RAG** | 作用域文档切分、Dense + BM25 + RRF、可选 FlashRank Rerank、邻域 Chunk 扩展、结构化证据回传 |
+| 💾 **可持久化向量存储** | `AGENT_VECTORSTORE_BACKEND=auto` 优先使用 Chroma，本地不可用时自动回退 `InMemoryVectorStore` |
+| 🧠 **上下文治理与记忆** | `SqliteSaver` 会话记忆、自动压缩摘要、项目级长期记忆（episodic / semantic / procedural） |
+| 🛠️ **运行时工具集** | 文档检索/阅读、学术搜索、联网搜索、技能调用、计划/Todo、Team 工具按运行时装配 |
+| 📝 **可插拔技能体系** | 内置 `summary` / `critical_reading` / `method_compare` / `translation` / `mindmap` / `agentic_search` 六类技能 |
+| 🗂️ **项目化工作区** | 多项目隔离、文档绑定、独立会话、会话消息与线程 ID 持久化 |
 
 ---
 
@@ -51,20 +51,19 @@
 ### Agent 中心 — 智能问答
 ![alt text](images/agent中心.png)
 
-### Agent 中心 — 智能动态协作 (Team 模式)
-面对复杂的对比、调研或工程任务，系统会自动从单智能体切换为多智能体 Team 模式。
+### Agent 中心 — Team 运行时协作
+当任务需要拆解为多个子任务时，系统会先由 `OrchestrationMiddleware` 分析复杂度，再向主 Agent 注入规划或 Team 提示。当前 Team 能力不是硬编码的 DAG 编排器，而是由 `TeamMiddleware + TeamRuntime` 暴露一组会话级协作工具。
 
-- **动态角色生成**：Leader 根据任务复杂度（如“对比纯视觉与激光雷达自动驾驶方案”）自动生成 `researcher`（资料收集）、`comparer`（多维对比）和 `writer`（报告撰写）等互补角色。
-- **DAG 任务拆解与多轮协作**：自动将大目标拆解为有向无环图（DAG）的并行子任务（如收集成本数据、收集精度数据），并按需进行多轮（Round）交叉验证。
-- **渐进式工具披露与自主激活**：为避免长上下文污染，系统默认只暴露基础 RAG 工具。但团队成员会根据任务需要，自主调用 `activate_tool` 动态加载并使用 `search_web`（联网搜索）、`bash`（代码执行）等高级工具，或是通过 `use_skill` 引入专家级的思考模板。
+- **复杂度判断与提示注入**：对多步骤分析、调研或写作任务，middleware 会建议主 Agent 使用 `write_plan`、`write_todos` 或 Team 工具，而不是直接切换到固定流程。
+- **会话隔离的子 Agent 生命周期**：通过 `spawn_agent` 创建子 Agent，使用 `send_message` 派发任务，并结合 `get_agent_result` / `list_agents` / `close_agent` 管理执行状态。
+- **与检索链路和技能协同**：主 Agent 仍可组合 `search_document`、`search_papers`、`search_web` 与 `use_skill` 汇总结果并生成最终回答。
 
-**💡 真实案例（DeepSeek-V3 自动联网检索）：**
-当询问：“*对比纯视觉自动驾驶和激光雷达方案的优缺点。由于本地没有资料，你可以自行寻找出路。*”
-系统会自动规划出以下链路：
-1. `researcher` 尝试本地检索发现无果。
-2. 自动调用 `activate_tool(tool_name="search_web")` 解锁联网能力。
-3. 自动执行 `search_web` 并发多线程抓取全网相关前沿论文与讨论。
-4. `writer` 整合信息并直接返回结构化的深度分析报告，全程无需人工干预。
+**💡 当前代码链路示例：**
+1. 用户提出需要分工处理的多步骤任务。
+2. `OrchestrationMiddleware` 将任务标记为复杂任务，必要时设置 `needs_team`。
+3. 主 Agent 调用 `spawn_agent` 创建研究或写作子 Agent。
+4. 通过 `send_message` 派发子任务，并用 `get_agent_result` 汇总结果。
+5. 最终回答仍由主 Agent 整合输出，并保留 trace、证据和 Todo 状态。
 
 ![team](images/team调度.png)
 
@@ -93,81 +92,75 @@
 
 ## 🏗️ 架构设计
 
-### 当前执行链路与模式提示
+### 当前分层执行链路
 
 ```mermaid
 flowchart TD
-    A[用户提问] --> B[ui/agent_center_page]
-    B --> C[agent.application.agent_center.facade]
-    C --> D[agent.application.turn_engine]
-    D --> E[agent.runtime_agent]
-    E --> F[OrchestrationMiddleware]
-    F --> G[Leader Agent]
-    G --> H[Tools / RAG / Memory]
-    H --> I[最终回答 + trace + evidence]
-
-    style A fill:#f9f,stroke:#333
-    style I fill:#9f9,stroke:#333
+    A[用户提问] --> B[pages/0_agent_center.py]
+    B --> C[ui.agent_center_page]
+    C --> D[ui.page_bootstrap]
+    C --> E[agent.application.agent_center.facade]
+    E --> F[agent.application.turn_engine]
+    F --> G[agent.runtime_agent.create_runtime_agent]
+    G --> H[LangChain Agent Runtime]
+    H --> I[Middleware 链]
+    I --> I1[Trace / Retry / Orchestration]
+    I --> I2[SubAgent / Team / Todo / Plan]
+    I --> I3[Tool Selector / Summarization]
+    H --> J[运行时工具集]
+    J --> J1[search_document / search_papers / search_web]
+    J --> J2[use_skill / write_plan / read_plan]
+    J --> J3[spawn_agent / send_message / list_agents]
+    J --> K[RAG / Skills / SQLite / Project Store]
+    I --> L[最终回答 + trace_payload + evidence_items + todos]
+    K --> L
 ```
 
-当前版本不再使用独立的 `policy_engine` / `async interceptor` 作为主入口前路由器。复杂度分析、计划/团队提示和 trace 事件由 middleware 链负责，canonical 入口是 `turn_engine + runtime_agent + middlewares`。
+当前 canonical 入口是 `pages -> ui -> agent.application -> runtime_agent + middlewares`。规划提示、Team 提示、Todo、trace 与自动摘要都位于 middleware 链中。
 
 ### Hybrid RAG 检索管线
 
 ```mermaid
 flowchart LR
-    A[用户 Query] --> B{Dense 检索}
-    A --> C{BM25 稀疏检索}
-    
-    B --> D[FastEmbed bge-small-zh]
+    A[用户 Query] --> B[作用域内项目文档]
+    B --> C[切分 + project index cache]
+    A --> D[Dense 检索]
+    A --> E[BM25 稀疏检索]
     C --> D
-    
-    D --> E{RRF 融合排序}
-    E --> F{FlashRank Rerank}
-    F -->|可选| G[邻域 Chunk 扩展]
-    G --> H[EvidenceItem 结构化]
-    E --> H
-    
-    H --> I[doc_uid / chunk_id / text<br/>score / page_no / offset_start / offset_end]
-    
-    I --> J[(Chroma<br/>持久化)]
-    J -->|fallback| K[(InMemory<br/>内存)]
-    
-    style A fill:#f9f,stroke:#333
-    style H fill:#9f9,stroke:#333
-    style I fill:#ff9,stroke:#333
-    style J fill:#cef,stroke:#333
-    style K fill:#cef,stroke:#333
+    C --> E
+    C --> J{向量库后端}
+    J -->|auto / chroma| K[(Chroma 持久化)]
+    J -->|fallback| L[(InMemoryVectorStore)]
+    K --> D
+    L --> D
+    D --> F[RRF 融合]
+    E --> F
+    F -->|可选| G[FlashRank Rerank]
+    G --> H[邻域 Chunk 扩展]
+    F --> I[EvidenceItem 结构化证据]
+    H --> I
+    I --> M[doc_uid / chunk_id / page_no / offset / score]
 ```
 
 ### 长短期记忆架构
 
 ```mermaid
 flowchart TB
-    subgraph 记忆三层架构
-        A[短期记忆] --> B[LangGraph InMemorySaver<br/>Streamlit session_state]
-        
-        A -->|70% 上下文阈值| C[中期记忆]
-        C --> D[auto_compact_messages<br/>LLM 摘要 + 事实锚点]
-        D --> E[SQLite session_compact_memory]
-        
-        E --> F[长期记忆]
-        F --> G[SQLite memory_items<br/>按项目/用户隔离]
-        
-        H[检索机制] --> I[词项匹配 + 时效衰减评分]
-        J[注入机制] --> K[容量熔断 + 冲突消解<br/>证据优先于记忆]
-    end
-    
-    G -->|episodic 事件| L[TTL 30 天]
-    G -->|semantic 知识| M[永久保留]
-    G -->|procedural 偏好| N[TTL 90 天]
-    
-    style A fill:#f9f,stroke:#333
-    style C fill:#ff9,stroke:#333
-    style F fill:#9f9,stroke:#333
-    style L fill:#cfc,stroke:#333
-    style M fill:#cfc,stroke:#333
-    style N fill:#cfc,stroke:#333
+    A[会话消息] --> B[LangGraph SqliteSaver 短期记忆]
+    A --> C{上下文超过阈值}
+    C --> D[auto_compact_messages]
+    D --> E[LLM 摘要 + 事实锚点]
+    E --> F[(session_compact_memory)]
+    G[当前用户问题] --> H[search_project_memory_items]
+    H --> I[episodic<br/>TTL 30 天]
+    H --> J[semantic<br/>长期保留]
+    H --> K[procedural<br/>TTL 90 天]
+    I --> L[词项匹配 + 时效分数]
+    J --> L
+    K --> L
+    F --> M[build_hinted_prompt]
+    L --> M
+    M --> N[注入 execute_turn_core]
 ```
 
 ---
@@ -243,7 +236,7 @@ docker-compose up --build
 
 ### 环境要求
 
-- Python `>= 3.10`
+- Python `>= 3.11`
 - [uv](https://github.com/astral-sh/uv)（推荐包管理器）
 
 ---
@@ -252,21 +245,25 @@ docker-compose up --build
 
 ```text
 .
-├── main.py                     # Streamlit 导航入口
-├── pages/                      # 四个功能页面
-├── agent/                      # 🧠 Agent 核心（77 个模块 / 12,500+ 行）
-│   ├── a2a/                    #   A2A 协调与协议层（状态机/路由/RePlan）
-│   ├── orchestration/          #   Leader 中心编排（策略引擎/规划/团队执行）
-│   ├── rag/                    #   Hybrid RAG（切分/检索/证据/融合）
-│   ├── memory/                 #   长期记忆（分类/检索/存储/注入）
-│   ├── skills/                 #   可插拔技能（summary/critical_reading/...）
-│   ├── tools/                  #   内置工具（文件/todo/bash/ask_human）
-│   ├── domain/                 #   领域契约
-│   ├── application/            #   应用用例编排
-│   └── adapters/               #   外部依赖适配层
-├── ui/                         # UI 组件层
-├── utils/                      # 共享工具函数
-├── tests/                      # 单元测试 53 个 + 集成测试 + Eval
+├── main.py                     # Streamlit 导航与 CLI 入口
+├── pages/                      # 薄页面入口（Agent / 文件 / 设置 / 项目）
+├── ui/                         # UI 组件、页面控制与 bootstrap
+│   ├── agent_center/           #   Agent 中心 controller / state / view
+│   └── page_bootstrap.py       #   页面公共初始化
+├── agent/                      # 🧠 Agent 核心
+│   ├── application/            #   用例编排与 turn 执行
+│   ├── domain/                 #   领域契约、trace、请求上下文
+│   ├── adapters/               #   SQLite / LLM / 项目 / Session 适配
+│   ├── middlewares/            #   编排、Team、Todo、Plan、Trace、摘要
+│   ├── team/                   #   会话级 TeamRuntime
+│   ├── rag/                    #   Hybrid RAG（切分/检索/证据/向量库）
+│   ├── memory/                 #   压缩摘要与长期记忆
+│   ├── tools/                  #   文档/搜索/技能/计划/Team 工具
+│   ├── subagent/               #   文件式子 Agent 配置
+│   ├── skills/                 #   内置技能模板
+│   └── a2a/                    #   A2A 兼容与协议对象
+├── utils/                      # 遗留兼容与通用工具
+├── tests/                      # 单元 / 集成 / eval
 ├── docs/                       # 设计文档与开发记录
 ├── models/embeddings/          # 本地嵌入模型缓存
 ├── pyproject.toml              # 项目配置（hatch + uv）

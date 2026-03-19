@@ -4,8 +4,8 @@
 
 **AI-Powered Research Reading & Writing Workbench**
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.1.0-informational)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-1.0.5-informational)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![LangChain](https://img.shields.io/badge/LangChain-1.x-blueviolet?logo=langchain)](https://python.langchain.com/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.3%2B-orange)](https://langchain-ai.github.io/langgraph/)
@@ -25,7 +25,7 @@
 ![PaperSage Main Interface](images/main.png)
 
 > Built with **Streamlit + LangChain + LangGraph**.  
-> A project-based paper Q&A workbench: organise documents by project, scope retrieval to the active context, auto-route agent workflows, and surface traceable evidence.
+> A project-scoped research workbench: organise documents by project, scope retrieval to the active context, orchestrate the agent pipeline through the application layer and middleware chain, and surface traceable evidence plus execution traces.
 
 </div>
 
@@ -35,13 +35,14 @@
 
 | Feature | Description |
 |---------|-------------|
-| 🔀 **Multi-mode Agent Workflows** | ReAct / Plan-Act / Plan-Act-RePlan — auto-routed by query complexity |
-| 🤝 **Multi-Agent Team Collaboration** | Leader-centric dispatch, LLM-generated roles, dependency-topological execution, multi-round review-replan |
-| 🔍 **Local Hybrid RAG** | Dense + BM25 + RRF + Rerank four-stage retrieval with structured, traceable evidence |
-| 🧠 **Long/Short-term Memory** | Episodic / semantic / procedural memory, differentiated TTL, recency-decay retrieval |
-| 🛠️ **14+ Built-in Tools** | RAG search, file I/O, academic search, web search, Todo management, human-in-the-loop confirmation |
-| 📝 **Pluggable Skills** | Paper summary, critical reading, method comparison, translation, mind map — dynamically loaded from `SKILL.md` |
-| 🗂️ **Project Workspaces** | Multi-project isolation, document binding, independent sessions and context |
+| 🔀 **Middleware-Guided Orchestration** | `OrchestrationMiddleware` analyses task complexity and injects planning or team guidance; the main path is driven by `turn_engine + runtime_agent` |
+| 🤝 **Session-Scoped Team Runtime** | `TeamMiddleware + TeamRuntime` expose `spawn_agent / send_message / get_agent_result / list_agents / close_agent` for lightweight collaboration |
+| 🔍 **Project-Scoped Hybrid RAG** | Scoped document chunking, Dense + BM25 + RRF, optional FlashRank rerank, neighbour chunk expansion, and structured evidence payloads |
+| 💾 **Persistent Vector Store with Fallback** | `AGENT_VECTORSTORE_BACKEND=auto` prefers local Chroma persistence and falls back to `InMemoryVectorStore` when unavailable |
+| 🧠 **Context Governance & Memory** | `SqliteSaver` session memory, auto-compacted summaries, and project-level long-term memory (`episodic / semantic / procedural`) |
+| 🛠️ **Runtime Tooling** | Document retrieval/reading, academic search, web search, skills, plan/Todo utilities, and Team tools are assembled at runtime |
+| 📝 **Pluggable Skills** | Six packaged skills: `summary`, `critical_reading`, `method_compare`, `translation`, `mindmap`, and `agentic_search` |
+| 🗂️ **Project Workspaces** | Multi-project isolation, document binding, independent sessions, and persisted thread/session state |
 
 ---
 
@@ -49,6 +50,22 @@
 
 ### Agent Center — Intelligent Q&A
 ![Agent Center](images/agent中心.png)
+
+### Agent Center — Team Runtime Collaboration
+When a task needs to be broken into subtasks, the runtime first uses `OrchestrationMiddleware` to assess complexity and then nudges the leader agent toward planning or Team tools. The current implementation is a session-scoped Team runtime, not a hard-coded DAG planner.
+
+- **Complexity analysis and prompt injection**: for multi-step research, analysis, or writing tasks, middleware suggests `write_plan`, `write_todos`, or Team tools instead of forcing a fixed route.
+- **Session-isolated sub-agent lifecycle**: create sub-agents with `spawn_agent`, dispatch work with `send_message`, and manage execution with `get_agent_result`, `list_agents`, and `close_agent`.
+- **Works with retrieval and skills**: the leader agent can still combine `search_document`, `search_papers`, `search_web`, and `use_skill` before producing the final answer.
+
+**💡 Current code-path example:**
+1. The user submits a multi-step task that benefits from delegation.
+2. `OrchestrationMiddleware` marks it as complex and may set `needs_team`.
+3. The leader agent calls `spawn_agent` to create researcher or writer sub-agents.
+4. It dispatches subtasks with `send_message` and gathers outputs via `get_agent_result`.
+5. The final response is still assembled by the leader agent, with trace, evidence, and Todo state preserved.
+
+![Team Runtime](images/team调度.png)
 
 ### File Center — Document Management
 ![File Center](images/文件中心.png)
@@ -69,57 +86,75 @@
 
 ## 🏗️ Architecture
 
-### Workflow Routing & Dispatch
+### Current Layered Execution Flow
 
-```text
-User Query
-  │
-  ├─→ Smart Router (keyword fast-path → LLM structured routing → fallback ReAct)
-  │
-  ├─ ReAct ──────────→ Single Agent + Tool loop
-  ├─ Plan-Act ────────→ Planner generates plan → Leader executes
-  └─ Plan-Act-RePlan ─→ Planner → Leader ⇄ Team (multi-role) → Reviewer → RePlan
-                                                                      ↓
-                                                               Quality gate loop
+```mermaid
+flowchart TD
+    A[User Query] --> B[pages/0_agent_center.py]
+    B --> C[ui.agent_center_page]
+    C --> D[ui.page_bootstrap]
+    C --> E[agent.application.agent_center.facade]
+    E --> F[agent.application.turn_engine]
+    F --> G[agent.runtime_agent.create_runtime_agent]
+    G --> H[LangChain Agent Runtime]
+    H --> I[Middleware Chain]
+    I --> I1[Trace / Retry / Orchestration]
+    I --> I2[SubAgent / Team / Todo / Plan]
+    I --> I3[Tool Selector / Summarization]
+    H --> J[Runtime Toolset]
+    J --> J1[search_document / search_papers / search_web]
+    J --> J2[use_skill / write_plan / read_plan]
+    J --> J3[spawn_agent / send_message / list_agents]
+    J --> K[RAG / Skills / SQLite / Project Store]
+    I --> L[Answer + trace_payload + evidence_items + todos]
+    K --> L
 ```
+
+The canonical path is now `pages -> ui -> agent.application -> runtime_agent + middlewares`. Planning prompts, Team prompts, Todo state, traces, and auto-summarisation live in the middleware chain rather than in a standalone `agent/orchestration/` package.
 
 ### Hybrid RAG Pipeline
 
-```text
-User Query
-  │
-  ├─→ Dense retrieval (FastEmbed bge-small-zh)
-  ├─→ BM25 sparse retrieval
-  │         │
-  │         ├─→ RRF fusion ranking
-  │         │         │
-  │         │         ├─→ FlashRank Rerank (optional)
-  │         │         │         │
-  │         │         │         └─→ Neighbour chunk expansion
-  │         │         │                   │
-  └─────────┴─────────┴───────────────────┴─→ Structured EvidenceItem
-                                                (doc_uid / chunk_id / score / page_no / offset)
+```mermaid
+flowchart LR
+    A[User Query] --> B[Scoped Project Documents]
+    B --> C[Chunking + project index cache]
+    A --> D[Dense retrieval]
+    A --> E[BM25 sparse retrieval]
+    C --> D
+    C --> E
+    C --> J{Vector store backend}
+    J -->|auto / chroma| K[(Chroma persistence)]
+    J -->|fallback| L[(InMemoryVectorStore)]
+    K --> D
+    L --> D
+    D --> F[RRF fusion]
+    E --> F
+    F -->|optional| G[FlashRank rerank]
+    G --> H[Neighbour chunk expansion]
+    F --> I[Structured EvidenceItem]
+    H --> I
+    I --> M[doc_uid / chunk_id / page_no / offset / score]
 ```
 
 ### Memory Architecture
 
-```text
-┌────────────────────────────────────────────────┐
-│               Three-tier Memory                 │
-├────────────────────────────────────────────────┤
-│  Short-term: LangGraph InMemorySaver (session)  │
-├────────────────────────────────────────────────┤
-│  Mid-term: Auto context compression             │
-│  (token threshold → LLM summary + fact anchors) │
-├────────────────────────────────────────────────┤
-│  Long-term: SQLite persistence (per project)    │
-│  ├─ episodic   TTL 30 days                      │
-│  ├─ semantic   permanent                        │
-│  └─ procedural TTL 90 days                      │
-│  Retrieval: term overlap + recency decay score  │
-│  Injection: capacity circuit-breaker + conflict │
-│             resolution (evidence > memory)       │
-└────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    A[Conversation messages] --> B[LangGraph SqliteSaver short-term memory]
+    A --> C{Context exceeds threshold}
+    C --> D[auto_compact_messages]
+    D --> E[LLM summary + fact anchors]
+    E --> F[(session_compact_memory)]
+    G[Current user query] --> H[search_project_memory_items]
+    H --> I[episodic<br/>TTL 30 days]
+    H --> J[semantic<br/>retained]
+    H --> K[procedural<br/>TTL 90 days]
+    I --> L[term overlap + recency score]
+    J --> L
+    K --> L
+    F --> M[build_hinted_prompt]
+    L --> M
+    M --> N[injected into execute_turn_core]
 ```
 
 ---
@@ -190,7 +225,7 @@ docker-compose up --build
 
 ### Requirements
 
-- Python `>= 3.10`
+- Python `>= 3.11`
 - [uv](https://github.com/astral-sh/uv) (recommended)
 
 ---
@@ -199,21 +234,25 @@ docker-compose up --build
 
 ```text
 .
-├── main.py                     # Streamlit navigation entry
-├── pages/                      # Four feature pages
-├── agent/                      # 🧠 Agent core (77 modules / 12,500+ lines)
-│   ├── a2a/                    #   A2A coordination & protocol layer
-│   ├── orchestration/          #   Leader-centric orchestration
-│   ├── rag/                    #   Hybrid RAG (chunking / retrieval / evidence / fusion)
-│   ├── memory/                 #   Long-term memory (classify / retrieve / store / inject)
-│   ├── skills/                 #   Pluggable skills (summary / critical_reading / ...)
-│   ├── tools/                  #   Built-in tools (file / todo / bash / ask_human)
-│   ├── domain/                 #   Domain contracts
-│   ├── application/            #   Application use-case orchestration
-│   └── adapters/               #   External dependency adapters
-├── ui/                         # UI component layer
-├── utils/                      # Shared utilities
-├── tests/                      # 53 unit tests + integration + eval
+├── main.py                     # Streamlit navigation and CLI entry
+├── pages/                      # Thin page entries (Agent / Files / Settings / Projects)
+├── ui/                         # UI components, page control, and bootstrap
+│   ├── agent_center/           #   Agent Center controller / state / view
+│   └── page_bootstrap.py       #   Shared page initialisation
+├── agent/                      # 🧠 Agent core
+│   ├── application/            #   Use-case orchestration and turn execution
+│   ├── domain/                 #   Contracts, trace, request context
+│   ├── adapters/               #   SQLite / LLM / project / session adapters
+│   ├── middlewares/            #   Orchestration, Team, Todo, Plan, Trace, summarisation
+│   ├── team/                   #   Session-scoped TeamRuntime
+│   ├── rag/                    #   Hybrid RAG (chunking / retrieval / evidence / vector store)
+│   ├── memory/                 #   Compact summaries and long-term memory
+│   ├── tools/                  #   Document / search / skill / plan / Team tools
+│   ├── subagent/               #   File-based sub-agent prompts
+│   ├── skills/                 #   Packaged skill templates
+│   └── a2a/                    #   A2A-compatible protocol objects
+├── utils/                      # Legacy compatibility and shared utilities
+├── tests/                      # Unit / integration / eval
 ├── docs/                       # Design docs & dev notes
 ├── models/embeddings/          # Local embedding model cache
 ├── pyproject.toml              # Package config (hatch + uv)
