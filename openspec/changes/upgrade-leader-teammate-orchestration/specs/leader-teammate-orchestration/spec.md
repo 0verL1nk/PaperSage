@@ -26,6 +26,19 @@ The system SHALL dispatch teammate work from dependency-satisfied todo records r
 - **THEN** the scheduler may dispatch them independently without violating dependency order
 - **AND** their results are recorded against the originating todo records
 
+### Requirement: Leader retains pacing and dialogue ownership
+The system SHALL preserve the Leader as the only user-facing dialogue owner and treat scheduler output as decision support rather than a forced workflow.
+
+#### Scenario: Leader chooses when to dispatch
+- **WHEN** the scheduler computes a ready todo set
+- **THEN** the system surfaces that set as structured state or tool-result hints
+- **AND** the Leader decides whether to dispatch now, defer, parallelize, or replan
+
+#### Scenario: Team orchestration does not replace the Leader conversation
+- **WHEN** teammate execution is active
+- **THEN** teammate outputs remain intermediate artifacts or tool results
+- **AND** the final user-facing response still comes from the Leader
+
 ### Requirement: Reviewer checkpoints gate final synthesis
 The system SHALL support reviewer checkpoints so Leader finalization can distinguish between accepted output, revision-required output, and replan-required output.
 

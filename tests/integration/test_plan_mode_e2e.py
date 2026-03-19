@@ -4,6 +4,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 from agent.middlewares.orchestration import OrchestrationMiddleware
+from agent.middlewares.team import TeamMiddleware
 
 
 class _FakeLLM:
@@ -110,6 +111,12 @@ def test_orchestration_middleware_marks_team_tasks_and_injects_team_guidance():
     assert middleware._last_analysis["is_complex"] is True
     assert middleware._last_analysis["needs_team"] is True
 
+    request = SimpleNamespace(messages=[HumanMessage(content="请从研究、评审、写作三个角色协作完成分析。")])
+    wrapped = middleware.wrap_model_call(request, lambda req: req)
+
+    assert isinstance(wrapped.messages[0], SystemMessage)
+    assert "你来调度" in str(wrapped.messages[0].content)
+
 
 def test_orchestration_middleware_prefers_structured_output_when_available():
     llm = _FakeStructuredLLM()
@@ -211,3 +218,19 @@ def test_orchestration_middleware_returns_neutral_result_when_llm_analysis_is_un
     assert middleware._last_analysis["is_complex"] is False
     assert middleware._last_analysis["needs_team"] is False
     assert middleware._last_analysis["reason"] == "llm analysis unavailable"
+
+
+def test_team_middleware_prompt_keeps_leader_in_control() -> None:
+    middleware = TeamMiddleware(default_model=object())
+    middleware.before_model(
+        {"messages": [HumanMessage(content="请协作分析")], "needs_team": True},
+        runtime=None,
+        config={"configurable": {"thread_id": "team-thread"}},
+    )
+
+    request = SimpleNamespace(messages=[HumanMessage(content="请协作分析")])
+    wrapped = middleware.wrap_model_call(request, lambda req: req)
+
+    assert isinstance(wrapped.messages[0], SystemMessage)
+    assert "你来决定是否分派" in str(wrapped.messages[0].content)
+    assert "不要把当前对话 ownership 交给 teammate" in str(wrapped.messages[0].content)

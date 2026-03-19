@@ -35,8 +35,8 @@
 
 | Feature | Description |
 |---------|-------------|
-| 🔀 **Middleware-Guided Orchestration** | `OrchestrationMiddleware` analyses task complexity and injects planning or team guidance; the main path is driven by `turn_engine + runtime_agent` |
-| 🤝 **Session-Scoped Team Runtime** | `TeamMiddleware + TeamRuntime` expose `spawn_agent / send_message / get_agent_result / list_agents / close_agent` for lightweight collaboration |
+| 🔀 **Middleware-Guided Orchestration** | `OrchestrationMiddleware` analyses task complexity, injects planning guidance, and emits a structured `team_handoff` signal for team-eligible work; the main path is still driven by `turn_engine + runtime_agent` |
+| 🤝 **Leader-Teammate Runtime** | `agent.orchestration` now provides `planner / scheduler / coordinator / state_machine / executors`, so the Leader can build a `TeamPlan`, dispatch dependency-aware teammate todos, and keep reviewer checkpoints explicit |
 | 🔍 **Project-Scoped Hybrid RAG** | Scoped document chunking, Dense + BM25 + RRF, optional FlashRank rerank, neighbour chunk expansion, and structured evidence payloads |
 | 💾 **Persistent Vector Store with Fallback** | `AGENT_VECTORSTORE_BACKEND=auto` prefers local Chroma persistence and falls back to `InMemoryVectorStore` when unavailable |
 | 🧠 **Context Governance & Memory** | `SqliteSaver` session memory, auto-compacted summaries, and project-level long-term memory (`episodic / semantic / procedural`) |
@@ -52,18 +52,20 @@
 ![Agent Center](images/agent中心.png)
 
 ### Agent Center — Team Runtime Collaboration
-When a task needs to be broken into subtasks, the runtime first uses `OrchestrationMiddleware` to assess complexity and then nudges the leader agent toward planning or Team tools. The current implementation is a session-scoped Team runtime, not a hard-coded DAG planner.
+When a task needs to be broken into subtasks, the runtime first uses `OrchestrationMiddleware` to assess complexity and emits `team_handoff` when multi-role work is appropriate. The current Team implementation follows a **Leader dispatching teammates** model: the Leader builds a `TeamPlan`, todo dependencies act as the execution topology, `TeamRuntime` handles local execution, and `A2ATaskExecutor` covers protocol-based remote execution.
 
-- **Complexity analysis and prompt injection**: for multi-step research, analysis, or writing tasks, middleware suggests `write_plan`, `write_todos`, or Team tools instead of forcing a fixed route.
-- **Session-isolated sub-agent lifecycle**: create sub-agents with `spawn_agent`, dispatch work with `send_message`, and manage execution with `get_agent_result`, `list_agents`, and `close_agent`.
-- **Works with retrieval and skills**: the leader agent can still combine `search_document`, `search_papers`, `search_web`, and `use_skill` before producing the final answer.
+- **Complexity analysis plus structured handoff**: for multi-step research, analysis, or writing tasks, middleware suggests `write_plan`, `write_todos`, or Team mode; for team work it records `team_handoff` but does not bypass the Leader by dispatching tasks directly.
+- **Dependency-aware todo scheduling**: the Leader uses `build_leader_team_plan` to produce `TeamPlan` and `TeamTodoRecord`, and `LeaderTodoScheduler` derives `ready / blocked / failed` from `depends_on` instead of maintaining a second parallel DAG.
+- **Unified execution backends**: local teammate tasks run through `TeamRuntime.execute_todo`, while protocol-backed tasks run through `A2ATaskExecutor`, both returning the same `TaskExecutionResult` contract.
+- **Leader-owned finalisation**: reviewer checkpoints, workflow transitions, and the final answer are closed out by `LeaderTeammateCoordinator + state_machine`, so the user still talks to the Leader rather than to a teammate.
 
 **💡 Current code-path example:**
 1. The user submits a multi-step task that benefits from delegation.
-2. `OrchestrationMiddleware` marks it as complex and may set `needs_team`.
-3. The leader agent calls `spawn_agent` to create researcher or writer sub-agents.
-4. It dispatches subtasks with `send_message` and gathers outputs via `get_agent_result`.
-5. The final response is still assembled by the leader agent, with trace, evidence, and Todo state preserved.
+2. `OrchestrationMiddleware` writes `needs_team + team_handoff` for eligible tasks, but does not start sub-tasks by itself.
+3. The Leader calls `build_leader_team_plan` to produce roles, todos, and completion criteria, and marks dependency-satisfied todos as `ready`.
+4. `LeaderTeammateCoordinator` combines `LeaderTodoScheduler` with `TeamRuntime` or `A2ATaskExecutor` to execute ready todos through the selected backend.
+5. Reviewer checkpoints move the run through explicit `reviewing / replanning / completed` transitions.
+6. The final response is still assembled by the Leader, with trace, evidence, and Todo state preserved.
 
 ![Team Runtime](images/team调度.png)
 
@@ -101,16 +103,28 @@ flowchart TD
     I --> I1[Trace / Retry / Orchestration]
     I --> I2[SubAgent / Team / Todo / Plan]
     I --> I3[Tool Selector / Summarization]
+    I1 --> M1[needs_team + team_handoff]
+    M1 --> M2[agent.orchestration.planner]
+    M2 --> M3[TeamPlan + TeamTodoRecord]
+    M3 --> M4[LeaderTodoScheduler]
+    M4 --> M5[LeaderTeammateCoordinator]
+    M5 --> M6[TeamRuntime.execute_todo]
+    M5 --> M7[A2ATaskExecutor]
+    M5 --> M8[state_machine]
     H --> J[Runtime Toolset]
     J --> J1[search_document / search_papers / search_web]
     J --> J2[use_skill / write_plan / read_plan]
     J --> J3[spawn_agent / send_message / list_agents]
+    J --> J4[write_todos / Team tools]
     J --> K[RAG / Skills / SQLite / Project Store]
-    I --> L[Answer + trace_payload + evidence_items + todos]
+    M6 --> L[Answer + trace_payload + evidence_items + todos]
+    M7 --> L
+    M8 --> L
+    I --> L
     K --> L
 ```
 
-The canonical path is now `pages -> ui -> agent.application -> runtime_agent + middlewares`. Planning prompts, Team prompts, Todo state, traces, and auto-summarisation live in the middleware chain rather than in a standalone `agent/orchestration/` package.
+The canonical path remains `pages -> ui -> agent.application -> runtime_agent + middlewares`. The difference is that team work is no longer just a prompt-level suggestion: middleware emits the signal, and the Leader uses `agent.orchestration` to build the plan, schedule todos, choose the backend, and control review/replan/finalise transitions.
 
 ### Hybrid RAG Pipeline
 
@@ -244,6 +258,7 @@ docker-compose up --build
 │   ├── domain/                 #   Contracts, trace, request context
 │   ├── adapters/               #   SQLite / LLM / project / session adapters
 │   ├── middlewares/            #   Orchestration, Team, Todo, Plan, Trace, summarisation
+│   ├── orchestration/          #   Leader TeamPlan / scheduler / coordinator / executors / state machine
 │   ├── team/                   #   Session-scoped TeamRuntime
 │   ├── rag/                    #   Hybrid RAG (chunking / retrieval / evidence / vector store)
 │   ├── memory/                 #   Compact summaries and long-term memory

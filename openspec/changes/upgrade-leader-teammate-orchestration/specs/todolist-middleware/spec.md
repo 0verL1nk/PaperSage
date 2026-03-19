@@ -33,3 +33,11 @@ The system SHALL support todo execution states beyond the current pending/in-pro
 #### Scenario: Todo enters canceled state
 - **WHEN** the Leader or runtime stops a todo without execution success
 - **THEN** the system records the todo state as canceled
+
+### Requirement: Tool results expose scheduler convenience hints
+The system SHALL surface scheduler-facing convenience data in tool results so the Leader can make stepwise dispatch decisions.
+
+#### Scenario: Tool result lists ready and blocked todos
+- **WHEN** the Leader creates or updates todos through the todo tool path
+- **THEN** the tool result includes structured `ready_todos` and `blocked_todos` hints
+- **AND** the Leader may use those hints without being forced into automatic dispatch

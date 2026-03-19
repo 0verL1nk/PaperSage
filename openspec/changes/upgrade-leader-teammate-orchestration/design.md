@@ -2,7 +2,7 @@
 
 The current codebase already contains most of the raw parts needed for team-mode execution: `OrchestrationMiddleware` can detect complex tasks, `TeamMiddleware` exposes team tools, `TeamRuntime` can create local sub-agents, `TodoGraph` can validate dependency graphs, and `ExecutionPlan` models already exist in `agent/domain/orchestration.py`. The problem is that these parts are not connected by a single runtime contract. Team mode is still prompt-led instead of scheduler-led, todo dependencies are validated but not executed as a graph, A2A exists only as a trace/message shape, and team lifecycle states are implicit.
 
-The design needs to preserve the repository's current direction: thin `pages/` and `ui/`, orchestration logic outside the page layer, no new meaningless wrappers, and a preference for small, testable domain/application modules. The right upgrade is not to add more agent personas. It is to make the existing Leader-teammate model explicit, stateful, and backend-agnostic.
+The design needs to preserve the repository's current direction: thin `pages/` and `ui/`, orchestration logic outside the page layer, no new meaningless wrappers, and a preference for small, testable domain/application modules. The right upgrade is not to add more agent personas. It is to make the existing Leader-teammate model explicit, stateful, backend-agnostic, and still Leader-owned in pacing.
 
 ## Goals / Non-Goals
 
@@ -12,6 +12,8 @@ The design needs to preserve the repository's current direction: thin `pages/` a
 - Add structured team planning inputs (`RoleSpec`, `TeamPlan`, scheduler-facing todo records) so teammate work is inspectable and testable.
 - Support a unified task execution backend contract for local teammate execution and future A2A-backed execution.
 - Introduce explicit team run and todo state transitions so failures, blocking, retries, and replans are deterministic.
+- Keep the Leader as the only user-facing dialogue owner and preserve its control over dispatch cadence, reviewer checkpoints, and replanning decisions.
+- Surface scheduler convenience data in tool results and prompt guidance rather than hiding decisions inside an automatic coordinator loop.
 
 **Non-Goals:**
 - Do not build a free-form group chat or peer-to-peer multi-agent system.
@@ -68,6 +70,21 @@ This change will introduce orchestration modules with clear responsibilities:
 Alternatives considered:
 - Keep all logic inside middleware. Rejected because middleware should not become the only place where planning, dispatch, retry, and failure handling live.
 
+### 7. Keep policy in the Leader and convenience in tool results
+
+The runtime should distinguish hard constraints from pacing decisions:
+- hard constraints: dependency topology, valid state transitions, backend result normalization
+- Leader-owned policy: whether to dispatch now, how many todos to dispatch, whether to parallelize, when to review, and when to replan
+
+This means the main path should not treat coordinator auto-dispatch as the product contract. Instead, tool results and prompts should surface:
+- `team_handoff`
+- `ready_todos`
+- `blocked_todos`
+- `review_hint`
+- `allowed_transitions`
+
+These hints help the Leader choose the next move while preserving user-facing dialogue ownership.
+
 ### 5. Treat A2A as an execution backend, not the primary orchestration model
 
 The repository already serializes A2A-shaped trace events, but there is no working A2A executor. This change adds a backend abstraction where a todo can declare `execution_backend = local | a2a`. The scheduler does not care which backend runs a task; it only consumes normalized execution results.
@@ -88,6 +105,7 @@ Alternatives considered:
 
 - [More runtime structure increases code surface] → Mitigation: reuse existing todo graph, team runtime, and plan models instead of inventing parallel concepts.
 - [Old prompt-driven team behavior may conflict with scheduler-driven execution] → Mitigation: gate the new flow behind explicit team-plan state and preserve backward-compatible tool availability during migration.
+- [An over-eager coordinator may become a hard-coded workflow engine] → Mitigation: keep automatic dispatch as an internal helper only; make tool-result hints and prompt guidance the primary control surface for the Leader.
 - [A2A backend support may stay partially implemented if protocol-side integration lags] → Mitigation: define the executor interface now and keep local execution as the default backend.
 - [State machine complexity can leak into UI/session state] → Mitigation: keep state transition logic in domain/orchestration modules and expose only normalized records to UI.
 - [Todo contract changes may ripple through tests and rendering] → Mitigation: add additive fields first and keep legacy rendering paths working until migration completes.
@@ -98,9 +116,10 @@ Alternatives considered:
 2. Extend todo graph/state handling to support scheduler-facing ready/blocked/failed transitions.
 3. Introduce a Leader-teammate scheduler that dispatches ready todos through local execution first.
 4. Adapt `TeamRuntime` into a local execution backend and add an A2A executor interface stub/implementation.
-5. Update middleware and application wiring so team-mode execution enters the structured runtime when activated.
-6. Update UI and traces to render new todo/team state without breaking existing conversations.
-7. Roll back by disabling the structured team path and falling back to the current prompt-led team tools if regressions appear.
+5. Update middleware prompts and tool results so team-mode execution exposes structured hints without auto-bypassing the Leader.
+6. Update middleware and application wiring so team-mode execution enters the structured runtime when activated.
+7. Update UI and traces to render new todo/team state without breaking existing conversations.
+8. Roll back by disabling the structured team path and falling back to the current prompt-led team tools if regressions appear.
 
 ## Open Questions
 

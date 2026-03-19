@@ -61,13 +61,12 @@ class TeamMiddleware(AgentMiddleware):
             messages = getattr(request, "messages", [])
             if messages:
                 guidance = (
-                    "【重要提示】这是一个需要多角色协作的复杂任务,建议使用团队模式:\n\n"
-                    "1. 使用 spawn_agent 工具创建专业 agent(如 researcher, reviewer, writer 等)\n"
-                    "2. 使用 send_message 工具分配任务给各个 agent\n"
-                    "3. 使用 get_agent_result 工具获取执行结果\n"
-                    "4. 使用 list_agents 工具查看团队状态\n"
-                    "5. 完成后使用 close_agent 工具关闭 agent\n\n"
-                    "请先创建团队并分配任务,不要直接回答。"
+                    "【重要提示】这是一个需要多角色协作的复杂任务,建议由你控制团队节奏:\n\n"
+                    "1. 先判断是否真的需要团队分工,不要机械地创建 agent\n"
+                    "2. 如需协作,由你来决定是否分派、分派给谁、是否并行\n"
+                    "3. 可使用 spawn_agent / send_message / get_agent_result / list_agents / close_agent 作为协作工具\n"
+                    "4. teammate 结果只是中间产物,最终答复仍由你输出\n\n"
+                    "请由你来决定是否分派任务,不要把当前对话 ownership 交给 teammate。"
                 )
                 result = list(messages)
                 result.insert(-1, SystemMessage(content=guidance))

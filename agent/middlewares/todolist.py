@@ -101,6 +101,7 @@ Key features:
 - Specify task dependencies using `depends_on` field
 - System detects circular dependencies automatically
 - View executable tasks (dependencies satisfied)
+- Use returned scheduler hints to decide which todo to execute next
 
 Mark todos as completed immediately after finishing each step."""
 
@@ -131,13 +132,34 @@ def write_todos(
     # Get executable todos for user feedback
     executable = graph.get_ready_todos()
     executable_ids = [t["id"] for t in executable]
+    blocked_ids = [t["id"] for t in graph.get_blocked_todos()]
+    completed_ids = [
+        str(todo.get("id") or "").strip()
+        for todo in todos_dict
+        if str(todo.get("status") or "").strip().lower() == "completed"
+    ]
+    in_progress_ids = [
+        str(todo.get("id") or "").strip()
+        for todo in todos_dict
+        if str(todo.get("status") or "").strip().lower() == "in_progress"
+    ]
 
     return Command(
         update={
             "todos": todos,
+            "todo_scheduler_hint": {
+                "ready_todo_ids": executable_ids,
+                "blocked_todo_ids": blocked_ids,
+                "completed_todo_ids": completed_ids,
+                "in_progress_todo_ids": in_progress_ids,
+            },
             "messages": [
                 ToolMessage(
-                    f"Updated todo list. Executable tasks: {executable_ids}",
+                    (
+                        "Updated todo list. "
+                        f"Ready: {executable_ids}; Blocked: {blocked_ids}; "
+                        f"Completed: {completed_ids}."
+                    ),
                     tool_call_id=tool_call_id,
                 )
             ],

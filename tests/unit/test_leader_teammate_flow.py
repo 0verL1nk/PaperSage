@@ -125,3 +125,37 @@ def test_state_machine_and_coordinator_support_review_completion() -> None:
 
     assert completed_todo.status == "completed"
     assert finished.state == "completed"
+
+
+def test_coordinator_supports_leader_controlled_stepwise_dispatch() -> None:
+    coordinator = LeaderTeammateCoordinator()
+    run_state = TeamRunState(
+        run_id="run-stepwise",
+        plan=build_leader_team_plan(
+            goal="完成分步协作",
+            roles=[RoleSpec(name="teammate", description="执行任务", goal="完成 todo")],
+            todos=[
+                Todo(id="1", content="先做检索", status="pending", depends_on=[]),
+                Todo(id="2", content="再做汇总", status="pending", depends_on=["1"]),
+            ],
+            done_when="产出最终结论",
+        ),
+    )
+    run_state = transition_team_run_state(run_state, "scheduled")
+
+    ready = coordinator.select_ready_todos(run_state)
+    assert [todo.id for todo in ready] == ["1"]
+
+    run_state = coordinator.mark_todo_in_progress(run_state, "1")
+    run_state = coordinator.apply_task_result(
+        run_state,
+        TaskExecutionResult(
+            todo_id="1",
+            backend="local",
+            status="completed",
+            output="done-1",
+        ),
+    )
+
+    ready = coordinator.select_ready_todos(run_state)
+    assert [todo.id for todo in ready] == ["2"]

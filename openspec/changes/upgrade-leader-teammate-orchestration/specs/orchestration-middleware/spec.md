@@ -12,6 +12,7 @@ The middleware SHALL inject guidance prompts and structured handoff signals when
 - **WHEN** a task requires multiple perspectives, dependency-aware execution, or parallel work
 - **THEN** the middleware injects a system message directing the Leader toward team-mode orchestration
 - **AND** the middleware records a structured signal in runtime state that team orchestration is eligible for activation
+- **AND** the guidance preserves the Leader as the pacing and dialogue owner
 
 #### Scenario: No direct runtime side effects
 - **WHEN** guidance or structured handoff metadata is injected
@@ -29,3 +30,11 @@ The middleware SHALL preserve agent autonomy while enabling structured orchestra
 - **WHEN** guidance is injected for a team-eligible task
 - **THEN** the middleware may add structured eligibility state for downstream orchestration components
 - **AND** that state alone does not force execution without an agent/runtime handoff
+
+### Requirement: Prompt guidance reinforces Leader-owned pacing
+The middleware SHALL describe team orchestration as a Leader-controlled option rather than a fixed automatic loop.
+
+#### Scenario: Team prompt emphasizes Leader control
+- **WHEN** the middleware injects team guidance
+- **THEN** the prompt explains that `team_handoff` and scheduler hints are advisory
+- **AND** the prompt instructs the Leader to decide whether to dispatch, review, or replan

@@ -257,19 +257,21 @@ class OrchestrationMiddleware(AgentMiddleware):
 
         if needs_team:
             guidance = (
-                "【重要提示】这是一个需要 Leader 调度的团队任务。\n\n"
-                "请先形成结构化 TeamPlan,再基于 todo 依赖关系分派 teammate 执行,保留 reviewer 检查点后再给最终结论。"
+                "【重要提示】这是一个需要你来调度的团队任务。\n\n"
+                "请先形成结构化 TeamPlan,再结合 todo 依赖和 scheduler hints 决定是否分派 teammate 执行。"
+                "系统提供 `team_handoff` 和状态提示,但不会替你自动推进流程。"
+                "请由你决定何时 dispatch、review 或 replan,最终结论也由你输出。"
             )
         elif has_plan:
             guidance = (
                 "【提示】这是一个复杂任务,你已经创建了执行计划。\n\n"
-                "建议使用 write_todos 工具跟踪任务进度,或使用 read_plan 查看计划。"
+                "建议使用 write_todos 工具跟踪任务进度,并结合返回的 scheduler hints 判断下一步。"
             )
         else:
             guidance = (
                 "【重要提示】这是一个复杂的多步骤任务,需要使用规划工具:\n\n"
                 "1. 首先使用 write_plan 工具创建执行计划,明确任务步骤和策略\n"
-                "2. 使用 write_todos 工具跟踪任务进度\n\n"
+                "2. 使用 write_todos 工具跟踪任务进度并查看 scheduler hints\n\n"
                 "请先调用相应的工具进行规划,不要直接回答。"
             )
 

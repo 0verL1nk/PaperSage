@@ -25,5 +25,10 @@
 ## 5. Verification And Documentation
 
 - [x] 5.1 Add or update unit tests for todo graph transitions, scheduler behavior, team state transitions, and executor contracts
-- [ ] 5.2 Add or update integration tests for Leader-teammate execution with dependency-aware todos and backend selection
-- [ ] 5.3 Update architecture-facing documentation to describe the structured Leader-teammate orchestration flow and new team runtime contracts
+- [x] 5.2 Add or update integration tests for Leader-teammate execution with dependency-aware todos and backend selection
+- [x] 5.3 Update architecture-facing documentation to describe the structured Leader-teammate orchestration flow and new team runtime contracts
+
+## 6. Leader Control Polish
+
+- [x] 6.1 Add scheduler convenience hints to todo/team tool results so the Leader can inspect `ready / blocked / completed` state without automatic dispatch
+- [x] 6.2 Update orchestration and team guidance prompts so they emphasize Leader-owned pacing, dialogue ownership, and stepwise dispatch decisions
