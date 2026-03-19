@@ -375,23 +375,28 @@ uv run --extra dev python -m pytest tests/integration/test_live_api_e2e.py -q
 
 ```bash
 # 端到端任务完成率 baseline（稳定 contract + canonical turn entry）
-uv run --extra dev python tests/evals/run_agent_task_completion_baseline.py
+make eval-baseline
 
 # 使用 LLM-as-judge（官方 agentevals trajectory judge）
-uv run --extra dev python tests/evals/run_agent_task_completion_baseline.py \
-  --judge-model "<judge-model-name>" \
-  --judge-base-url "<optional-openai-compatible-base-url>"
+make eval-baseline-judge \
+  JUDGE_MODEL="<judge-model-name>" \
+  JUDGE_BASE_URL="<optional-openai-compatible-base-url>"
 
 # 少量真实 smoke（真实 create_paper_agent_session + execute_turn_core，默认 1 条 case）
-uv run --extra dev python tests/evals/run_agent_task_completion_live_smoke.py \
-  --case-id hybrid_research_001 \
-  --limit 1
+make eval-live-smoke EVAL_CASE_ID=hybrid_research_001 EVAL_LIMIT=1
+
+# 项目内单 case、禁用 judge，并临时收紧单次 LLM 超时
+make eval-live-smoke-no-judge \
+  EVAL_CASE_ID=project_rag_fact_001 \
+  EVAL_LIMIT=1 \
+  AGENT_LLM_REQUEST_TIMEOUT=45
 ```
 
 说明：
 - 这套 eval 面向 PaperSage 的端到端任务完成，不绑定 middleware 私有细节。
 - 默认会检查稳定 contract，例如最终回答、证据覆盖、计划完成率、显式要求的工具使用。
 - 配置 `--judge-model` 后，会启用官方 `agentevals` 的 `LLM-as-judge` trajectory evaluator 作为主观质量评估层。
+- live smoke 默认读取 `EVAL_ENV_FILE=/home/ling/LLM_App_Final/.env`。
 - 现有 `tests/evals/run_phase0_router_baseline.py` 仍保留，它只衡量路由行为，不代表任务是否完成。
 - 详细 fixture schema、反馈闭环和报告说明见 [docs/agent-evals.md](docs/agent-evals.md)。
 

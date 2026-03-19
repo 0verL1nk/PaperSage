@@ -73,15 +73,15 @@ Example:
 Local baseline:
 
 ```bash
-uv run --extra dev python tests/evals/run_agent_task_completion_baseline.py
+make eval-baseline
 ```
 
 With `LLM-as-judge`:
 
 ```bash
-uv run --extra dev python tests/evals/run_agent_task_completion_baseline.py \
-  --judge-model "<judge-model-name>" \
-  --judge-base-url "<optional-openai-compatible-base-url>"
+make eval-baseline-judge \
+  JUDGE_MODEL="<judge-model-name>" \
+  JUDGE_BASE_URL="<optional-openai-compatible-base-url>"
 ```
 
 The judge path uses `agentevals` trajectory `LLM-as-judge`.
@@ -89,12 +89,27 @@ The judge path uses `agentevals` trajectory `LLM-as-judge`.
 Small real smoke run:
 
 ```bash
-uv run --extra dev python tests/evals/run_agent_task_completion_live_smoke.py \
-  --case-id hybrid_research_001 \
-  --limit 1
+make eval-live-smoke \
+  EVAL_CASE_ID=hybrid_research_001 \
+  EVAL_LIMIT=1
 ```
 
 This path uses the real PaperSage runtime entrypoints with local paper fixtures and a live LLM. Keep it to one or two cases because it is intentionally slower and may exercise real web/tool latency.
+
+Project-only smoke run without judge and with a tighter per-request timeout:
+
+```bash
+make eval-live-smoke-no-judge \
+  EVAL_CASE_ID=project_rag_fact_001 \
+  EVAL_LIMIT=1 \
+  AGENT_LLM_REQUEST_TIMEOUT=45
+```
+
+Default variables:
+
+- `EVAL_ENV_FILE=/home/ling/LLM_App_Final/.env`
+- `EVAL_FIXTURE=tests/evals/fixtures/agent_task_eval_set_v1.jsonl`
+- `EVAL_LIMIT=1`
 
 ## Report Fields
 
