@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from deepagents import CompiledSubAgent, SubAgent
+from deepagents.backends import StateBackend
 from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents.middleware import (
     AgentMiddleware,
@@ -18,6 +20,23 @@ from .team import TeamMiddleware
 from .todolist import todolist_middleware
 from .tool_selector import build_tool_selector_middleware
 from .trace import TraceMiddleware
+
+
+def _build_runtime_subagent_specs(model: Any) -> list[SubAgent | CompiledSubAgent]:
+    """Expand file-based subagent configs to the fully-specified deepagents shape."""
+    subagent_specs: list[SubAgent | CompiledSubAgent] = []
+
+    for config in load_subagent_configs():
+        spec: SubAgent = {
+            "name": config["name"],
+            "description": config["description"],
+            "system_prompt": config["system_prompt"],
+            "model": config["model"] if "model" in config else model,
+            "tools": [],
+        }
+        subagent_specs.append(spec)
+
+    return subagent_specs
 
 
 def build_middleware_list(
@@ -59,10 +78,13 @@ def build_middleware_list(
     middleware_list.append(OrchestrationMiddleware(llm=model))
 
     # SubAgent middleware (provides task tool for spawning subagents)
-    subagent_configs = load_subagent_configs()
-    if subagent_configs:
+    subagent_specs = _build_runtime_subagent_specs(model)
+    if subagent_specs:
         middleware_list.append(
-            SubAgentMiddleware(subagents=subagent_configs)  # type: ignore[arg-type]
+            SubAgentMiddleware(
+                backend=StateBackend,
+                subagents=subagent_specs,
+            )
         )
 
     # Team middleware (provides team management tools)

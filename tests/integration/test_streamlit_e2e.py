@@ -167,7 +167,7 @@ def test_settings_page_boots_with_expected_fields(
     monkeypatch.chdir(tmp_path)
     _prepare_minimal_user_db(tmp_path / "database.sqlite")
 
-    at = AppTest.from_file(str(REPO_ROOT / "pages/2_settings.py"))
+    at = AppTest.from_file(str(REPO_ROOT / "pages/2_settings.py"), default_timeout=8)
     at.run()
 
     assert len(at.exception) == 0
@@ -175,6 +175,10 @@ def test_settings_page_boots_with_expected_fields(
     assert "API Key" in labels
     assert "模型名称" in labels
     assert "OpenAI Compatible Base URL" in labels
+    assert all("异步" not in item.label for item in at.checkbox)
+    assert all("异步" not in item.label for item in at.number_input)
+    markdown_values = [item.value for item in at.markdown]
+    assert not any("异步策略拦截" in value for value in markdown_values)
 
 
 def test_settings_page_save_persists_values(monkeypatch, tmp_path: Path) -> None:

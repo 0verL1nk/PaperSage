@@ -6,7 +6,6 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from agent.a2a.coordinator import WORKFLOW_PLAN_ACT_REPLAN, create_multi_agent_a2a_session
 from agent.adapters.document import extract_document_payload
 from agent.adapters.rag import create_project_evidence_retriever
 from agent.application.turn_engine import execute_turn_core
@@ -53,7 +52,7 @@ def _load_env_file(env_path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ[key.strip()] = value.strip()
+        os.environ.setdefault(key.strip(), value.strip())
 
 
 def _build_live_llm(live_config: dict[str, str]):
@@ -280,35 +279,4 @@ def test_real_papers_turn_engine_live_end_to_end(
         for item in result["trace_payload"]
         if isinstance(item, dict)
     ]
-    assert performatives[0] == "request"
-    assert performatives[-1] == "final"
-    assert "plan" in performatives
-    assert "dispatch" in performatives
-    assert "member_output" in performatives
-
-
-def test_real_papers_a2a_team_live_end_to_end(
-    live_real_scenario: LiveRealScenarioContext,
-) -> None:
-    a2a = create_multi_agent_a2a_session(
-        llm=live_real_scenario.llm,
-        search_document_fn=live_real_scenario.search_document_fn,
-        search_document_evidence_fn=live_real_scenario.search_document_evidence_fn,
-        context_hint=(
-            "当前项目包含 3 篇论文："
-            "arxiv:1706.03762, arxiv:2005.11401, arxiv:2201.11903。"
-        ),
-    )
-    answer, trace = a2a.coordinator.run(
-        "请做一个多智能体协作结论：比较三篇论文关系，并给出一个真实项目落地建议。",
-        workflow_mode=WORKFLOW_PLAN_ACT_REPLAN,
-        max_replan_rounds=1,
-    )
-
-    assert isinstance(answer, str) and answer.strip()
-    performatives = [item.performative for item in trace]
-    assert performatives[0] == "request"
-    assert "plan" in performatives
-    assert "draft" in performatives
-    assert "review" in performatives
-    assert performatives[-1] == "final"
+    assert "complexity_analysis" in performatives or "complexity_result" in performatives

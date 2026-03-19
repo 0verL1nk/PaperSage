@@ -1,12 +1,46 @@
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
-from agent.a2a.coordinator import WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN, WORKFLOW_REACT
-from agent.a2a.router import auto_select_workflow_mode
+from langchain_core.messages import HumanMessage
+
+from agent.middlewares.orchestration import OrchestrationMiddleware
+
+WORKFLOW_REACT = "react"
+WORKFLOW_PLAN_ACT = "plan_act"
+WORKFLOW_PLAN_ACT_REPLAN = "plan_act_replan"
 
 FIXTURE_PATH = Path("tests/evals/fixtures/multi_agent_eval_set_v1.jsonl")
 VALID_WORKFLOWS = {WORKFLOW_REACT, WORKFLOW_PLAN_ACT, WORKFLOW_PLAN_ACT_REPLAN}
+
+
+class _FakeRouterLLM:
+    def invoke(self, prompt: str) -> SimpleNamespace:
+        prompt_text = str(prompt)
+        is_complex = len(prompt_text) > 100 or "请完成" in prompt_text or "任务" in prompt_text
+        needs_team = any(token in prompt_text for token in ("协作", "多角色", "对比", "比较"))
+        payload = {
+            "is_complex": is_complex or needs_team,
+            "needs_team": needs_team,
+            "reason": "fixture heuristic",
+        }
+        return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False))
+
+
+def _predict_workflow_mode(prompt: str) -> str:
+    middleware = OrchestrationMiddleware(llm=_FakeRouterLLM())
+    middleware.before_model(
+        {"messages": [HumanMessage(content=prompt)]},
+        runtime=None,
+        config={"configurable": {"state": {}}},
+    )
+    analysis = middleware._last_analysis or {}
+    if analysis.get("needs_team"):
+        return WORKFLOW_PLAN_ACT_REPLAN
+    if analysis.get("is_complex"):
+        return WORKFLOW_PLAN_ACT
+    return WORKFLOW_REACT
 
 
 def _load_fixture() -> list[dict]:
@@ -33,36 +67,12 @@ def test_phase0_fixture_fields_are_valid():
         assert row.get("expected_workflow") in VALID_WORKFLOWS
 
 
-def test_phase0_fixture_matches_current_heuristic_router():
-    from unittest.mock import patch
-
-    from agent.domain.orchestration import PolicyDecision
-
+def test_phase0_fixture_matches_current_middleware_gate():
     rows = _load_fixture()
     strict_mode = os.getenv("STRICT_ROUTER_FIXTURE", "").strip().lower() in {"1", "true", "yes"}
-
-    def mock_intercept(ctx, *args, **kwargs):
-        prompt = ctx.prompt if hasattr(ctx, "prompt") else str(ctx)
-        if len(prompt) > 100 or "请完成" in prompt or "任务" in prompt:
-            return PolicyDecision(
-                plan_enabled=True,
-                team_enabled=False,
-                reason="complex prompt",
-                confidence=0.8,
-                source="llm",
-            )
-        return PolicyDecision(
-            plan_enabled=False,
-            team_enabled=False,
-            reason="simple prompt",
-            confidence=0.8,
-            source="llm",
-        )
-
-    with patch("agent.a2a.router.intercept", side_effect=mock_intercept):
-        for row in rows:
-            mode, _reason = auto_select_workflow_mode(row["prompt"])
-            if strict_mode:
-                assert mode == row["expected_workflow"], row["id"]
-            else:
-                assert mode in VALID_WORKFLOWS, row["id"]
+    for row in rows:
+        mode = _predict_workflow_mode(row["prompt"])
+        if strict_mode:
+            assert mode == row["expected_workflow"], row["id"]
+        else:
+            assert mode in VALID_WORKFLOWS, row["id"]

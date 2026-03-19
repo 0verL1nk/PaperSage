@@ -298,7 +298,7 @@ def test_user_settings_adapters_delegate(monkeypatch):
         local_rag_project_max_chunks=200,
     )
     applied = apply_runtime_tuning_env_for_user(uuid="u1")
-    assert applied["AGENT_POLICY_ASYNC_ENABLED"] == "true"
+    assert "AGENT_POLICY_ASYNC_ENABLED" not in applied
     assert save_calls["api_key"] == ("u1", "a")
     assert save_calls["model_name"] == ("u1", "m1")
     assert save_calls["base_url"] == ("u1", "https://x")
