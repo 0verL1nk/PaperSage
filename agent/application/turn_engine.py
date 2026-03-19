@@ -12,6 +12,71 @@ from .ports import AgentInvoker, EvidenceRetriever
 logger = logging.getLogger(__name__)
 
 
+def _normalize_team_todo_status(raw_status: Any) -> str:
+    status = str(raw_status or "").strip().lower()
+    if status == "completed":
+        return "done"
+    if status in {"in_progress", "blocked", "canceled"}:
+        return status
+    if status == "failed":
+        return "blocked"
+    return "todo"
+
+
+def _build_team_execution_summary(
+    *,
+    needs_team: bool,
+    team_handoff: dict[str, Any] | None,
+    todos: list[dict[str, Any]],
+    todo_scheduler_hint: dict[str, Any] | None,
+) -> dict[str, Any]:
+    enabled = bool(needs_team or team_handoff or todos)
+    todo_records: list[dict[str, Any]] = []
+    todo_stats = {"done": 0, "in_progress": 0, "todo": 0, "blocked": 0, "canceled": 0}
+    for item in todos:
+        if not isinstance(item, dict):
+            continue
+        normalized_status = _normalize_team_todo_status(item.get("status"))
+        todo_stats[normalized_status] = int(todo_stats.get(normalized_status, 0)) + 1
+        result_payload = item.get("result")
+        output = ""
+        if isinstance(result_payload, dict):
+            output = str(
+                result_payload.get("output")
+                or result_payload.get("summary")
+                or result_payload.get("result")
+                or ""
+            ).strip()
+        todo_records.append(
+            {
+                "id": str(item.get("id") or "").strip(),
+                "title": str(item.get("content") or item.get("id") or "task").strip(),
+                "details": str(item.get("content") or "").strip(),
+                "status": normalized_status,
+                "assignee": str(item.get("assignee") or "").strip() or "leader",
+                "dependencies": list(item.get("depends_on") or []),
+                "output": output,
+                "backend": str(item.get("execution_backend") or "local").strip() or "local",
+                "leader_planned": True,
+                "round": 1,
+                "original_status": str(item.get("status") or "").strip(),
+            }
+        )
+    return {
+        "enabled": enabled,
+        "rounds": 0,
+        "roles": [],
+        "summary": (
+            str(team_handoff.get("reason") or "").strip()
+            if isinstance(team_handoff, dict)
+            else ""
+        ),
+        "todo_records": todo_records,
+        "todo_stats": todo_stats,
+        "scheduler_hint": dict(todo_scheduler_hint) if isinstance(todo_scheduler_hint, dict) else {},
+    }
+
+
 def normalize_evidence_items(raw_payload: Any) -> list[dict[str, Any]]:
     if not isinstance(raw_payload, dict):
         return []
@@ -322,6 +387,9 @@ def execute_turn_core(
     trace_payload = event_logs
     plan_payload = result.get("plan") if isinstance(result, dict) else None
     runtime_state_payload = result.get("runtime_state") if isinstance(result, dict) else None
+    needs_team = bool(result.get("needs_team")) if isinstance(result, dict) else False
+    team_handoff = result.get("team_handoff") if isinstance(result, dict) else None
+    todo_scheduler_hint = result.get("todo_scheduler_hint") if isinstance(result, dict) else None
 
     # 检测是否使用了document RAG
     used_document_rag = False
@@ -376,11 +444,27 @@ def execute_turn_core(
     # 从 result 中提取 middleware 添加的 state
     todos = result.get("todos", []) if isinstance(result, dict) else []
     agent_plan = result.get("agent_plan") if isinstance(result, dict) else None
+    team_execution = _build_team_execution_summary(
+        needs_team=needs_team,
+        team_handoff=team_handoff if isinstance(team_handoff, dict) else None,
+        todos=todos if isinstance(todos, list) else [],
+        todo_scheduler_hint=(
+            todo_scheduler_hint if isinstance(todo_scheduler_hint, dict) else None
+        ),
+    )
+    policy_reason = "middleware-based"
+    if isinstance(team_handoff, dict):
+        policy_reason = str(team_handoff.get("reason") or "").strip() or policy_reason
 
     return {
         "answer": answer,
-        "policy_decision": {"plan_enabled": False, "team_enabled": False, "reason": "middleware-based"},
-        "team_execution": {"enabled": False, "rounds": 0},
+        "policy_decision": {
+            "plan_enabled": bool(agent_plan or plan_payload),
+            "team_enabled": bool(needs_team or team_handoff),
+            "reason": policy_reason,
+            "source": "middleware",
+        },
+        "team_execution": team_execution,
         "trace_payload": trace_payload,
         "plan": _maybe_to_dict(plan_payload),
         "runtime_state": _maybe_to_dict(runtime_state_payload),
@@ -396,4 +480,8 @@ def execute_turn_core(
         "agent_plan": agent_plan,
         "leader_tool_names": registered_tool_names,
         "output_messages": messages if isinstance(messages, list) else [],
+        "team_handoff": team_handoff if isinstance(team_handoff, dict) else None,
+        "todo_scheduler_hint": (
+            todo_scheduler_hint if isinstance(todo_scheduler_hint, dict) else None
+        ),
     }

@@ -366,3 +366,55 @@ def test_maybe_to_dict_handles_none_and_noncallable_values():
             return {"ok": True}
 
     assert _maybe_to_dict(_Payload()) == {"ok": True}
+
+
+def test_execute_turn_core_exposes_team_handoff_and_scheduler_convenience():
+    from unittest.mock import Mock
+
+    mock_agent = Mock()
+    mock_agent.invoke.return_value = {
+        "messages": [Mock(content="请先执行 todo", tool_calls=[])],
+        "needs_team": True,
+        "team_handoff": {"mode": "leader_teammate", "reason": "multi-role"},
+        "todo_scheduler_hint": {
+            "ready_todo_ids": ["todo-2"],
+            "blocked_todo_ids": [],
+            "completed_todo_ids": ["todo-1"],
+            "in_progress_todo_ids": [],
+        },
+        "todos": [
+            {
+                "id": "todo-1",
+                "content": "检索证据",
+                "status": "completed",
+                "depends_on": [],
+                "assignee": "researcher",
+                "execution_backend": "local",
+                "result": {"output": "done"},
+            },
+            {
+                "id": "todo-2",
+                "content": "整理结论",
+                "status": "ready",
+                "depends_on": ["todo-1"],
+                "assignee": "writer",
+                "execution_backend": "a2a",
+            },
+        ],
+    }
+
+    result = execute_turn_core(
+        prompt="请协作完成分析",
+        hinted_prompt="请协作完成分析",
+        leader_agent=mock_agent,
+        leader_runtime_config={},
+    )
+
+    assert result["policy_decision"]["team_enabled"] is True
+    assert result["team_handoff"]["mode"] == "leader_teammate"
+    assert result["todo_scheduler_hint"]["ready_todo_ids"] == ["todo-2"]
+    assert result["team_execution"]["enabled"] is True
+    assert result["team_execution"]["todo_stats"]["done"] == 1
+    assert result["team_execution"]["todo_stats"]["todo"] == 1
+    assert result["team_execution"]["todo_records"][0]["assignee"] == "researcher"
+    assert result["team_execution"]["todo_records"][1]["dependencies"] == ["todo-1"]

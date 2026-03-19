@@ -100,9 +100,13 @@ def test_turn_state_mutations():
         evidence_items=[],
         policy_decision={},
         team_execution={},
+        team_handoff={"mode": "leader_teammate"},
+        todo_scheduler_hint={"ready_todo_ids": ["todo-1"]},
         latency_ms=12.0,
         team_rounds=0,
         phase_path="phase1",
     )
     assert state["agent_messages"][-1]["role"] == "assistant"
     assert state["agent_messages"][-1]["content"] == "answer"
+    assert state["agent_messages"][-1]["team_handoff"]["mode"] == "leader_teammate"
+    assert state["agent_messages"][-1]["todo_scheduler_hint"]["ready_todo_ids"] == ["todo-1"]

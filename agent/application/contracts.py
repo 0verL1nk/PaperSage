@@ -28,3 +28,5 @@ class TurnCoreResult(TypedDict):
     runtime_state: NotRequired[dict[str, Any] | None]
     todos: NotRequired[list[dict[str, Any]]]
     agent_plan: NotRequired[dict[str, Any] | None]
+    team_handoff: NotRequired[dict[str, Any] | None]
+    todo_scheduler_hint: NotRequired[dict[str, Any] | None]
