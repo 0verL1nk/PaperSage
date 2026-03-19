@@ -83,6 +83,8 @@ def try_parse_mindmap(answer: str) -> dict[str, Any] | None:
 def _maybe_to_dict(payload: Any) -> dict[str, Any] | None:
     if payload is None:
         return None
+    if isinstance(payload, dict):
+        return dict(payload)
     to_dict = getattr(payload, "to_dict", None)
     if not callable(to_dict):
         return None
@@ -176,8 +178,10 @@ def execute_turn_core(
 
     # 提取 answer
     answer = ""
+    messages: list[Any] = []
     if isinstance(result, dict):
-        messages = result.get("messages", [])
+        raw_messages = result.get("messages", [])
+        messages = raw_messages if isinstance(raw_messages, list) else []
         if messages:
             last_msg = messages[-1]
             if hasattr(last_msg, "content"):
@@ -196,14 +200,12 @@ def execute_turn_core(
 
     # 检测是否使用了document RAG
     used_document_rag = False
-    if isinstance(result, dict):
-        messages = result.get("messages", [])
-        for msg in messages:
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                for call in msg.tool_calls:
-                    if isinstance(call, dict) and call.get("name") == "search_document":
-                        used_document_rag = True
-                        break
+    for msg in messages:
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for call in msg.tool_calls:
+                if isinstance(call, dict) and call.get("name") == "search_document":
+                    used_document_rag = True
+                    break
 
     # 从 answer 中提取 agent 引用的 chunk_id
     referenced_chunk_ids = extract_evidence_chunk_ids(answer)
@@ -249,4 +251,5 @@ def execute_turn_core(
         "todos": todos,
         "agent_plan": agent_plan,
         "leader_tool_names": registered_tool_names,
+        "output_messages": messages if isinstance(messages, list) else [],
     }

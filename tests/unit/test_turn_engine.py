@@ -78,7 +78,7 @@ def test_execute_turn_core_without_document_rag_skips_evidence():
 
 def test_maybe_to_dict_handles_none_and_noncallable_values():
     assert _maybe_to_dict(None) is None
-    assert _maybe_to_dict({"x": 1}) is None
+    assert _maybe_to_dict({"x": 1}) == {"x": 1}
 
     class _Payload:
         def to_dict(self):

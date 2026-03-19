@@ -1,0 +1,208 @@
+{
+  "generated_at_utc": "2026-03-19T08:01:10.056266+00:00",
+  "fixture_path": "tests/evals/fixtures/agent_task_eval_set_v1.jsonl",
+  "total_cases": 4,
+  "completed_cases": 4,
+  "completion_rate": 1.0,
+  "final_success_rate": 1.0,
+  "process_success_rate": 1.0,
+  "evidence_coverage_rate": 1.0,
+  "average_execution_completion_ratio": 1.0,
+  "failed_case_ids": [],
+  "remediation_area_counts": {},
+  "cases": [
+    {
+      "case_id": "project_rag_fact_001",
+      "category": "project_rag",
+      "prompt": "请在当前项目文档范围内概括 RAG 论文的核心结论。",
+      "completed": true,
+      "final_success": true,
+      "process_success": true,
+      "execution_completion_ratio": null,
+      "evidence_coverage": {
+        "passed": true,
+        "count": 1,
+        "required_count": 1
+      },
+      "final_checks": [
+        {
+          "mode": "reference",
+          "passed": true,
+          "score": 1.0,
+          "reasoning": ""
+        }
+      ],
+      "process_checks": {
+        "plan_passed": true,
+        "todo_passed": true,
+        "tool_names_passed": true,
+        "used_tool_names": [
+          "search_document"
+        ],
+        "phase_labels_passed": true,
+        "missing_phase_labels": [],
+        "ratio_passed": true
+      },
+      "feedback": {
+        "failure_reason": "",
+        "feedback_summary": "Stable end-to-end contract satisfied.",
+        "remediation_area": [],
+        "recommended_actions": [],
+        "confidence": "high"
+      },
+      "answer": "项目文档显示核心结论：该方法通过检索提升了回答质量。<evidence>chunk-1|p1|o0-10</evidence>",
+      "diagnostics": {
+        "phase_path": "接收请求 -> 输出最终答案",
+        "trace_diagnostic_count": 2,
+        "run_latency_ms": 0.31691599724581465,
+        "used_document_rag": true,
+        "leader_tool_names": []
+      }
+    },
+    {
+      "case_id": "project_compare_001",
+      "category": "project_compare",
+      "prompt": "请比较当前项目中的 RAG 与 Self-RAG 两篇论文，并给出选型建议。",
+      "completed": true,
+      "final_success": true,
+      "process_success": true,
+      "execution_completion_ratio": 1.0,
+      "evidence_coverage": {
+        "passed": true,
+        "count": 2,
+        "required_count": 2
+      },
+      "final_checks": [
+        {
+          "mode": "reference",
+          "passed": true,
+          "score": 1.0,
+          "reasoning": ""
+        }
+      ],
+      "process_checks": {
+        "plan_passed": true,
+        "todo_passed": true,
+        "tool_names_passed": true,
+        "used_tool_names": [
+          "search_document"
+        ],
+        "phase_labels_passed": true,
+        "missing_phase_labels": [],
+        "ratio_passed": true
+      },
+      "feedback": {
+        "failure_reason": "",
+        "feedback_summary": "Stable end-to-end contract satisfied.",
+        "remediation_area": [],
+        "recommended_actions": [],
+        "confidence": "high"
+      },
+      "answer": "RAG 更直接，Self-RAG 更强调自反思。<evidence>chunk-1|p1|o0-10</evidence><evidence>chunk-2|p2|o0-10</evidence>选型建议：若项目重视可控性，可优先评估 Self-RAG。",
+      "diagnostics": {
+        "phase_path": "接收请求 -> 规划 -> 输出最终答案",
+        "trace_diagnostic_count": 3,
+        "run_latency_ms": 0.36957699921913445,
+        "used_document_rag": true,
+        "leader_tool_names": []
+      }
+    },
+    {
+      "case_id": "web_latest_001",
+      "category": "web_research",
+      "prompt": "请联网检索 2025 年以来 Self-RAG 的最新进展，并给出两条结论。",
+      "completed": true,
+      "final_success": true,
+      "process_success": true,
+      "execution_completion_ratio": null,
+      "evidence_coverage": {
+        "passed": true,
+        "count": 0,
+        "required_count": 0
+      },
+      "final_checks": [
+        {
+          "mode": "reference",
+          "passed": true,
+          "score": 1.0,
+          "reasoning": ""
+        }
+      ],
+      "process_checks": {
+        "plan_passed": true,
+        "todo_passed": true,
+        "tool_names_passed": true,
+        "used_tool_names": [
+          "search_web"
+        ],
+        "phase_labels_passed": true,
+        "missing_phase_labels": [],
+        "ratio_passed": true
+      },
+      "feedback": {
+        "failure_reason": "",
+        "feedback_summary": "Stable end-to-end contract satisfied.",
+        "remediation_area": [],
+        "recommended_actions": [],
+        "confidence": "high"
+      },
+      "answer": "最新进展：社区更关注真实落地成本。结论：需要结合系统约束评估。",
+      "diagnostics": {
+        "phase_path": "接收请求 -> 输出最终答案",
+        "trace_diagnostic_count": 2,
+        "run_latency_ms": 0.021582000044872984,
+        "used_document_rag": false,
+        "leader_tool_names": []
+      }
+    },
+    {
+      "case_id": "hybrid_research_001",
+      "category": "hybrid_research",
+      "prompt": "请结合当前项目文档和联网检索，评估 Self-RAG 是否适合纳入本项目后续路线。",
+      "completed": true,
+      "final_success": true,
+      "process_success": true,
+      "execution_completion_ratio": 1.0,
+      "evidence_coverage": {
+        "passed": true,
+        "count": 2,
+        "required_count": 2
+      },
+      "final_checks": [
+        {
+          "mode": "reference",
+          "passed": true,
+          "score": 1.0,
+          "reasoning": ""
+        }
+      ],
+      "process_checks": {
+        "plan_passed": true,
+        "todo_passed": true,
+        "tool_names_passed": true,
+        "used_tool_names": [
+          "search_document",
+          "search_web"
+        ],
+        "phase_labels_passed": true,
+        "missing_phase_labels": [],
+        "ratio_passed": true
+      },
+      "feedback": {
+        "failure_reason": "",
+        "feedback_summary": "Stable end-to-end contract satisfied.",
+        "remediation_area": [],
+        "recommended_actions": [],
+        "confidence": "high"
+      },
+      "answer": "项目文档中的证据表明该方向可行，最新进展显示其工程复杂度较高。<evidence>chunk-1|p1|o0-10</evidence><evidence>chunk-2|p2|o0-10</evidence>建议先做小范围试点。",
+      "diagnostics": {
+        "phase_path": "接收请求 -> 规划 -> 输出最终答案",
+        "trace_diagnostic_count": 3,
+        "run_latency_ms": 0.02360299913561903,
+        "used_document_rag": true,
+        "leader_tool_names": []
+      }
+    }
+  ]
+}
