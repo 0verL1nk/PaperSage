@@ -80,9 +80,9 @@ def test_persist_turn_memory_runs_agentic_memory_pipeline(monkeypatch, tmp_path)
                 }
             return SimpleNamespace(content=json.dumps(body, ensure_ascii=False))
 
-    monkeypatch.setattr("agent.memory.extraction.read_api_key_for_user", lambda uuid: f"k:{uuid}")
-    monkeypatch.setattr("agent.memory.extraction.read_model_name_for_user", lambda uuid: "fake-model")
-    monkeypatch.setattr("agent.memory.extraction.read_base_url_for_user", lambda uuid: "https://example.test")
+    monkeypatch.setattr("agent.memory.extraction.read_api_key_for_user", lambda uuid, db_name="./database.sqlite": f"k:{uuid}")
+    monkeypatch.setattr("agent.memory.extraction.read_model_name_for_user", lambda uuid, db_name="./database.sqlite": "fake-model")
+    monkeypatch.setattr("agent.memory.extraction.read_base_url_for_user", lambda uuid, db_name="./database.sqlite": "https://example.test")
     monkeypatch.setattr("agent.memory.extraction.create_chat_model", lambda **_kwargs: _FakeModel())
     monkeypatch.chdir(tmp_path)
     init_database("./database.sqlite")

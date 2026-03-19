@@ -436,6 +436,7 @@ def task_memory_writer(
             recent_episodes=recent_episodes,
             active_memories=active_memories,
             user_uuid=user_uuid,
+            db_name=db_name,
         )
         reconcile_results = apply_memory_candidates(
             uuid=user_uuid,

@@ -1,10 +1,13 @@
 import json
+import logging
 import sqlite3
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from agent.llm_provider import build_openai_compatible_chat_model
+
+logger = logging.getLogger(__name__)
 
 VALID_MEMORY_ACTIONS = {"ADD", "UPDATE", "DELETE", "NONE", "SUPERSEDE"}
 VALID_MEMORY_TYPES = {"user_memory", "knowledge_memory"}
@@ -22,6 +25,12 @@ Rules:
 - Extract only durable memory. Ignore small talk, transient requests, and one-off acknowledgements.
 - `user_memory` is for stable user preferences, response instructions, and long-lived constraints.
 - `knowledge_memory` is for durable project or paper facts worth recalling later.
+- The stored memory must be a short declarative fragment statement, not a transcript.
+- Do not store memory as Q/A, dialogue turns, speaker-prefixed text, or copied conversational exchange.
+- Good examples:
+  - `user prefers concise answers`
+  - `user codes mostly in golang`
+  - `project Apollo deadline moved to Apr 30`
 - Every candidate must include:
   - `action`: one of ADD, UPDATE, DELETE, NONE, SUPERSEDE
   - `memory_type`: `user_memory` or `knowledge_memory`
@@ -126,6 +135,19 @@ class MemoryCandidate(BaseModel):
             return 1.0
         return normalized
 
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _normalize_evidence_field(cls, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        normalized: list[dict[str, Any]] = []
+        for item in value:
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif isinstance(item, str) and item.strip():
+                normalized.append({"quote": item.strip()})
+        return normalized
+
 
 class MemoryExtractionResult(BaseModel):
     candidates: list[MemoryCandidate] = Field(default_factory=list)
@@ -158,6 +180,39 @@ def _extract_json_object(raw_text: str) -> str:
     if start < 0 or end < start:
         raise ValueError("memory extractor did not return a JSON object")
     return text[start : end + 1]
+
+
+def _coerce_extraction_payload(parsed: Any) -> MemoryExtractionResult:
+    if isinstance(parsed, dict) and isinstance(parsed.get("candidates"), list):
+        return MemoryExtractionResult.model_validate(parsed)
+    if isinstance(parsed, list):
+        return MemoryExtractionResult.model_validate({"candidates": parsed})
+    if isinstance(parsed, dict) and (
+        "memory_type" in parsed or "canonical_text" in parsed or "content" in parsed
+    ):
+        return MemoryExtractionResult.model_validate({"candidates": [parsed]})
+    raise ValueError("memory extractor payload does not contain candidates")
+
+
+def _parse_extraction_result(raw_text: str) -> MemoryExtractionResult:
+    text = str(raw_text or "").strip()
+    if not text:
+        return MemoryExtractionResult(candidates=[])
+    decoder = json.JSONDecoder()
+    candidate_positions = [index for index, char in enumerate(text) if char in "{["]
+    for index in candidate_positions:
+        try:
+            parsed, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        try:
+            return _coerce_extraction_payload(parsed)
+        except Exception:
+            continue
+    try:
+        return MemoryExtractionResult.model_validate_json(_extract_json_object(text))
+    except ValidationError as exc:
+        raise ValueError(f"memory extractor returned invalid payload: {exc}") from exc
 
 
 def _normalize_evidence(
@@ -219,6 +274,7 @@ def extract_memory_candidates(
     recent_episodes: list[dict[str, Any]],
     active_memories: list[dict[str, Any]],
     user_uuid: str,
+    db_name: str = "./database.sqlite",
 ) -> list[dict[str, Any]]:
     prompt = str(episode.get("prompt") or "").strip()
     answer = str(episode.get("answer") or "").strip()
@@ -226,13 +282,13 @@ def extract_memory_candidates(
     if not prompt or not answer or not episode_uid:
         return []
 
-    api_key = read_api_key_for_user(uuid=user_uuid)
+    api_key = read_api_key_for_user(uuid=user_uuid, db_name=db_name)
     if not api_key:
         raise ValueError("memory extraction requires a configured API key")
-    model_name = read_model_name_for_user(uuid=user_uuid)
+    model_name = read_model_name_for_user(uuid=user_uuid, db_name=db_name)
     if not model_name:
         raise ValueError("memory extraction requires a configured model name")
-    base_url = read_base_url_for_user(uuid=user_uuid)
+    base_url = read_base_url_for_user(uuid=user_uuid, db_name=db_name)
 
     llm = create_chat_model(
         api_key=api_key,
@@ -255,9 +311,10 @@ def extract_memory_candidates(
     )
     result_text = _content_to_text(getattr(result, "content", result))
     try:
-        parsed = MemoryExtractionResult.model_validate_json(_extract_json_object(result_text))
-    except ValidationError as exc:
-        raise ValueError(f"memory extractor returned invalid payload: {exc}") from exc
+        parsed = _parse_extraction_result(result_text)
+    except Exception as exc:
+        logger.error("memory extractor raw response: %s", result_text)
+        raise
 
     candidates: list[dict[str, Any]] = []
     for candidate in parsed.candidates:

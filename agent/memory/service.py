@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import re
 from typing import Any
 
@@ -87,3 +88,66 @@ def search_project_memory_items(
         db_name=db_name,
     )
     return top_items
+
+
+def _stable_memory_dedup_key(*, memory_type: str, canonical_text: str) -> str:
+    normalized_type = str(memory_type or "").strip().lower()
+    normalized_text = " ".join(str(canonical_text or "").strip().lower().split())
+    digest = hashlib.sha1(f"{normalized_type}:{normalized_text}".encode("utf-8")).hexdigest()
+    return f"{normalized_type}:{digest[:16]}"
+
+
+def write_memory_from_leader(
+    *,
+    uuid: str,
+    project_uid: str,
+    session_uid: str,
+    items: list[dict[str, Any]],
+    db_name: str = "./database.sqlite",
+) -> list[dict[str, Any]]:
+    from .reconcile import apply_memory_candidates
+
+    candidates: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        memory_type = str(item.get("memory_type") or "").strip().lower()
+        content = " ".join(str(item.get("content") or "").split()).strip()
+        canonical_text = " ".join(
+            str(item.get("canonical_text") or content).split()
+        ).strip()
+        if not memory_type or not content or not canonical_text:
+            continue
+        dedup_key = str(item.get("dedup_key") or "").strip()
+        if not dedup_key:
+            dedup_key = _stable_memory_dedup_key(
+                memory_type=memory_type,
+                canonical_text=canonical_text,
+            )
+        title = " ".join(str(item.get("title") or canonical_text).split()).strip()[:80]
+        evidence = item.get("evidence")
+        normalized_evidence = evidence if isinstance(evidence, list) else []
+        if not normalized_evidence:
+            normalized_evidence = [{"source": "leader_tool", "quote": content}]
+        candidates.append(
+            {
+                "action": str(item.get("action") or "ADD").strip().upper() or "ADD",
+                "memory_type": memory_type,
+                "title": title or canonical_text[:80],
+                "content": content,
+                "canonical_text": canonical_text,
+                "dedup_key": dedup_key,
+                "confidence": float(item.get("confidence") or 0.9),
+                "source_episode_uid": str(item.get("source_episode_uid") or ""),
+                "evidence": normalized_evidence,
+            }
+        )
+    if not candidates:
+        return []
+    return apply_memory_candidates(
+        uuid=uuid,
+        project_uid=project_uid,
+        session_uid=session_uid,
+        candidates=candidates,
+        db_name=db_name,
+    )

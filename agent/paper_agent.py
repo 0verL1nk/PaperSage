@@ -10,6 +10,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .runtime_agent import build_runtime_tools, create_runtime_agent
+from .memory.service import write_memory_from_leader
+from .memory.store import query_long_term_memory
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,10 @@ PAPER_QA_SYSTEM_PROMPT = """你是专业论文问答 Agent。
 [其他工具]
 - 需要总结/批判性阅读/方法比较/翻译时，可调用 use_skill
 - 生成思维导图时：调用 use_skill("mindmap", task)，然后直接输出 <mindmap>{{"name":"主题","children":[...]}}</mindmap>
+- 如需判断某条长期记忆是否已存在、是否冲突、是否需要更新，先调用 query_memory
+- 当你确认出现了稳定用户偏好、长期项目事实、或值得沉淀的知识结论时，可调用 write_memory
+- 在调用 write_memory 之前，优先先调用 query_memory 做查重或确认是否已有近似记忆
+- write_memory 只能写 declarative fragment statements，禁止写 Q/A 原文
 
 [复杂任务处理]
 仅当遇到明确的复杂多步骤任务时才使用计划工具（如文献综述、对比分析、系统性调研等）：
@@ -119,11 +125,37 @@ def create_paper_agent_session(
         scope_summary=scope_summary,
     )
 
+    write_memory_fn = None
+    query_memory_fn = None
+    if project_uid and session_uid and user_uuid:
+        def _query_memory(query: str, memory_type: str | None, limit: int) -> list[dict[str, Any]]:
+            return query_long_term_memory(
+                uuid=user_uuid,
+                project_uid=project_uid,
+                query=query,
+                memory_type=memory_type,
+                status="active",
+                limit=limit,
+            )
+
+        def _write_memory(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return write_memory_from_leader(
+                uuid=user_uuid,
+                project_uid=project_uid,
+                session_uid=session_uid,
+                items=items,
+            )
+
+        query_memory_fn = _query_memory
+        write_memory_fn = _write_memory
+
     tools = build_runtime_tools(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
         read_document_fn=read_document_fn,
         list_documents_fn=list_documents_fn,
+        query_memory_fn=query_memory_fn,
+        write_memory_fn=write_memory_fn,
     )
 
     tool_specs: list[dict[str, str]] = []

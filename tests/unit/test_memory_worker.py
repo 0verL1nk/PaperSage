@@ -13,8 +13,8 @@ def _prepare_db(tmp_path: Path) -> Path:
     return db_path
 
 
-def _fake_candidates(*, episode, recent_episodes, active_memories, user_uuid):
-    del recent_episodes, active_memories, user_uuid
+def _fake_candidates(*, episode, recent_episodes, active_memories, user_uuid, db_name):
+    del recent_episodes, active_memories, user_uuid, db_name
     prompt = str(episode["prompt"])
     answer = str(episode["answer"])
     canonical = answer.replace("收到，后续默认用", "").replace("回答。", "").strip("。")
