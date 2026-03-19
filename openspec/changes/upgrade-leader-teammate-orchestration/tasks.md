@@ -12,18 +12,18 @@
 
 ## 3. Leader-Teammate Orchestration
 
-- [ ] 3.1 Add a structured team planning path that converts team-mode activation into a `TeamPlan` plus executable todo records
-- [ ] 3.2 Wire the orchestration middleware to emit structured team handoff state without bypassing Leader control
-- [ ] 3.3 Update team execution flow so teammate dispatch, reviewer checkpoints, and Leader finalization consume the structured scheduler state
+- [x] 3.1 Add a structured team planning path that converts team-mode activation into a `TeamPlan` plus executable todo records
+- [x] 3.2 Wire the orchestration middleware to emit structured team handoff state without bypassing Leader control
+- [x] 3.3 Update team execution flow so teammate dispatch, reviewer checkpoints, and Leader finalization consume the structured scheduler state
 
 ## 4. Execution Backends And State Machine
 
-- [ ] 4.1 Refactor the current local `TeamRuntime` into a local execution backend with a normalized task-result contract
-- [ ] 4.2 Add an A2A execution backend interface and initial implementation that preserves todo/run metadata and returns normalized results
-- [ ] 4.3 Implement explicit team run and todo transition validation for scheduling, running, review, replan, completion, and failure flows
+- [x] 4.1 Refactor the current local `TeamRuntime` into a local execution backend with a normalized task-result contract
+- [x] 4.2 Add an A2A execution backend interface and initial implementation that preserves todo/run metadata and returns normalized results
+- [x] 4.3 Implement explicit team run and todo transition validation for scheduling, running, review, replan, completion, and failure flows
 
 ## 5. Verification And Documentation
 
-- [ ] 5.1 Add or update unit tests for todo graph transitions, scheduler behavior, team state transitions, and executor contracts
+- [x] 5.1 Add or update unit tests for todo graph transitions, scheduler behavior, team state transitions, and executor contracts
 - [ ] 5.2 Add or update integration tests for Leader-teammate execution with dependency-aware todos and backend selection
 - [ ] 5.3 Update architecture-facing documentation to describe the structured Leader-teammate orchestration flow and new team runtime contracts

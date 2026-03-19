@@ -99,7 +99,13 @@ def test_orchestration_middleware_marks_team_tasks_and_injects_team_guidance():
         config={"configurable": {"state": {}}},
     )
 
-    assert update == {"needs_team": True}
+    assert update == {
+        "needs_team": True,
+        "team_handoff": {
+            "mode": "leader_teammate",
+            "reason": "multi-role",
+        },
+    }
     assert middleware._last_analysis is not None
     assert middleware._last_analysis["is_complex"] is True
     assert middleware._last_analysis["needs_team"] is True

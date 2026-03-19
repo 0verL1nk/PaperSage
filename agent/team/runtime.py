@@ -1,12 +1,19 @@
 """Team 运行时：管理多个 agent 实例的生命周期和执行"""
 
+from __future__ import annotations
+
 import logging
 import uuid
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agent.domain.orchestration import TeamTodoRecord
+    from agent.orchestration.executors import TaskExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +44,18 @@ class AgentInstance:
 class TeamRuntime:
     """Team 运行时"""
 
-    def __init__(self, team_id: str, result_dir: Path | None = None):
+    def __init__(
+        self,
+        team_id: str,
+        result_dir: Path | None = None,
+        execution_handler: Callable[[TeamTodoRecord, str], Any] | None = None,
+    ):
         self.team_id = team_id
         self.result_dir = result_dir or Path(f".agent/team/{team_id}")
         self.result_dir.mkdir(parents=True, exist_ok=True)
         self.agents: dict[str, AgentInstance] = {}
         self.executor = ThreadPoolExecutor(max_workers=4)
+        self.execution_handler = execution_handler
 
     def spawn_agent(
         self,
@@ -170,3 +183,28 @@ class TeamRuntime:
         self.executor.shutdown(wait=True)
         logger.info(f"Team {self.team_id} cleaned up")
 
+    def execute_todo(self, todo: TeamTodoRecord, message: str) -> TaskExecutionResult:
+        """Execute a todo through the local team runtime contract."""
+        from agent.orchestration.executors import normalize_task_execution_result
+
+        if self.execution_handler is None:
+            return normalize_task_execution_result(
+                {
+                    "status": "failed",
+                    "error": "No local execution handler configured",
+                },
+                todo_id=todo.id,
+                backend="local",
+            )
+        try:
+            result = self.execution_handler(todo, message)
+        except Exception as exc:
+            return normalize_task_execution_result(
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                },
+                todo_id=todo.id,
+                backend="local",
+            )
+        return normalize_task_execution_result(result, todo_id=todo.id, backend="local")

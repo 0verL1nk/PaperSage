@@ -76,8 +76,13 @@ class OrchestrationMiddleware(AgentMiddleware):
         # Store analysis result for wrap_model_call to use
         self._last_analysis = analysis
 
-        # Return needs_team flag to state for TeamMiddleware to use
-        return {"needs_team": analysis.get("needs_team", False)}
+        update: dict[str, Any] = {"needs_team": analysis.get("needs_team", False)}
+        if analysis.get("needs_team", False):
+            update["team_handoff"] = {
+                "mode": "leader_teammate",
+                "reason": analysis.get("reason", ""),
+            }
+        return update
 
     @staticmethod
     def _build_complexity_prompt(history_text: str) -> str:
@@ -248,7 +253,14 @@ class OrchestrationMiddleware(AgentMiddleware):
         """
         has_plan = self._last_analysis and self._last_analysis.get("has_plan", False)
 
-        if has_plan:
+        needs_team = self._last_analysis and self._last_analysis.get("needs_team", False)
+
+        if needs_team:
+            guidance = (
+                "【重要提示】这是一个需要 Leader 调度的团队任务。\n\n"
+                "请先形成结构化 TeamPlan,再基于 todo 依赖关系分派 teammate 执行,保留 reviewer 检查点后再给最终结论。"
+            )
+        elif has_plan:
             guidance = (
                 "【提示】这是一个复杂任务,你已经创建了执行计划。\n\n"
                 "建议使用 write_todos 工具跟踪任务进度,或使用 read_plan 查看计划。"
