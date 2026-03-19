@@ -73,9 +73,14 @@ class TodoGraph:
 
     def get_executable_todos(self) -> list[dict[str, Any]]:
         """获取当前可执行的 todos（依赖已完成且自身未完成）"""
+        return self.get_ready_todos()
+
+    def get_ready_todos(self) -> list[dict[str, Any]]:
+        """获取当前 ready 的 todos。"""
         executable = []
         for todo_id, todo in self.todos.items():
-            if todo.get("status") == "completed":
+            status = str(todo.get("status") or "pending").strip().lower()
+            if status in {"completed", "blocked", "failed", "canceled", "in_progress"}:
                 continue
 
             depends_on = self.graph.get(todo_id, [])
@@ -87,3 +92,19 @@ class TodoGraph:
                 executable.append(todo)
 
         return executable
+
+    def get_blocked_todos(self) -> list[dict[str, Any]]:
+        """获取被失败/取消依赖阻塞的 todos。"""
+        blocked: list[dict[str, Any]] = []
+        for todo_id, todo in self.todos.items():
+            status = str(todo.get("status") or "pending").strip().lower()
+            if status in {"completed", "failed", "canceled"}:
+                continue
+            depends_on = self.graph.get(todo_id, [])
+            if any(
+                str(self.todos.get(dep_id, {}).get("status") or "").strip().lower()
+                in {"failed", "canceled"}
+                for dep_id in depends_on
+            ):
+                blocked.append(todo)
+        return blocked

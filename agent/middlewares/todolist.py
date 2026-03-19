@@ -31,8 +31,28 @@ class Todo(BaseModel):
 
     id: str = Field(description="Unique identifier for the todo item")
     content: str = Field(description="The content/description of the todo item")
-    status: Literal["pending", "in_progress", "completed"] = Field(description="The current status of the todo item")
+    status: Literal[
+        "pending",
+        "ready",
+        "in_progress",
+        "completed",
+        "blocked",
+        "failed",
+        "canceled",
+    ] = Field(description="The current status of the todo item")
     depends_on: list[str] | None = Field(default=None, description="Optional list of todo IDs that this todo depends on")
+    assignee: str = Field(default="", description="Optional assignee for team execution")
+    execution_backend: Literal["local", "a2a"] = Field(
+        default="local",
+        description="Execution backend for this todo",
+    )
+    retry_count: int = Field(default=0, description="Retry count for this todo")
+    result: dict[str, Any] | None = Field(
+        default=None,
+        description="Normalized execution result for this todo",
+    )
+    artifact_ref: str = Field(default="", description="Optional artifact reference")
+    error: str = Field(default="", description="Last execution error, if any")
 
 
 class PlanningState(AgentState):
@@ -109,7 +129,7 @@ def write_todos(
         )
 
     # Get executable todos for user feedback
-    executable = graph.get_executable_todos()
+    executable = graph.get_ready_todos()
     executable_ids = [t["id"] for t in executable]
 
     return Command(
