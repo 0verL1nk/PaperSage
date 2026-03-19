@@ -1,20 +1,24 @@
 """SubAgent 配置加载器"""
 
+import logging
 import re
 from pathlib import Path
-from typing import Any
+
+from deepagents import SubAgent
+
+logger = logging.getLogger(__name__)
 
 
-def load_subagent_configs(base_dir: str = "agent/subagent") -> list[dict[str, Any]]:
+def load_subagent_configs(base_dir: str = "agent/subagent") -> list[SubAgent]:
     """加载所有 subagent 配置
 
     Args:
         base_dir: subagent 配置目录路径
 
     Returns:
-        SubAgent 配置字典列表
+        SubAgent 配置列表
     """
-    configs: list[dict[str, Any]] = []
+    configs: list[SubAgent] = []
     base_path = Path(base_dir)
 
     if not base_path.exists():
@@ -31,17 +35,18 @@ def load_subagent_configs(base_dir: str = "agent/subagent") -> list[dict[str, An
         try:
             config = _parse_agent_md(config_file)
             configs.append(config)
-        except Exception:
+        except (OSError, ValueError) as exc:
+            logger.warning("Skip invalid subagent config %s: %s", config_file, exc)
             continue
 
     return configs
 
 
-def _parse_agent_md(file_path: Path) -> dict[str, Any]:
+def _parse_agent_md(file_path: Path) -> SubAgent:
     """解析 agent.md 文件
 
     Returns:
-        SubAgent 配置字典，包含 name, description, system_prompt, model (可选)
+        SubAgent 配置，包含 name, description, system_prompt, model (可选)
     """
     content = file_path.read_text(encoding="utf-8")
 
@@ -54,14 +59,14 @@ def _parse_agent_md(file_path: Path) -> dict[str, Any]:
     system_prompt = match.group(2).strip()
 
     # 简单解析 YAML（只支持 key: value 格式）
-    metadata = {}
+    metadata: dict[str, str] = {}
     for line in front_matter.split("\n"):
         if ":" in line:
             key, value = line.split(":", 1)
             metadata[key.strip()] = value.strip()
 
     # 构建 SubAgent 配置字典
-    config: dict[str, Any] = {
+    config: SubAgent = {
         "name": metadata.get("name", ""),
         "description": metadata.get("description", ""),
         "system_prompt": system_prompt,

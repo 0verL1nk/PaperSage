@@ -1,7 +1,7 @@
 from agent.middlewares.builder import build_middleware_list
 
 
-def test_build_middleware_list_passes_default_model_to_subagent_middleware(monkeypatch):
+def test_build_middleware_list_builds_typed_subagents_for_subagent_middleware(monkeypatch):
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(
@@ -11,8 +11,6 @@ def test_build_middleware_list_passes_default_model_to_subagent_middleware(monke
 
     def _fake_subagent_middleware(**kwargs):
         captured.update(kwargs)
-        if "default_model" not in kwargs:
-            raise ValueError("default_model is required")
         return object()
 
     monkeypatch.setattr(
@@ -22,5 +20,13 @@ def test_build_middleware_list_passes_default_model_to_subagent_middleware(monke
 
     build_middleware_list(model="llm", enable_auto_summarization=False, enable_tool_selector=False)
 
-    assert captured["default_model"] == "llm"
-    assert captured["subagents"] == [{"name": "researcher", "description": "d", "system_prompt": "p"}]
+    assert "backend" in captured
+    assert captured["subagents"] == [
+        {
+            "name": "researcher",
+            "description": "d",
+            "system_prompt": "p",
+            "model": "llm",
+            "tools": [],
+        }
+    ]
