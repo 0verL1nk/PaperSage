@@ -15,6 +15,17 @@ def test_build_system_prompt_does_not_raise():
     assert "<mindmap>{" in result
 
 
+def test_build_system_prompt_explicitly_blocks_external_search_for_project_only_queries():
+    result = paper_agent_module._build_system_prompt(
+        document_name="测试文档",
+        project_name="测试项目",
+        scope_summary="仅限项目内 4 篇论文",
+    )
+
+    assert "当前项目文档范围内" in result
+    assert "不要调用 search_papers 或 search_web" in result
+
+
 def test_create_paper_agent_session_uses_runtime_agent_builder(monkeypatch):
     captured = {}
 
