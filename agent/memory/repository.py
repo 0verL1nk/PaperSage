@@ -394,6 +394,7 @@ def upsert_project_memory_item(
     confidence: float = 0.0,
     source_episode_uid: str = "",
     evidence: list[dict[str, Any]] | None = None,
+    allow_update: bool = True,
     db_name: str = "./database.sqlite",
 ) -> str:
     ensure_memory_tables(db_name)
@@ -409,7 +410,7 @@ def upsert_project_memory_item(
     now = _now_str()
     conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
-    if normalized_dedup_key:
+    if allow_update and normalized_dedup_key:
         cursor.execute(
             """
             SELECT memory_uid
@@ -419,7 +420,7 @@ def upsert_project_memory_item(
         """,
             (uuid, project_uid, normalized_dedup_key),
         )
-    else:
+    elif allow_update:
         cursor.execute(
             """
             SELECT memory_uid
@@ -429,7 +430,7 @@ def upsert_project_memory_item(
         """,
             (uuid, project_uid, normalized_type, normalized_content),
         )
-    row = cursor.fetchone()
+    row = cursor.fetchone() if allow_update else None
     if row:
         memory_uid = str(row[0] or "")
         cursor.execute(
@@ -510,6 +511,34 @@ def upsert_project_memory_item(
     conn.commit()
     conn.close()
     return memory_uid
+
+
+def update_memory_item_status(
+    *,
+    memory_uid: str,
+    status: str,
+    superseded_by: str = "",
+    db_name: str = "./database.sqlite",
+) -> None:
+    ensure_memory_tables(db_name)
+    now = _now_str()
+    conn = sqlite3.connect(db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE memory_items
+        SET status = ?, superseded_by = ?, updated_at = ?
+        WHERE memory_uid = ?
+    """,
+        (
+            str(status or "active").strip().lower() or "active",
+            str(superseded_by or ""),
+            now,
+            str(memory_uid or "").strip(),
+        ),
+    )
+    conn.commit()
+    conn.close()
 
 
 def list_project_memory_items(

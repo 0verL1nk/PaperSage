@@ -45,6 +45,16 @@ from langchain_core.prompts import ChatPromptTemplate
 from openai import OpenAI
 
 try:
+    from agent.memory.extraction import extract_memory_candidates
+except ImportError:
+    from agent.memory.extraction import extract_memory_candidates
+
+try:
+    from agent.memory.reconcile import apply_memory_candidates
+except ImportError:
+    from agent.memory.reconcile import apply_memory_candidates
+
+try:
     from agent.memory.store import get_project_memory_episode, list_project_memory_episodes
 except ImportError:
     from agent.memory.store import get_project_memory_episode, list_project_memory_episodes
@@ -406,9 +416,22 @@ def task_memory_writer(
             limit=max(1, int(context_limit)),
             db_name=db_name,
         )
+        candidates = extract_memory_candidates(
+            episode=episode,
+            recent_episodes=recent_episodes,
+        )
+        reconcile_results = apply_memory_candidates(
+            uuid=user_uuid,
+            project_uid=str(episode.get("project_uid") or ""),
+            session_uid=str(episode.get("session_uid") or ""),
+            candidates=candidates,
+            db_name=db_name,
+        )
         payload = {
             "episode": episode,
             "recent_episodes": recent_episodes,
+            "candidates": candidates,
+            "reconcile_results": reconcile_results,
         }
         update_task_status(task_id, TaskStatus.FINISHED, db_name=db_name)
         logger.info("Worker finish memory_writer: task_id=%s episode_uid=%s", task_id, episode_uid)

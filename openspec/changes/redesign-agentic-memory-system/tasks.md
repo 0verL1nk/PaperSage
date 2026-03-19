@@ -8,10 +8,10 @@
 ## 2. Async Memory Writer And Reconcile Logic
 
 - [x] 2.1 Add a dedicated async memory writer task that reads a saved episode and bounded context from the repository layer
-- [ ] 2.2 Implement structured candidate extraction for user memory and knowledge memory with validated output schema
-- [ ] 2.3 Implement reconcile actions (`ADD`, `UPDATE`, `DELETE`, `NONE`, `SUPERSEDE`) against existing active memories
-- [ ] 2.4 Implement lifecycle transitions for superseded, rejected, deleted, and active memory items with evidence preservation
-- [ ] 2.5 Add retry-safe and idempotent write behavior for memory jobs so repeated execution does not create duplicate active memories
+- [x] 2.2 Implement structured candidate extraction for user memory and knowledge memory with validated output schema
+- [x] 2.3 Implement reconcile actions (`ADD`, `UPDATE`, `DELETE`, `NONE`, `SUPERSEDE`) against existing active memories
+- [x] 2.4 Implement lifecycle transitions for superseded, rejected, deleted, and active memory items with evidence preservation
+- [x] 2.5 Add retry-safe and idempotent write behavior for memory jobs so repeated execution does not create duplicate active memories
 
 ## 3. Retrieval And Prompt Injection Cutover
 
@@ -29,7 +29,7 @@
 
 ## 5. Verification, Migration, And Documentation
 
-- [ ] 5.1 Add unit tests for episode persistence, candidate extraction normalization, reconcile actions, lifecycle transitions, and dedup behavior
+- [x] 5.1 Add unit tests for episode persistence, candidate extraction normalization, reconcile actions, lifecycle transitions, and dedup behavior
 - [ ] 5.2 Add integration tests covering async memory job execution, typed retrieval, prompt injection, and legacy-path retirement
 - [ ] 5.3 Add migration coverage for existing memory data compatibility and rollback-safe reads during the transition window
 - [ ] 5.4 Update README and architecture docs to describe the new async agentic memory pipeline and removed legacy behavior

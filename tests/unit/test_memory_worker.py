@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from agent.adapters.sqlite.project_repository import ensure_default_project_session
-from agent.memory.store import save_project_memory_episode
+from agent.memory.store import list_project_memory_items, save_project_memory_episode
 from utils.tasks import task_memory_writer
 from utils.utils import ensure_local_user, init_database
 
@@ -50,3 +50,86 @@ def test_task_memory_writer_reads_episode_and_bounded_context(tmp_path: Path) ->
     assert payload["episode"]["episode_uid"] == current_uid
     assert payload["episode"]["prompt"] == "第二个问题"
     assert [item["episode_uid"] for item in payload["recent_episodes"]] == [current_uid, earlier_uid]
+    assert isinstance(payload["candidates"], list)
+
+
+def test_task_memory_writer_is_idempotent_for_same_episode(tmp_path: Path) -> None:
+    db_path = _prepare_db(tmp_path)
+    project_uid = "project-1"
+    session_uid = ensure_default_project_session(
+        project_uid=project_uid,
+        uuid="local-user",
+        db_name=str(db_path),
+    )
+    episode_uid = save_project_memory_episode(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        prompt="请记住，以后默认用中文回答",
+        answer="收到，后续默认用中文回答。",
+        db_name=str(db_path),
+    )
+
+    ok_first, _ = task_memory_writer("task-1", episode_uid, "local-user", db_name=str(db_path))
+    ok_second, _ = task_memory_writer("task-2", episode_uid, "local-user", db_name=str(db_path))
+
+    assert ok_first is True
+    assert ok_second is True
+    active_items = list_project_memory_items(
+        uuid="local-user",
+        project_uid=project_uid,
+        status="active",
+        limit=10,
+        db_name=str(db_path),
+    )
+    assert len(active_items) == 1
+    assert active_items[0]["memory_type"] == "user_memory"
+
+
+def test_task_memory_writer_supersedes_old_user_memory(tmp_path: Path) -> None:
+    db_path = _prepare_db(tmp_path)
+    project_uid = "project-1"
+    session_uid = ensure_default_project_session(
+        project_uid=project_uid,
+        uuid="local-user",
+        db_name=str(db_path),
+    )
+    first_uid = save_project_memory_episode(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        prompt="请记住，以后默认用中文回答",
+        answer="收到，后续默认用中文回答。",
+        db_name=str(db_path),
+    )
+    second_uid = save_project_memory_episode(
+        uuid="local-user",
+        project_uid=project_uid,
+        session_uid=session_uid,
+        prompt="请记住，以后默认用英文回答",
+        answer="收到，后续默认用英文回答。",
+        db_name=str(db_path),
+    )
+
+    assert task_memory_writer("task-1", first_uid, "local-user", db_name=str(db_path))[0] is True
+    assert task_memory_writer("task-2", second_uid, "local-user", db_name=str(db_path))[0] is True
+
+    active_items = list_project_memory_items(
+        uuid="local-user",
+        project_uid=project_uid,
+        status="active",
+        limit=10,
+        db_name=str(db_path),
+    )
+    superseded_items = list_project_memory_items(
+        uuid="local-user",
+        project_uid=project_uid,
+        status="superseded",
+        limit=10,
+        db_name=str(db_path),
+    )
+
+    assert len(active_items) == 1
+    assert "英文" in active_items[0]["canonical_text"]
+    assert len(superseded_items) == 1
+    assert "中文" in superseded_items[0]["canonical_text"]

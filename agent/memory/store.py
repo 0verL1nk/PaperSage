@@ -9,6 +9,7 @@ from .repository import (
     save_project_memory_episode,
     save_project_session_compact_memory,
     touch_memory_items,
+    update_memory_item_status,
     upsert_project_memory_item,
 )
 from .service import search_project_memory_items
@@ -21,6 +22,7 @@ __all__ = [
     "get_project_session_compact_memory",
     "save_project_session_compact_memory",
     "upsert_project_memory_item",
+    "update_memory_item_status",
     "list_project_memory_items",
     "touch_memory_items",
     "search_project_memory_items",
