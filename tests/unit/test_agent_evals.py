@@ -42,6 +42,8 @@ def test_load_eval_cases_supports_stable_process_contracts(tmp_path: Path) -> No
                         "min_execution_completion_ratio": 1.0,
                         "required_tool_names": ["search_document", "search_web"],
                         "required_phase_labels": ["规划", "输出最终答案"],
+                        "document_access": "scoped",
+                        "document_scope": ["arxiv:2005.11401", "arxiv:2310.11511"],
                     },
                     ensure_ascii=False,
                 ),
@@ -57,6 +59,8 @@ def test_load_eval_cases_supports_stable_process_contracts(tmp_path: Path) -> No
     assert cases[1].process_contract.min_evidence_count == 2
     assert cases[1].process_contract.required_tool_names == ["search_document", "search_web"]
     assert cases[1].process_contract.required_phase_labels == ["规划", "输出最终答案"]
+    assert cases[1].metadata["document_access"] == "scoped"
+    assert cases[1].metadata["document_scope"] == ["arxiv:2005.11401", "arxiv:2310.11511"]
 
 
 def test_load_eval_cases_rejects_rows_without_success_rubric(tmp_path: Path) -> None:
@@ -474,6 +478,89 @@ def test_evaluate_case_result_supports_pydantic_todos() -> None:
     assert result["completed"] is True
     assert result["execution_completion_ratio"] == 1.0
     assert result["process_checks"]["todo_passed"] is True
+
+
+def test_evaluate_case_result_prefers_runtime_completion_signal_over_stale_todos() -> None:
+    case = AgentEvalCase.from_dict(
+        {
+            "id": "todos_runtime_001",
+            "category": "multi_step",
+            "prompt": "请按步骤完成任务",
+            "success_rubric": "Answer should confirm the task is finished.",
+            "require_todos": True,
+            "min_execution_completion_ratio": 1.0,
+        }
+    )
+
+    turn_result = {
+        "answer": "任务完成",
+        "todos": [
+            Todo(id="t1", content="检索资料", status="pending"),
+            Todo(id="t2", content="输出结论", status="in_progress"),
+        ],
+        "runtime_state": {
+            "current_plan": {"steps": [{"id": "s1"}, {"id": "s2"}]},
+            "completed_step_ids": ["s1", "s2"],
+        },
+        "phase_path": "处理中 -> 输出最终答案",
+        "trace_payload": [],
+        "run_latency_ms": 5.0,
+    }
+
+    result = evaluate_case_result(
+        case,
+        turn_result,
+        judge=lambda *_args, **_kwargs: FinalAnswerJudgeResult(
+            passed=True,
+            score=0.9,
+            reasoning="done",
+        ),
+    )
+
+    assert result["completed"] is True
+    assert result["execution_completion_ratio"] == 1.0
+    assert result["process_checks"]["ratio_passed"] is True
+
+
+
+def test_evaluate_case_result_treats_zero_progress_todos_as_unavailable_signal() -> None:
+    case = AgentEvalCase.from_dict(
+        {
+            "id": "todos_unavailable_001",
+            "category": "multi_step",
+            "prompt": "请按步骤完成任务",
+            "success_rubric": "Answer should confirm the task is finished.",
+            "require_todos": True,
+            "require_plan": True,
+            "min_execution_completion_ratio": 1.0,
+        }
+    )
+
+    turn_result = {
+        "answer": "任务完成",
+        "plan": {"goal": "完成任务"},
+        "todos": [
+            Todo(id="t1", content="检索资料", status="pending"),
+            Todo(id="t2", content="输出结论", status="in_progress"),
+        ],
+        "phase_path": "处理中 -> 输出最终答案",
+        "trace_payload": [],
+        "run_latency_ms": 5.0,
+    }
+
+    result = evaluate_case_result(
+        case,
+        turn_result,
+        judge=lambda *_args, **_kwargs: FinalAnswerJudgeResult(
+            passed=True,
+            score=0.9,
+            reasoning="done",
+        ),
+    )
+
+    assert result["completed"] is True
+    assert result["execution_completion_ratio"] is None
+    assert result["process_checks"]["ratio_passed"] is True
 
 
 def test_select_eval_cases_supports_case_ids_and_limit() -> None:

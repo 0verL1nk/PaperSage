@@ -26,6 +26,19 @@ def test_build_system_prompt_explicitly_blocks_external_search_for_project_only_
     assert "不要调用 search_papers 或 search_web" in result
 
 
+def test_build_system_prompt_for_document_free_session_omits_project_document_instructions():
+    result = paper_agent_module._build_system_prompt(
+        project_name="测试项目",
+        scope_summary="仅允许外部检索，不提供项目文档",
+        document_access="none",
+    )
+
+    assert "当前会话不提供项目文档" in result
+    assert "不要调用 search_document" in result
+    assert "必须使用 search_document" not in result
+    assert "当前对话文档（兼容字段）" not in result
+
+
 def test_create_paper_agent_session_uses_runtime_agent_builder(monkeypatch):
     captured = {}
 
@@ -128,3 +141,28 @@ def test_create_paper_agent_session_tool_specs_full_schema(monkeypatch):
     assert session.tool_specs
     assert '"properties"' in session.tool_specs[0]["args_schema"]
     assert session.tool_specs[0]["schema_level"] == "full"
+
+
+def test_create_paper_agent_session_can_disable_document_tools(monkeypatch):
+    monkeypatch.delenv("AGENT_TOOL_SCHEMA_LEVEL", raising=False)
+    monkeypatch.setattr(
+        paper_agent_module,
+        "create_runtime_agent",
+        lambda **_kwargs: {"name": "fake-agent"},
+    )
+
+    session = paper_agent_module.create_paper_agent_session(
+        llm="fake-llm",
+        search_document_fn=None,
+        search_document_evidence_fn=None,
+        read_document_fn=None,
+        list_documents_fn=None,
+        document_access="none",
+        scope_summary="仅允许外部检索，不提供项目文档",
+    )
+
+    tool_names = {item["name"] for item in session.tool_specs}
+    assert "search_document" not in tool_names
+    assert "read_document" not in tool_names
+    assert "list_document" not in tool_names
+    assert "search_web" in tool_names

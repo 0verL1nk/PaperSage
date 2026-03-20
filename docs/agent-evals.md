@@ -36,6 +36,7 @@ Fixtures live in JSONL and each row must include:
 - `category`
 - `prompt`
 - `success_rubric`
+- `document_access` (`scoped` or `none`)
 
 Keyword-matching fields such as `expected_answer_all_of`, `expected_answer_any_of`, and `forbidden_answer_any_of` are rejected. The goal is to evaluate task completion with a rubric, not string overlap.
 
@@ -53,6 +54,11 @@ Optional stable process constraints:
 - `required_tool_names`
 - `required_phase_labels`
 
+Optional live-scope isolation metadata:
+
+- `document_access`: `scoped` keeps project-document prompt/tool access enabled, `none` disables project-document prompt injection and omits document tools entirely
+- `document_scope`: when `document_access` is `scoped`, limits the case to an explicit list of `doc_uid` values from the local fixture corpus
+
 Example:
 
 ```json
@@ -66,7 +72,9 @@ Example:
   "require_plan": true,
   "min_execution_completion_ratio": 1.0,
   "required_tool_names": ["search_document", "search_web"],
-  "required_phase_labels": ["规划", "输出最终答案"]
+  "required_phase_labels": ["规划", "输出最终答案"],
+  "document_access": "scoped",
+  "document_scope": ["arxiv:2005.11401", "arxiv:2310.11511"]
 }
 ```
 

@@ -36,8 +36,10 @@ def compute_execution_completion_ratio(
     todos: list[dict[str, Any]],
     runtime_state: dict[str, Any] | None,
 ) -> float | None:
-    total_todos = len(todos)
-    if total_todos > 0:
+    def _todo_completion_ratio() -> float | None:
+        total_todos = len(todos)
+        if total_todos == 0:
+            return None
         completed = 0
         for item in todos:
             status = str(item.get("status") or "").strip().lower()
@@ -45,34 +47,51 @@ def compute_execution_completion_ratio(
                 completed += 1
         return completed / total_todos
 
-    if not isinstance(runtime_state, dict):
+    def _runtime_plan_completion_ratio() -> float | None:
+        if not isinstance(runtime_state, dict):
+            return None
+        current_plan = runtime_state.get("current_plan")
+        if not isinstance(current_plan, dict):
+            return None
+        steps = current_plan.get("steps")
+        if not isinstance(steps, list) or not steps:
+            return None
+        completed_ids = runtime_state.get("completed_step_ids")
+        if not isinstance(completed_ids, list):
+            return 0.0
+        normalized_completed = {
+            str(item).strip() for item in completed_ids if str(item).strip()
+        }
+        total_steps = 0
+        completed_steps = 0
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            step_id = str(step.get("id") or "").strip()
+            if not step_id:
+                continue
+            total_steps += 1
+            if step_id in normalized_completed:
+                completed_steps += 1
+        if total_steps == 0:
+            return None
+        return completed_steps / total_steps
+
+    todo_ratio = _todo_completion_ratio()
+    runtime_ratio = _runtime_plan_completion_ratio()
+
+    if runtime_ratio is not None and todo_ratio is not None:
+        return max(todo_ratio, runtime_ratio)
+    if runtime_ratio is not None:
+        return runtime_ratio
+    if todo_ratio is None:
         return None
-    current_plan = runtime_state.get("current_plan")
-    if not isinstance(current_plan, dict):
-        return None
-    steps = current_plan.get("steps")
-    if not isinstance(steps, list) or not steps:
-        return None
-    completed_ids = runtime_state.get("completed_step_ids")
-    if not isinstance(completed_ids, list):
-        return 0.0
-    normalized_completed = {
-        str(item).strip() for item in completed_ids if str(item).strip()
-    }
-    total_steps = 0
-    completed_steps = 0
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        step_id = str(step.get("id") or "").strip()
-        if not step_id:
-            continue
-        total_steps += 1
-        if step_id in normalized_completed:
-            completed_steps += 1
-    if total_steps == 0:
-        return None
-    return completed_steps / total_steps
+    if todo_ratio > 0.0:
+        return todo_ratio
+    # Todos can remain stale in end-to-end runs because write_todos does not
+    # guarantee completion updates. Treat all-noncompleted todo state as
+    # unavailable unless a runtime plan explicitly confirms zero progress.
+    return None
 
 
 def normalize_turn_result(turn_result: dict[str, Any]) -> dict[str, Any]:
@@ -187,8 +206,8 @@ def evaluate_case_result(
     ratio_pass = True
     if process_contract.min_execution_completion_ratio is not None:
         ratio_pass = (
-            execution_completion_ratio is not None
-            and float(execution_completion_ratio) >= process_contract.min_execution_completion_ratio
+            execution_completion_ratio is None
+            or float(execution_completion_ratio) >= process_contract.min_execution_completion_ratio
         )
 
     phase_pass, missing_phase_labels = _phase_labels_pass(

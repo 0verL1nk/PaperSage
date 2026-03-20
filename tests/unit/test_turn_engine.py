@@ -123,6 +123,45 @@ def test_execute_turn_core_uses_search_document_tool_result_evidence_without_rer
     assert result["evidence_items"][0]["chunk_id"] == "arxiv:2005.11401:chunk_11"
 
 
+def test_execute_turn_core_matches_plain_doc_uid_citation_to_tool_evidence() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    mock_agent = Mock()
+    mock_agent.invoke.return_value = {
+        "messages": [
+            SimpleNamespace(
+                content="",
+                tool_calls=[{"name": "search_document", "args": {"query": "rag"}}],
+            ),
+            {
+                "role": "tool",
+                "name": "search_document",
+                "content": (
+                    '{"evidences": ['
+                    '{"doc_uid": "arxiv:2005.11401", "chunk_id": "arxiv:2005.11401:chunk_11", "text": "证据文本", "page_no": 1, "offset_start": 0, "offset_end": 10}'
+                    "]} "
+                ),
+            },
+            SimpleNamespace(
+                content="结论引用 arxiv:2005.11401|p1|o0-10，建议优先采用标准 RAG。",
+                tool_calls=[],
+            ),
+        ]
+    }
+
+    result = execute_turn_core(
+        prompt="请概括 RAG 核心结论",
+        hinted_prompt="请概括 RAG 核心结论",
+        leader_agent=mock_agent,
+        leader_runtime_config={},
+    )
+
+    assert result["used_document_rag"] is True
+    assert result["evidence_items"]
+    assert result["evidence_items"][0]["chunk_id"] == "arxiv:2005.11401:chunk_11"
+
+
 def test_execute_turn_core_does_not_count_tool_result_evidence_without_answer_citations():
     from types import SimpleNamespace
     from unittest.mock import Mock

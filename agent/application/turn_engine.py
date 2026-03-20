@@ -72,10 +72,26 @@ def _extract_search_document_evidence_items(
     messages: list[Any],
     *,
     referenced_chunk_ids: list[str],
+    referenced_doc_uids: list[str],
 ) -> list[dict[str, Any]]:
-    referenced = {item.strip() for item in referenced_chunk_ids if item.strip()}
-    if not referenced:
+    referenced_chunks = {item.strip() for item in referenced_chunk_ids if item.strip()}
+    referenced_docs = {item.strip() for item in referenced_doc_uids if item.strip()}
+    if not referenced_chunks and not referenced_docs:
         return []
+
+    def _matches_reference(item: dict[str, Any]) -> bool:
+        chunk_id = str(item.get("chunk_id", "")).strip()
+        if chunk_id and chunk_id in referenced_chunks:
+            return True
+        doc_uid = str(item.get("doc_uid", "")).strip()
+        if doc_uid and doc_uid in referenced_docs:
+            return True
+        if chunk_id and ":chunk_" in chunk_id:
+            chunk_doc_uid = chunk_id.split(":chunk_", 1)[0].strip()
+            if chunk_doc_uid and chunk_doc_uid in referenced_docs:
+                return True
+        return False
+
     collected: list[dict[str, Any]] = []
     for message in messages:
         if _message_role(message) != "tool" or _message_name(message) != "search_document":
@@ -84,10 +100,19 @@ def _extract_search_document_evidence_items(
         if payload is None:
             continue
         collected.extend(normalize_evidence_items(payload))
-    return [
-        item for item in collected
-        if str(item.get("chunk_id", "")).strip() in referenced
-    ]
+
+    matched: list[dict[str, Any]] = []
+    seen_chunk_ids: set[str] = set()
+    for item in collected:
+        if not _matches_reference(item):
+            continue
+        chunk_id = str(item.get("chunk_id", "")).strip()
+        if chunk_id and chunk_id in seen_chunk_ids:
+            continue
+        if chunk_id:
+            seen_chunk_ids.add(chunk_id)
+        matched.append(item)
+    return matched
 
 
 def build_search_document_fn(
@@ -179,6 +204,34 @@ def extract_evidence_chunk_ids(answer: str) -> list[str]:
     )
     matches = pattern.findall(answer)
     return [chunk_id.strip() for chunk_id in matches if chunk_id.strip()]
+
+
+
+def extract_evidence_doc_uids(answer: str) -> list[str]:
+    """从 answer 中提取文档级引用，如 arxiv:2310.11511|p1|o0-10。"""
+    if not isinstance(answer, str):
+        return []
+    import re
+
+    references: set[str] = set()
+    inline_pattern = re.compile(
+        r"(?<![\w/])([A-Za-z0-9_.-]+:[^|\s<>\]]+)(?=\|p\d+)",
+        flags=re.IGNORECASE,
+    )
+    for raw_ref in inline_pattern.findall(answer):
+        ref = raw_ref.strip()
+        if not ref:
+            continue
+        if ":chunk_" in ref:
+            ref = ref.split(":chunk_", 1)[0].strip()
+        if ref:
+            references.add(ref)
+
+    for chunk_id in extract_evidence_chunk_ids(answer):
+        ref = chunk_id.split(":chunk_", 1)[0].strip() if ":chunk_" in chunk_id else chunk_id.strip()
+        if ref:
+            references.add(ref)
+    return sorted(references)
 
 
 def execute_turn_core(
@@ -280,14 +333,16 @@ def execute_turn_core(
 
     # 从 answer 中提取 agent 引用的 chunk_id
     referenced_chunk_ids = extract_evidence_chunk_ids(answer)
+    referenced_doc_uids = extract_evidence_doc_uids(answer)
 
     evidence_items = _extract_search_document_evidence_items(
         messages,
         referenced_chunk_ids=referenced_chunk_ids,
+        referenced_doc_uids=referenced_doc_uids,
     )
     if (
         not evidence_items
-        and referenced_chunk_ids
+        and (referenced_chunk_ids or referenced_doc_uids)
         and used_document_rag
         and callable(search_document_evidence_fn)
     ):
@@ -297,9 +352,17 @@ def execute_turn_core(
             all_evidence = normalize_evidence_items(evidence_payload)
 
             # 筛选出 agent 实际引用的证据
+            referenced_chunk_set = {item.strip() for item in referenced_chunk_ids if item.strip()}
+            referenced_doc_set = {item.strip() for item in referenced_doc_uids if item.strip()}
             for item in all_evidence:
                 chunk_id = str(item.get("chunk_id", "")).strip()
-                if chunk_id in referenced_chunk_ids:
+                doc_uid = str(item.get("doc_uid", "")).strip()
+                chunk_doc_uid = chunk_id.split(":chunk_", 1)[0].strip() if ":chunk_" in chunk_id else ""
+                if (
+                    chunk_id in referenced_chunk_set
+                    or (doc_uid and doc_uid in referenced_doc_set)
+                    or (chunk_doc_uid and chunk_doc_uid in referenced_doc_set)
+                ):
                     evidence_items.append(item)
         except Exception:
             evidence_items = []
