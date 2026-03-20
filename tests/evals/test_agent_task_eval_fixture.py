@@ -31,8 +31,13 @@ def test_agent_task_eval_fixture_uses_judge_rubrics_and_stable_process_contracts
     assert hybrid_case.final_answer_contract.success_rubric
     assert hybrid_case.process_contract.requires_evidence is True
     assert hybrid_case.process_contract.required_tool_names == ["search_document", "search_web"]
-    assert hybrid_case.process_contract.required_phase_labels == ["规划", "输出最终答案"]
-
     assert boundary_case.process_contract.required_tool_names == ["search_document"]
     assert rollout_case.process_contract.require_plan is True
     assert rollout_case.process_contract.min_execution_completion_ratio == 1.0
+
+
+
+def test_default_task_eval_fixture_avoids_brittle_phase_label_contracts() -> None:
+    cases = load_eval_cases(FIXTURE_PATH)
+
+    assert all(item.process_contract.required_phase_labels == [] for item in cases)

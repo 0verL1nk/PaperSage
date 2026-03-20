@@ -41,6 +41,8 @@ Keyword-matching fields such as `expected_answer_all_of`, `expected_answer_any_o
 
 The default fixture is no longer a toy set. It now mixes project-only questions, project-gap and boundary checks, web-only recency/tradeoff questions, and hybrid roadmap-decision cases such as rollout, guardrails, and defer-or-adopt judgments.
 
+The default fixture intentionally avoids `required_phase_labels`, because phase-path strings are too coupled to internal orchestration details and would make end-to-end evals brittle across implementation changes.
+
 Optional stable process constraints:
 
 - `requires_evidence`
