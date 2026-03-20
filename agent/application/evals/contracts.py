@@ -4,6 +4,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+LEGACY_KEYWORD_CONTRACT_KEYS = (
+    "expected_answer_all_of",
+    "expected_answer_any_of",
+    "forbidden_answer_any_of",
+)
+
 
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
@@ -18,22 +24,11 @@ def _string_list(value: Any) -> list[str]:
 
 @dataclass(frozen=True)
 class FinalAnswerContract:
-    expected_answer_all_of: list[str] = field(default_factory=list)
-    expected_answer_any_of: list[str] = field(default_factory=list)
-    forbidden_answer_any_of: list[str] = field(default_factory=list)
     success_rubric: str = ""
 
     @property
-    def has_reference_checks(self) -> bool:
-        return bool(
-            self.expected_answer_all_of
-            or self.expected_answer_any_of
-            or self.forbidden_answer_any_of
-        )
-
-    @property
     def has_success_contract(self) -> bool:
-        return self.has_reference_checks or bool(self.success_rubric.strip())
+        return bool(self.success_rubric.strip())
 
 
 @dataclass(frozen=True)
@@ -64,14 +59,21 @@ class AgentEvalCase:
         if not case_id or not category or not prompt:
             raise ValueError("Eval case must include non-empty id, category, and prompt.")
 
+        legacy_keys = [key for key in LEGACY_KEYWORD_CONTRACT_KEYS if key in payload]
+        if legacy_keys:
+            raise ValueError(
+                "Eval case "
+                f"'{case_id}' uses deprecated keyword matching fields {legacy_keys}. "
+                "Final-answer evals must use success_rubric and LLM judge only."
+            )
+
         final_answer_contract = FinalAnswerContract(
-            expected_answer_all_of=_string_list(payload.get("expected_answer_all_of")),
-            expected_answer_any_of=_string_list(payload.get("expected_answer_any_of")),
-            forbidden_answer_any_of=_string_list(payload.get("forbidden_answer_any_of")),
             success_rubric=str(payload.get("success_rubric") or "").strip(),
         )
         if not final_answer_contract.has_success_contract:
-            raise ValueError(f"Eval case '{case_id}' must define a success contract.")
+            raise ValueError(
+                f"Eval case '{case_id}' must define a non-empty success_rubric."
+            )
 
         raw_min_ratio = payload.get("min_execution_completion_ratio")
         min_ratio: float | None
@@ -92,13 +94,12 @@ class AgentEvalCase:
         metadata = {
             str(key): value
             for key, value in payload.items()
-            if key not in {
+            if key
+            not in {
                 "id",
                 "category",
                 "prompt",
-                "expected_answer_all_of",
-                "expected_answer_any_of",
-                "forbidden_answer_any_of",
+                *LEGACY_KEYWORD_CONTRACT_KEYS,
                 "success_rubric",
                 "requires_evidence",
                 "min_evidence_count",

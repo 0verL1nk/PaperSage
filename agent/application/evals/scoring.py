@@ -133,50 +133,13 @@ def normalize_turn_result(turn_result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _evaluate_reference_answer(case: AgentEvalCase, answer: str) -> dict[str, Any]:
-    contract = case.final_answer_contract
-    failures: list[str] = []
-
-    for token in contract.expected_answer_all_of:
-        if token not in answer:
-            failures.append(f"missing required token: {token}")
-
-    if contract.expected_answer_any_of:
-        if not any(token in answer for token in contract.expected_answer_any_of):
-            failures.append("missing any-of expected tokens")
-
-    for token in contract.forbidden_answer_any_of:
-        if token in answer:
-            failures.append(f"forbidden token present: {token}")
-
-    passed = not failures
-    return {
-        "mode": "reference",
-        "passed": passed,
-        "score": 1.0 if passed else 0.0,
-        "reasoning": "; ".join(failures),
-    }
-
-
 def _evaluate_judge_answer(
     case: AgentEvalCase,
     normalized_result: dict[str, Any],
     judge: FinalAnswerJudge | None,
 ) -> dict[str, Any]:
-    if not case.final_answer_contract.success_rubric:
-        return {
-            "mode": "rubric",
-            "passed": True,
-            "score": None,
-            "reasoning": "",
-        }
     if judge is None:
-        return {
-            "mode": "rubric",
-            "passed": False,
-            "score": None,
-            "reasoning": "rubric configured but no judge provided",
-        }
+        raise ValueError("A final-answer LLM judge is required for task-completion evals.")
     judge_result = judge(case, normalized_result)
     if not isinstance(judge_result, FinalAnswerJudgeResult):
         raise TypeError("Final answer judge must return FinalAnswerJudgeResult.")
@@ -205,13 +168,8 @@ def evaluate_case_result(
     normalized_result = normalize_turn_result(turn_result)
     answer = str(normalized_result["answer"])
 
-    final_checks: list[dict[str, Any]] = []
-    if case.final_answer_contract.has_reference_checks:
-        final_checks.append(_evaluate_reference_answer(case, answer))
-    if case.final_answer_contract.success_rubric:
-        final_checks.append(_evaluate_judge_answer(case, normalized_result, judge))
-
-    final_success = all(bool(item.get("passed", False)) for item in final_checks) if final_checks else True
+    final_checks = [_evaluate_judge_answer(case, normalized_result, judge)]
+    final_success = all(bool(item.get("passed", False)) for item in final_checks)
 
     process_contract = case.process_contract
     evidence_count = int(normalized_result["evidence_count"])

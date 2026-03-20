@@ -155,11 +155,6 @@ def main() -> int:
         default=1,
         help="Optional max number of cases to run after filtering. Defaults to 1.",
     )
-    parser.add_argument(
-        "--disable-judge",
-        action="store_true",
-        help="Disable LLM-as-judge and use only stable contract checks.",
-    )
     args = parser.parse_args()
 
     _load_env_file(Path(args.env_file))
@@ -195,7 +190,7 @@ def main() -> int:
         )
 
     llm = _build_live_llm()
-    judge = None if args.disable_judge else build_trajectory_llm_as_judge(model=llm)
+    judge = build_trajectory_llm_as_judge(model=llm)
     runner = LivePaperSageEvalRunner(
         llm=llm,
         search_document_fn=_search_document,

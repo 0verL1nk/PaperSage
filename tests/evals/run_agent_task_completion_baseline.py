@@ -17,6 +17,17 @@ from agent.application.evals import (
 )
 
 
+def _load_env_file(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line or line.startswith("export "):
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip())
+
+
 class _ScenarioAgent:
     def __init__(self, case: AgentEvalCase):
         self._case = case
@@ -77,22 +88,28 @@ class _ScenarioAgent:
 
 def _answer_for_case(case: AgentEvalCase) -> str:
     if case.category == "project_rag":
-        return "项目文档显示核心结论：该方法通过检索提升了回答质量。<evidence>chunk-1|p1|o0-10</evidence>"
+        return (
+            "基于当前项目文档，RAG 的核心价值是先检索再生成，用外部证据降低幻觉并提升回答相关性。"
+            "<evidence>chunk-1|p1|o0-10</evidence>"
+        )
     if case.category == "project_compare":
         return (
-            "RAG 更直接，Self-RAG 更强调自反思。"
+            "结合当前项目文档，RAG 实现更直接、接入成本更低；Self-RAG 增加了自反思与纠错链路，但工程复杂度更高。"
             "<evidence>chunk-1|p1|o0-10</evidence>"
             "<evidence>chunk-2|p2|o0-10</evidence>"
-            "选型建议：若项目重视可控性，可优先评估 Self-RAG。"
+            "如果当前阶段优先追求稳定落地，建议先以 RAG 为主，再把 Self-RAG 作为后续试点方向。"
         )
     if case.category == "web_research":
-        return "最新进展：社区更关注真实落地成本。结论：需要结合系统约束评估。"
+        return (
+            "基于 2025 年以来的公开资料，Self-RAG 的最新进展集中在更强的可控评估链路与更重的系统成本两点。"
+            "结论一：研究关注点正在从论文指标转向真实系统集成。"
+            "结论二：是否值得引入，越来越取决于延迟、成本和观测能力。"
+        )
     return (
-        "项目文档中的证据表明该方向可行，"
-        "最新进展显示其工程复杂度较高。"
+        "结合当前项目文档与近期公开资料，Self-RAG 有机会提升答案自校验能力，但会显著增加编排复杂度与延迟预算。"
         "<evidence>chunk-1|p1|o0-10</evidence>"
         "<evidence>chunk-2|p2|o0-10</evidence>"
-        "建议先做小范围试点。"
+        "路线建议是先做小范围 pilot，再决定是否纳入正式 roadmap。"
     )
 
 
@@ -134,7 +151,9 @@ def _default_output_path() -> Path:
 def _build_judge(model_name: str, base_url: str | None) -> Any:
     api_key = str(os.getenv("OPENAI_API_KEY") or "").strip()
     if not api_key:
-        raise ValueError("OPENAI_API_KEY is required when --judge-model is provided.")
+        raise ValueError("OPENAI_API_KEY is required for baseline LLM judge runs.")
+    if not model_name.strip():
+        raise ValueError("Judge model is required. Set --judge-model or OPENAI_MODEL_NAME.")
     model = create_chat_model(
         api_key=api_key,
         model_name=model_name,
@@ -152,6 +171,11 @@ def main() -> int:
         help="Path to eval fixture JSONL.",
     )
     parser.add_argument(
+        "--env-file",
+        default="/home/ling/LLM_App_Final/.env",
+        help="Path to env file with LLM judge configuration.",
+    )
+    parser.add_argument(
         "--output",
         default="",
         help="Optional output path. Defaults to docs/plans/baselines/task-completion-eval-baseline-<timestamp>.json",
@@ -159,12 +183,12 @@ def main() -> int:
     parser.add_argument(
         "--judge-model",
         default="",
-        help="Optional judge model name. When set, uses agentevals trajectory LLM-as-judge.",
+        help="Optional judge model override. Defaults to OPENAI_MODEL_NAME from the env file.",
     )
     parser.add_argument(
         "--judge-base-url",
         default="",
-        help="Optional OpenAI-compatible base URL for the judge model.",
+        help="Optional OpenAI-compatible base URL override. Defaults to OPENAI_BASE_URL from the env file.",
     )
     parser.add_argument(
         "--case-id",
@@ -180,6 +204,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    _load_env_file(Path(args.env_file))
+
     fixture_path = Path(args.fixture)
     output_path = Path(args.output) if args.output else _default_output_path()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -190,12 +216,12 @@ def main() -> int:
         case_ids=args.case_id or None,
         limit=args.limit if args.limit > 0 else None,
     )
-    judge = None
-    if args.judge_model.strip():
-        judge = _build_judge(
-            model_name=args.judge_model.strip(),
-            base_url=args.judge_base_url.strip() or None,
-        )
+    judge_model = args.judge_model.strip() or str(os.getenv("OPENAI_MODEL_NAME") or "").strip()
+    judge_base_url = args.judge_base_url.strip() or str(os.getenv("OPENAI_BASE_URL") or "").strip()
+    judge = _build_judge(
+        model_name=judge_model,
+        base_url=judge_base_url or None,
+    )
 
     report = run_agent_evals(
         cases,

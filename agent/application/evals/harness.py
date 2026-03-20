@@ -40,6 +40,9 @@ def run_agent_evals(
     judge: FinalAnswerJudge | None,
     fixture_path: str = "",
 ) -> dict[str, Any]:
+    if judge is None:
+        raise ValueError("A final-answer LLM judge is required for task-completion eval runs.")
+
     case_results: list[dict[str, Any]] = []
     for case in cases:
         turn_result = runner(case)

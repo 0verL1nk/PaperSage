@@ -13,10 +13,10 @@ The eval loop is:
 
 ## What The Eval Checks
 
-Each case can combine two layers:
+Each case combines two layers:
 
 - Final-result checks:
-  Final answer requirements or `LLM-as-judge` rubric evaluation.
+  Every case must define a `success_rubric`, and final-answer scoring is always `LLM-as-judge`.
 - Process checks:
   Stable contract checks such as evidence count, required tool names, plan presence, todo presence, and execution completion ratio.
 
@@ -35,11 +35,9 @@ Fixtures live in JSONL and each row must include:
 - `id`
 - `category`
 - `prompt`
-- At least one success contract:
-  - `expected_answer_all_of`
-  - `expected_answer_any_of`
-  - `forbidden_answer_any_of`
-  - `success_rubric`
+- `success_rubric`
+
+Keyword-matching fields such as `expected_answer_all_of`, `expected_answer_any_of`, and `forbidden_answer_any_of` are rejected. The goal is to evaluate task completion with a rubric, not string overlap.
 
 Optional stable process constraints:
 
@@ -58,7 +56,7 @@ Example:
   "id": "hybrid_research_001",
   "category": "hybrid_research",
   "prompt": "请结合当前项目文档和联网检索，评估 Self-RAG 是否适合纳入本项目后续路线。",
-  "expected_answer_all_of": ["项目文档", "最新进展", "建议"],
+  "success_rubric": "Answer should combine current project evidence with recent web findings, weigh adoption benefits versus engineering cost or risk, and finish with a concrete roadmap recommendation such as adopt, defer, or pilot.",
   "requires_evidence": true,
   "min_evidence_count": 2,
   "require_plan": true,
@@ -76,7 +74,7 @@ Local baseline:
 make eval-baseline
 ```
 
-With `LLM-as-judge`:
+Override judge model settings if needed:
 
 ```bash
 make eval-baseline-judge \
@@ -84,7 +82,7 @@ make eval-baseline-judge \
   JUDGE_BASE_URL="<optional-openai-compatible-base-url>"
 ```
 
-The judge path uses `agentevals` trajectory `LLM-as-judge`.
+The baseline runner now loads `.env` by default and always builds the judge.
 
 Small real smoke run:
 
@@ -96,20 +94,15 @@ make eval-live-smoke \
 
 This path uses the real PaperSage runtime entrypoints with local paper fixtures and a live LLM. Keep it to one or two cases because it is intentionally slower and may exercise real web/tool latency.
 
-Project-only smoke run without judge and with a tighter per-request timeout:
-
-```bash
-make eval-live-smoke-no-judge \
-  EVAL_CASE_ID=project_rag_fact_001 \
-  EVAL_LIMIT=1 \
-  AGENT_LLM_REQUEST_TIMEOUT=45
-```
-
 Default variables:
 
 - `EVAL_ENV_FILE=/home/ling/LLM_App_Final/.env`
 - `EVAL_FIXTURE=tests/evals/fixtures/agent_task_eval_set_v1.jsonl`
 - `EVAL_LIMIT=1`
+
+## Judge Behavior
+
+`build_trajectory_llm_as_judge` now passes both the case `prompt` and `success_rubric` into the judge prompt. This avoids the previous failure mode where the judge only saw the raw trajectory or output messages without the actual task-specific success criteria.
 
 ## Report Fields
 
@@ -136,7 +129,7 @@ Case-level fields include:
 Use `feedback.remediation_area` to decide the next move:
 
 - `prompt`
-  The answer contract was not satisfied, or planning instructions were too weak.
+  The rubric judged the final answer as incomplete, incorrect, or insufficiently grounded.
 - `retrieval/tooling`
   The turn did not gather enough evidence or failed to use the required stable tools.
 - `architecture`
