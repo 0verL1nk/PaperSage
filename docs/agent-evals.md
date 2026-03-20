@@ -39,6 +39,8 @@ Fixtures live in JSONL and each row must include:
 
 Keyword-matching fields such as `expected_answer_all_of`, `expected_answer_any_of`, and `forbidden_answer_any_of` are rejected. The goal is to evaluate task completion with a rubric, not string overlap.
 
+The default fixture is no longer a toy set. It now mixes project-only questions, project-gap and boundary checks, web-only recency/tradeoff questions, and hybrid roadmap-decision cases such as rollout, guardrails, and defer-or-adopt judgments.
+
 Optional stable process constraints:
 
 - `requires_evidence`
