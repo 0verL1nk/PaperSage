@@ -9,8 +9,9 @@ from uuid import uuid4
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+from .capabilities import build_profile_tools
 from .profiles import AgentProfile
-from .runtime_agent import build_runtime_tools, create_runtime_agent
+from .runtime_agent import create_runtime_agent
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +67,7 @@ def create_agent_session(
         scope_summary=options.scope_summary,
     )
 
-    tools = build_runtime_tools(
-        search_document_fn=deps.search_document_fn,
-        search_document_evidence_fn=deps.search_document_evidence_fn,
-        read_document_fn=deps.read_document_fn,
-        list_documents_fn=deps.list_documents_fn,
-    )
+    tools = build_profile_tools(profile, deps)
     tool_specs = _build_tool_specs(tools)
     thread_id = _resolve_thread_id(deps)
     checkpointer = _build_checkpointer()

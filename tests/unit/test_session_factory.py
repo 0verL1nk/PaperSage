@@ -31,8 +31,8 @@ def test_create_agent_session_uses_profile_prompt_builder_and_runtime_builder(mo
         return {"name": "fake-agent"}
 
     monkeypatch.setattr(
-        "agent.session_factory.build_runtime_tools",
-        lambda **_kwargs: [_FakeTool()],
+        "agent.session_factory.build_profile_tools",
+        lambda *_args, **_kwargs: [_FakeTool()],
     )
     monkeypatch.setattr(
         "agent.session_factory.create_runtime_agent",
@@ -79,8 +79,8 @@ def test_create_agent_session_tool_specs_default_manifest(monkeypatch):
 
     monkeypatch.delenv("AGENT_TOOL_SCHEMA_LEVEL", raising=False)
     monkeypatch.setattr(
-        "agent.session_factory.build_runtime_tools",
-        lambda **_kwargs: [_FakeTool()],
+        "agent.session_factory.build_profile_tools",
+        lambda *_args, **_kwargs: [_FakeTool()],
     )
     monkeypatch.setattr(
         "agent.session_factory.create_runtime_agent",
@@ -114,8 +114,8 @@ def test_create_agent_session_tool_specs_full_schema(monkeypatch):
 
     monkeypatch.setenv("AGENT_TOOL_SCHEMA_LEVEL", "full")
     monkeypatch.setattr(
-        "agent.session_factory.build_runtime_tools",
-        lambda **_kwargs: [_FakeTool()],
+        "agent.session_factory.build_profile_tools",
+        lambda *_args, **_kwargs: [_FakeTool()],
     )
     monkeypatch.setattr(
         "agent.session_factory.create_runtime_agent",
@@ -135,3 +135,49 @@ def test_create_agent_session_tool_specs_full_schema(monkeypatch):
     assert session.tool_specs
     assert '"properties"' in session.tool_specs[0]["args_schema"]
     assert session.tool_specs[0]["schema_level"] == "full"
+
+
+
+def test_create_agent_session_builds_tools_from_profile_capabilities(monkeypatch):
+    captured = {}
+
+    def fake_build_profile_tools(profile, deps):
+        captured["profile_name"] = profile.name
+        captured["deps"] = deps
+        return [type("Tool", (), {"name": "search_document", "description": "desc"})()]
+
+    monkeypatch.setattr("agent.session_factory.build_profile_tools", fake_build_profile_tools)
+    monkeypatch.setattr(
+        "agent.session_factory.create_runtime_agent",
+        lambda **kwargs: {"name": "fake-agent", "tools": kwargs["tools"]},
+    )
+
+    profile = AgentProfile(
+        name="worker_profile",
+        description="desc",
+        prompt_builder=lambda **_kwargs: "PROMPT",
+        capability_ids=("document_pack", "skill_pack"),
+    )
+
+    session = create_agent_session(
+        profile=profile,
+        deps=AgentDependencies(search_document_fn=lambda q: q),
+        options=AgentRuntimeOptions(llm="fake-llm"),
+    )
+
+    assert captured["profile_name"] == "worker_profile"
+    assert session.agent["tools"][0].name == "search_document"
+
+
+def test_paper_leader_profile_prompt_builder_includes_leader_guidance():
+    from agent.profiles import paper_leader_profile
+
+    prompt = paper_leader_profile.prompt_builder(
+        document_name="文档A",
+        project_name="项目A",
+        scope_summary="范围A",
+    )
+
+    assert "当前对话项目：项目A" in prompt
+    assert "你负责调度与最终回答" in prompt
+    assert "你决定是否需要团队分工" in prompt

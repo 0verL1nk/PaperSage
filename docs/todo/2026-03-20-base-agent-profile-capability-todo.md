@@ -47,17 +47,17 @@
 
 ### Todo
 
-- [ ] 新增 `agent/prompts/base.py`
-- [ ] 提取通用基础约束
-- [ ] 新增 `agent/prompts/paper_domain.py`
-- [ ] 提取论文阅读 / 文档问答领域约束
-- [ ] 新增 `agent/prompts/leader.py`
-- [ ] 定义 leader 的角色增量 prompt
-- [ ] 新增 `agent/prompts/worker.py`
-- [ ] 定义 worker 的角色增量 prompt
-- [ ] 新增 `agent/prompts/reviewer.py`
-- [ ] 定义 reviewer 的角色增量 prompt
-- [ ] 在 profile 中接入 prompt builder，而不是直接内联超长字符串
+- [x] 新增 `agent/prompts/base.py`
+- [x] 提取通用基础约束
+- [x] 新增 `agent/prompts/paper_domain.py`
+- [x] 提取论文阅读 / 文档问答领域约束
+- [x] 新增 `agent/prompts/leader.py`
+- [x] 定义 leader 的角色增量 prompt
+- [x] 新增 `agent/prompts/worker.py`
+- [x] 定义 worker 的角色增量 prompt
+- [x] 新增 `agent/prompts/reviewer.py`
+- [x] 定义 reviewer 的角色增量 prompt
+- [x] 在 profile 中接入 prompt builder，而不是直接内联超长字符串
 
 ### 验收
 
@@ -75,17 +75,17 @@
 
 ### Todo
 
-- [ ] 新增 `agent/capabilities/document.py`
-- [ ] 封装 `search_document`、`read_document`、`list_document` 的装配逻辑
-- [ ] 新增 `agent/capabilities/planning.py`
-- [ ] 封装 plan / todos / scheduler hint 的装配逻辑
-- [ ] 新增 `agent/capabilities/team.py`
-- [ ] 封装 team tools 的装配逻辑
-- [ ] 新增 `agent/capabilities/skill.py`
-- [ ] 封装 `use_skill` 相关装配逻辑
-- [ ] 视情况新增 `agent/capabilities/web.py`
-- [ ] 让 profile 通过 capability id 列表决定工具集合
-- [ ] 避免在 leader 和 worker 之间显式传递 tool 列表
+- [x] 新增 `agent/capabilities/document.py`
+- [x] 封装 `search_document`、`read_document`、`list_document` 的装配逻辑
+- [x] 新增 `agent/capabilities/planning.py`
+- [x] 封装 plan / todos / scheduler hint 的装配逻辑
+- [x] 新增 `agent/capabilities/team.py`
+- [x] 封装 team tools 的装配逻辑
+- [x] 新增 `agent/capabilities/skill.py`
+- [x] 封装 `use_skill` 相关装配逻辑
+- [x] 视情况新增 `agent/capabilities/web.py`
+- [x] 让 profile 通过 capability id 列表决定工具集合
+- [x] 避免在 leader 和 worker 之间显式传递 tool 列表
 
 ### 验收
 
@@ -127,11 +127,11 @@
 
 ### Todo
 
-- [ ] 在 `agent/profiles.py` 中新增 `paper_worker_profile`
-- [ ] 在 `agent/profiles.py` 中新增 `reviewer_profile`
+- [x] 在 `agent/profiles.py` 中新增 `paper_worker_profile`
+- [x] 在 `agent/profiles.py` 中新增 `reviewer_profile`
 - [ ] 如有需要新增 `researcher_profile`
-- [ ] 为不同 profile 定义 capability pack 组合
-- [ ] 为不同 profile 定义 prompt builder
+- [x] 为不同 profile 定义 capability pack 组合
+- [x] 为不同 profile 定义 prompt builder
 - [ ] 明确每个 profile 的运行约束和输出格式
 
 ### 验收
