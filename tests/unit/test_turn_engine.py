@@ -161,6 +161,45 @@ def test_execute_turn_core_does_not_count_tool_result_evidence_without_answer_ci
     assert result["evidence_items"] == []
 
 
+def test_execute_turn_core_infers_final_phase_from_answer_without_final_event():
+    from types import SimpleNamespace
+
+    class _Agent:
+        def invoke(self, payload, config=None):
+            assert payload["messages"][0]["content"] == "请总结"
+            if isinstance(config, dict):
+                configurable = config.get("configurable")
+                if isinstance(configurable, dict):
+                    on_event = configurable.get("on_event")
+                    if callable(on_event):
+                        on_event(
+                            {
+                                "sender": "leader",
+                                "receiver": "leader",
+                                "performative": "unknown_internal_phase",
+                                "content": "处理中",
+                            }
+                        )
+            return {
+                "messages": [
+                    SimpleNamespace(
+                        content="最终回答",
+                        tool_calls=[],
+                    )
+                ]
+            }
+
+    result = execute_turn_core(
+        prompt="请总结",
+        hinted_prompt="请总结",
+        leader_agent=_Agent(),
+        leader_runtime_config={},
+    )
+
+    assert result["answer"] == "最终回答"
+    assert result["phase_path"].endswith("输出最终答案")
+
+
 def test_maybe_to_dict_handles_none_and_noncallable_values():
     assert _maybe_to_dict(None) is None
     assert _maybe_to_dict({"x": 1}) == {"x": 1}

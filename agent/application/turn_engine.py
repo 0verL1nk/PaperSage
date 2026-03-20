@@ -155,6 +155,15 @@ def _maybe_to_dict(payload: Any) -> dict[str, Any] | None:
     return result
 
 
+def _stable_phase_path(*, phase_labels: list[str], answer: str, messages: list[Any]) -> str:
+    normalized_labels = list(phase_labels)
+    if (answer.strip() or messages) and (
+        not normalized_labels or normalized_labels[-1] != "输出最终答案"
+    ):
+        normalized_labels.append("输出最终答案")
+    return phase_summary(normalized_labels)
+
+
 def extract_evidence_chunk_ids(answer: str) -> list[str]:
     """从 answer 中提取所有 <evidence> 标签中的 chunk_id。
 
@@ -297,7 +306,7 @@ def execute_turn_core(
     method_compare_data = parse_method_compare_payload(answer)
     mindmap_data = try_parse_mindmap(answer)
     run_latency_ms = (time.perf_counter() - run_started) * 1000.0
-    phase_path = phase_summary(phase_labels)
+    phase_path = _stable_phase_path(phase_labels=phase_labels, answer=answer, messages=messages)
 
     # 从 result 中提取 middleware 添加的 state
     todos = result.get("todos", []) if isinstance(result, dict) else []
