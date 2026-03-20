@@ -7,7 +7,8 @@ def test_build_system_prompt_does_not_raise():
         project_name="测试项目",
         scope_summary="测试范围",
     )
-    assert "你是专业论文问答 Agent" in result
+    assert "你是通用智能 Agent" in result
+    assert "你正在处理论文阅读与文档问答任务" in result
     assert "测试文档" in result
     assert "测试项目" in result
     assert "<mindmap>{" in result
