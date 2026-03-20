@@ -23,6 +23,16 @@ from .tool_selector import build_tool_selector_middleware
 from .trace import TraceMiddleware
 from .turn_context import turn_context_middleware
 
+_RUNTIME_MIDDLEWARE_IDS = (
+    "trace",
+    "llm_logger",
+    "orchestration",
+    "subagent",
+    "team",
+    "todolist",
+    "plan",
+)
+
 
 def _build_runtime_subagent_specs(model: Any) -> list[SubAgent | CompiledSubAgent]:
     """Expand file-based subagent configs to the fully-specified deepagents shape."""
@@ -41,30 +51,28 @@ def _build_runtime_subagent_specs(model: Any) -> list[SubAgent | CompiledSubAgen
     return subagent_specs
 
 
+def _is_enabled(profile: Any | None, middleware_id: str) -> bool:
+    if profile is None:
+        return middleware_id in _RUNTIME_MIDDLEWARE_IDS
+    return middleware_id in set(getattr(profile, "middleware_ids", ()))
+
+
 def build_middleware_list(
     model: Any,
+    profile: Any | None = None,
+    deps: Any | None = None,
     enable_auto_summarization: bool = True,
     enable_tool_selector: bool = True,
 ) -> list[AgentMiddleware[Any, Any, Any]]:
-    """Build complete middleware list for agent runtime.
-
-    Args:
-        model: The model to use for middleware that require it.
-        enable_auto_summarization: Whether to enable auto summarization.
-        enable_tool_selector: Whether to enable LLM tool selector (requires JSON mode support).
-
-    Returns:
-        List of configured middleware instances.
-    """
+    """Build complete middleware list for agent runtime."""
     middleware_list: list[AgentMiddleware[Any, Any, Any]] = []
 
-    # Trace middleware (first to record all middleware execution)
-    middleware_list.append(TraceMiddleware())
+    if _is_enabled(profile, "trace"):
+        middleware_list.append(TraceMiddleware())
 
-    # LLM logger middleware (logs complete LLM input/output)
-    middleware_list.append(llm_logger_middleware)
+    if _is_enabled(profile, "llm_logger"):
+        middleware_list.append(llm_logger_middleware)
 
-    # Model retry middleware (handles rate limits with exponential backoff)
     middleware_list.append(
         ModelRetryMiddleware(
             max_retries=3,
@@ -76,47 +84,44 @@ def build_middleware_list(
         )
     )
 
-    # Dynamic per-turn system context injection
     middleware_list.append(turn_context_middleware)
 
-    # Orchestration middleware (for complex task guidance)
-    middleware_list.append(OrchestrationMiddleware(llm=model))
+    if _is_enabled(profile, "orchestration"):
+        middleware_list.append(OrchestrationMiddleware(llm=model))
 
     # Enforce strict tagged JSON contract for mindmap outputs.
     middleware_list.append(mindmap_format_middleware)
 
-    # SubAgent middleware (provides task tool for spawning subagents)
-    subagent_specs = _build_runtime_subagent_specs(model)
-    if subagent_specs:
+    if _is_enabled(profile, "subagent"):
+        subagent_specs = _build_runtime_subagent_specs(model)
+        if subagent_specs:
+            middleware_list.append(
+                SubAgentMiddleware(
+                    backend=StateBackend,
+                    subagents=subagent_specs,
+                )
+            )
+
+    if _is_enabled(profile, "team"):
+        middleware_list.append(TeamMiddleware(default_model=model, dependencies=deps))
+
+    if _is_enabled(profile, "todolist"):
+        middleware_list.append(todolist_middleware)
+
+    if _is_enabled(profile, "plan"):
+        middleware_list.append(plan_middleware)
+
+    if enable_tool_selector:
+        middleware_list.append(build_tool_selector_middleware(model))
+
+    if enable_auto_summarization:
         middleware_list.append(
-            SubAgentMiddleware(
-                backend=StateBackend,
-                subagents=subagent_specs,
+            SummarizationMiddleware(
+                model=model,
+                trigger=[("fraction", 0.55)],
+                keep=("messages", 20),
             )
         )
-
-    # Team middleware (provides team management tools)
-    middleware_list.append(TeamMiddleware(default_model=model))
-
-    # Enhanced TodoList middleware (supports dependencies)
-    middleware_list.append(todolist_middleware)
-
-    # Plan middleware (extends state to support plan field)
-    middleware_list.append(plan_middleware)
-
-    # LLM Tool Selector middleware (requires JSON mode support)
-    if enable_tool_selector:
-        tool_selector = build_tool_selector_middleware(model)
-        middleware_list.append(tool_selector)
-
-    # Auto summarization middleware
-    if enable_auto_summarization:
-        summarization_middleware = SummarizationMiddleware(
-            model=model,
-            trigger=[("fraction", 0.55)],
-            keep=("messages", 20),
-        )
-        middleware_list.append(summarization_middleware)
 
     return middleware_list
 

@@ -35,6 +35,7 @@ class AgentRuntimeOptions:
     scope_summary: str | None = None
     system_prompt: str | None = None
     enable_tool_selector: bool | None = None
+    thread_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,7 @@ def create_agent_session(
 
     tools = build_profile_tools(profile, deps)
     tool_specs = _build_tool_specs(tools)
-    thread_id = _resolve_thread_id(deps)
+    thread_id = _resolve_thread_id(deps, explicit_thread_id=options.thread_id)
     checkpointer = _build_checkpointer()
     enable_tool_selector = _resolve_enable_tool_selector(options.enable_tool_selector)
 
@@ -79,6 +80,8 @@ def create_agent_session(
         system_prompt=final_system_prompt,
         checkpointer=checkpointer,
         enable_tool_selector=enable_tool_selector,
+        profile=profile,
+        deps=deps,
     )
     logger.info(
         "Created agent session: profile=%s thread_id=%s tools=%s",
@@ -94,7 +97,10 @@ def create_agent_session(
     )
 
 
-def _resolve_thread_id(deps: AgentDependencies) -> str:
+def _resolve_thread_id(deps: AgentDependencies, *, explicit_thread_id: str | None = None) -> str:
+    if explicit_thread_id:
+        return explicit_thread_id
+
     thread_id = f"paper-qa-{uuid4().hex}"
     if deps.project_uid and deps.session_uid and deps.user_uuid:
         from .adapters import get_or_create_thread_id_for_session

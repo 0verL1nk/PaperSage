@@ -56,3 +56,33 @@ paper_reviewer_profile = AgentProfile(
     allow_global_planning=False,
     allow_web=False,
 )
+
+
+PROFILE_REGISTRY: dict[str, AgentProfile] = {
+    profile.name: profile
+    for profile in (
+        paper_leader_profile,
+        paper_worker_profile,
+        paper_reviewer_profile,
+    )
+}
+
+PROFILE_ALIASES: dict[str, str] = {
+    "leader": paper_leader_profile.name,
+    "teammate": paper_worker_profile.name,
+    "worker": paper_worker_profile.name,
+    "reviewer": paper_reviewer_profile.name,
+}
+
+
+def resolve_agent_profile(name: str) -> AgentProfile:
+    normalized_name = str(name or "").strip().lower()
+    if not normalized_name:
+        raise ValueError("Profile name is required")
+
+    profile_name = PROFILE_ALIASES.get(normalized_name, normalized_name)
+    profile = PROFILE_REGISTRY.get(profile_name)
+    if profile is None:
+        available = ", ".join(sorted(PROFILE_ALIASES))
+        raise ValueError(f"Unknown profile/role '{name}'. Available roles: {available}")
+    return profile

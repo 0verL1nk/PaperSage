@@ -62,8 +62,8 @@
 ### 验收
 
 - [ ] base/domain 内容语义与当前主 prompt 保持一致
-- [ ] leader prompt 明确对话 ownership 与调度责任
-- [ ] worker prompt 明确“不接管用户对话、不创建下级 agent”
+- [x] leader prompt 明确对话 ownership 与调度责任
+- [x] worker prompt 明确“不接管用户对话、不创建下级 agent”
 
 ---
 
@@ -104,18 +104,18 @@
 
 ### Todo
 
-- [ ] 盘点 `agent/middlewares/builder.py` 当前默认挂载的 middleware
-- [ ] 区分 base middleware 与 role-specific middleware
-- [ ] 把 team middleware 调整为仅 leader profile 挂载
-- [ ] 评估 plan / todolist middleware 是否仅 leader 挂载
-- [ ] 保留 trace / llm logger / retry 等基础 middleware 给所有 profile
+- [x] 盘点 `agent/middlewares/builder.py` 当前默认挂载的 middleware
+- [x] 区分 base middleware 与 role-specific middleware
+- [x] 把 team middleware 调整为仅 leader profile 挂载
+- [x] 评估 plan / todolist middleware 是否仅 leader 挂载
+- [x] 保留 trace / llm logger / retry 等基础 middleware 给所有 profile
 - [ ] 明确 orchestration middleware 在 leader 与 worker 上的行为差异
 
 ### 验收
 
-- [ ] worker 默认没有 team middleware 暴露的工具
-- [ ] worker 不会被注入 leader 导向的调度提示
-- [ ] leader 仍能获得 handoff / scheduler convenience
+- [x] worker 默认没有 team middleware 暴露的工具
+- [x] worker 不会被注入 leader 导向的调度提示
+- [x] leader 仍能获得 handoff / scheduler convenience
 
 ---
 
@@ -136,9 +136,9 @@
 
 ### 验收
 
-- [ ] leader 拥有 team/planning/document 等能力
-- [ ] worker 只有执行任务所需的最小能力
-- [ ] reviewer 聚焦 review，不拥有 team/global planning 权限
+- [x] leader 拥有 team/planning/document 等能力
+- [x] worker 只有执行任务所需的最小能力
+- [x] reviewer 聚焦 review，不拥有 team/global planning 权限
 
 ---
 
@@ -150,19 +150,19 @@
 
 ### Todo
 
-- [ ] 审视 `agent/tools/team.py` 当前 `spawn_agent(name, system_prompt)` 接口
-- [ ] 设计新的 spawn 输入结构，至少包含 `profile` 或 `role`
-- [ ] 让 team runtime 通过 profile 创建子 agent session
-- [ ] 保持 worker 使用独立 `thread_id`
-- [ ] 确保 worker 默认 `tools=[]` 的旧策略升级为“按 worker profile 装配”，而不是彻底无工具
-- [ ] 避免 worker 获取 team pack
-- [ ] 让 `send_message / get_agent_result / close_agent` 仍兼容当前 team runtime
+- [x] 审视 `agent/tools/team.py` 当前 `spawn_agent(name, system_prompt)` 接口
+- [x] 设计新的 spawn 输入结构，至少包含 `profile` 或 `role`
+- [x] 让 team runtime 通过 profile 创建子 agent session
+- [x] 保持 worker 使用独立 `thread_id`
+- [x] 确保 worker 默认 `tools=[]` 的旧策略升级为“按 worker profile 装配”，而不是彻底无工具
+- [x] 避免 worker 获取 team pack
+- [x] 让 `send_message / get_agent_result / close_agent` 仍兼容当前 team runtime
 
 ### 验收
 
-- [ ] `spawn_agent` 生成的 worker 是独立 session 实例
-- [ ] worker 具备最小执行能力，而不是空壳
-- [ ] worker 无法继续递归分派 teammate
+- [x] `spawn_agent` 生成的 worker 是独立 session 实例
+- [x] worker 具备最小执行能力，而不是空壳
+- [x] worker 无法继续递归分派 teammate
 
 ---
 
@@ -215,15 +215,15 @@
 ### 单元测试
 
 - [ ] `session_factory` 创建不同 profile 时工具集合正确
-- [ ] leader profile 包含 team pack
-- [ ] worker/reviewer profile 不包含 team pack
-- [ ] prompt 分层合并结果正确
+- [x] leader profile 包含 team pack
+- [x] worker/reviewer profile 不包含 team pack
+- [x] prompt 分层合并结果正确
 - [ ] worker result schema 正常
 - [ ] document 防重复搜索策略有回归测试
 
 ### 集成测试
 
-- [ ] leader 创建 worker 后使用独立 thread
+- [x] leader 创建 worker 后使用独立 thread
 - [ ] worker 无法调用 team tools
 - [ ] leader 能读取 worker 结构化结果
 - [ ] 当前 `turn_engine` 不回归

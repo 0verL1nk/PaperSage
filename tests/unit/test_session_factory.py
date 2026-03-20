@@ -181,3 +181,37 @@ def test_paper_leader_profile_prompt_builder_includes_leader_guidance():
     assert "当前对话项目：项目A" in prompt
     assert "你负责调度与最终回答" in prompt
     assert "你决定是否需要团队分工" in prompt
+
+
+def test_create_agent_session_passes_profile_and_explicit_thread_id_to_runtime_builder(monkeypatch):
+    captured = {}
+
+    profile = AgentProfile(
+        name="test_profile",
+        description="desc",
+        prompt_builder=lambda **_kwargs: "PROMPT",
+    )
+
+    monkeypatch.setattr(
+        "agent.session_factory.build_profile_tools",
+        lambda *_args, **_kwargs: [],
+    )
+
+    def fake_create_runtime_agent(*, model, tools, system_prompt, **kwargs):
+        captured["model"] = model
+        captured["tools"] = tools
+        captured["system_prompt"] = system_prompt
+        captured["kwargs"] = kwargs
+        return {"name": "fake-agent"}
+
+    monkeypatch.setattr("agent.session_factory.create_runtime_agent", fake_create_runtime_agent)
+
+    session = create_agent_session(
+        profile=profile,
+        deps=AgentDependencies(search_document_fn=lambda query: query),
+        options=AgentRuntimeOptions(llm="fake-llm", thread_id="team:thread-1"),
+    )
+
+    assert session.thread_id == "team:thread-1"
+    assert captured["kwargs"]["profile"] is profile
+    assert captured["kwargs"]["deps"].search_document_fn("ok") == "ok"

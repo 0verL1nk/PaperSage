@@ -35,9 +35,11 @@ class AgentInstance:
     model: Any
     system_prompt: str
     tools: list[Any]
-    agent: Any  # 实际的 agent 对象
+    agent: Any
     state: AgentState
     result_file: Path
+    profile_name: str = ""
+    thread_id: str = ""
     future: Future[str] | None = None
 
 
@@ -62,19 +64,44 @@ class TeamRuntime:
         name: str,
         model: Any,
         system_prompt: str,
-        tools: list[Any],
+        tools: list[Any] | None = None,
+        *,
+        profile: Any | None = None,
+        deps: Any | None = None,
     ) -> str:
         """创建新的 agent 实例"""
-        from ..runtime_agent import create_runtime_agent
-
         agent_id = str(uuid.uuid4())
         result_file = self.result_dir / f"{agent_id}.result.txt"
+        thread_id = f"team:{self.team_id}:{agent_id}"
+        tools = list(tools or [])
+        profile_name = ""
 
-        agent = create_runtime_agent(
-            model=model,
-            system_prompt=system_prompt,
-            tools=tools,
-        )
+        if profile is None:
+            from ..runtime_agent import create_runtime_agent
+
+            agent = create_runtime_agent(
+                model=model,
+                system_prompt=system_prompt,
+                tools=tools,
+            )
+        else:
+            if deps is None:
+                raise ValueError("Profile-based team agent requires runtime dependencies")
+
+            from ..session_factory import AgentRuntimeOptions, create_agent_session
+
+            session = create_agent_session(
+                profile=profile,
+                deps=deps,
+                options=AgentRuntimeOptions(
+                    llm=model,
+                    system_prompt=(system_prompt or None),
+                    thread_id=thread_id,
+                ),
+            )
+            agent = session.agent
+            profile_name = session.profile_name
+            thread_id = session.thread_id
 
         instance = AgentInstance(
             agent_id=agent_id,
@@ -85,10 +112,12 @@ class TeamRuntime:
             agent=agent,
             state=AgentState.IDLE,
             result_file=result_file,
+            profile_name=profile_name,
+            thread_id=thread_id,
         )
 
         self.agents[agent_id] = instance
-        logger.info(f"Spawned agent {agent_id} ({name})")
+        logger.info("Spawned agent %s (%s) profile=%s thread_id=%s", agent_id, name, profile_name or "runtime", thread_id)
         return agent_id
 
     def send_message(self, agent_id: str, message: str) -> None:
@@ -113,7 +142,7 @@ class TeamRuntime:
         try:
             result = instance.agent.invoke(
                 {"messages": [{"role": "user", "content": message}]},
-                config={"configurable": {"thread_id": f"team:{self.team_id}:{instance.agent_id}"}},
+                config={"configurable": {"thread_id": instance.thread_id}},
             )
 
             answer = ""
@@ -160,6 +189,8 @@ class TeamRuntime:
                 "agent_id": instance.agent_id,
                 "name": instance.name,
                 "state": instance.state.value,
+                "profile_name": instance.profile_name,
+                "thread_id": instance.thread_id,
             }
             for instance in self.agents.values()
         ]
