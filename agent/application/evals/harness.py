@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..contracts import TurnCoreResult
 from ..turn_engine import execute_turn_core
 from .contracts import AgentEvalCase, FinalAnswerJudge
 from .reporting import build_eval_report
@@ -19,7 +20,7 @@ class ExecuteTurnEvalRunner:
     leader_tool_specs: list[dict[str, Any]] = field(default_factory=list)
     routing_context: str = ""
 
-    def __call__(self, case: AgentEvalCase) -> dict[str, Any]:
+    def __call__(self, case: AgentEvalCase) -> TurnCoreResult:
         return execute_turn_core(
             prompt=case.prompt,
             hinted_prompt=case.prompt,

@@ -106,11 +106,8 @@ def normalize_turn_result(turn_result: dict[str, Any]) -> dict[str, Any]:
     phase_path = str(turn_result.get("phase_path") or "").strip()
     trace_payload = turn_result.get("trace_payload")
     normalized_trace = trace_payload if isinstance(trace_payload, list) else []
-    output_messages = (
-        turn_result.get("output_messages")
-        if isinstance(turn_result.get("output_messages"), list)
-        else []
-    )
+    raw_output_messages = turn_result.get("output_messages")
+    output_messages: list[Any] = raw_output_messages if isinstance(raw_output_messages, list) else []
     used_tool_names: list[str] = []
     for item in output_messages:
         tool_calls = getattr(item, "tool_calls", None)
