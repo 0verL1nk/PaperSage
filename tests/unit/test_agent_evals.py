@@ -563,6 +563,87 @@ def test_evaluate_case_result_treats_zero_progress_todos_as_unavailable_signal()
     assert result["process_checks"]["ratio_passed"] is True
 
 
+def test_evaluate_case_result_treats_malformed_completed_step_ids_as_unavailable_signal() -> None:
+    case = AgentEvalCase.from_dict(
+        {
+            "id": "todos_runtime_malformed_001",
+            "category": "multi_step",
+            "prompt": "请按步骤完成任务",
+            "success_rubric": "Answer should confirm the task is finished.",
+            "require_plan": True,
+            "min_execution_completion_ratio": 1.0,
+        }
+    )
+
+    turn_result = {
+        "answer": "任务完成",
+        "runtime_state": {
+            "current_plan": {"steps": [{"id": "s1"}, {"id": "s2"}]},
+            "completed_step_ids": "s1,s2",
+        },
+        "phase_path": "处理中 -> 输出最终答案",
+        "trace_payload": [],
+        "run_latency_ms": 5.0,
+    }
+
+    result = evaluate_case_result(
+        case,
+        turn_result,
+        judge=lambda *_args, **_kwargs: FinalAnswerJudgeResult(
+            passed=True,
+            score=0.9,
+            reasoning="done",
+        ),
+    )
+
+    assert result["completed"] is True
+    assert result["execution_completion_ratio"] is None
+    assert result["process_checks"]["ratio_passed"] is True
+
+
+def test_evaluate_case_result_extracts_required_tool_names_from_dict_messages() -> None:
+    case = AgentEvalCase.from_dict(
+        {
+            "id": "tool_names_dict_001",
+            "category": "multi_step",
+            "prompt": "请完成任务",
+            "success_rubric": "Answer should finish the task.",
+            "required_tool_names": ["search_document", "search_web"],
+        }
+    )
+
+    turn_result = {
+        "answer": "任务完成",
+        "output_messages": [
+            {
+                "role": "assistant",
+                "content": "已检索",
+                "tool_calls": [
+                    {"name": "search_document"},
+                    {"name": "search_web"},
+                ],
+            }
+        ],
+        "phase_path": "处理中 -> 输出最终答案",
+        "trace_payload": [],
+        "run_latency_ms": 5.0,
+    }
+
+    result = evaluate_case_result(
+        case,
+        turn_result,
+        judge=lambda *_args, **_kwargs: FinalAnswerJudgeResult(
+            passed=True,
+            score=0.9,
+            reasoning="done",
+        ),
+    )
+
+    assert result["completed"] is True
+    assert result["process_checks"]["tool_names_passed"] is True
+    assert result["process_checks"]["used_tool_names"] == ["search_document", "search_web"]
+
+
 def test_select_eval_cases_supports_case_ids_and_limit() -> None:
     cases = [
         AgentEvalCase.from_dict(

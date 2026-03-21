@@ -58,7 +58,7 @@ def compute_execution_completion_ratio(
             return None
         completed_ids = runtime_state.get("completed_step_ids")
         if not isinstance(completed_ids, list):
-            return 0.0
+            return None
         normalized_completed = {
             str(item).strip() for item in completed_ids if str(item).strip()
         }
@@ -110,7 +110,11 @@ def normalize_turn_result(turn_result: dict[str, Any]) -> dict[str, Any]:
     output_messages: list[Any] = raw_output_messages if isinstance(raw_output_messages, list) else []
     used_tool_names: list[str] = []
     for item in output_messages:
-        tool_calls = getattr(item, "tool_calls", None)
+        tool_calls = (
+            item.get("tool_calls")
+            if isinstance(item, dict)
+            else getattr(item, "tool_calls", None)
+        )
         if not isinstance(tool_calls, list):
             continue
         for tool_call in tool_calls:
