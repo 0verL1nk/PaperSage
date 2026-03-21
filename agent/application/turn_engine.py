@@ -316,6 +316,7 @@ def execute_turn_core(
     if not answer:
         logger.warning("Empty answer from agent execution")
         answer = "抱歉，我暂时没有生成有效回复。"
+    logger.info("TURN_FINAL_ANSWER: %s", answer)
 
     # 从result中提取信息（如果有的话）
     trace_payload = event_logs

@@ -266,6 +266,30 @@ def test_execute_turn_core_sends_raw_user_prompt_and_turn_context() -> None:
     }
 
 
+def test_execute_turn_core_logs_final_answer(caplog) -> None:
+    from unittest.mock import Mock
+
+    mock_agent = Mock()
+    mock_agent.invoke.return_value = {
+        "messages": [
+            Mock(
+                content="最终回答内容",
+                tool_calls=[],
+            )
+        ]
+    }
+
+    with caplog.at_level("INFO"):
+        result = execute_turn_core(
+            prompt="请总结",
+            leader_agent=mock_agent,
+            leader_runtime_config={},
+        )
+
+    assert result["answer"] == "最终回答内容"
+    assert "TURN_FINAL_ANSWER: 最终回答内容" in caplog.text
+
+
 def test_try_parse_mindmap_accepts_extra_text_after_json_inside_tag() -> None:
     answer = """<mindmap>
 {
