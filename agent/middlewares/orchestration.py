@@ -8,6 +8,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
+from pydantic import BaseModel, Field
 
 from .types import AgentState
 
@@ -15,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 # Complexity analysis thresholds
 COMPLEXITY_FALLBACK_LENGTH_THRESHOLD = 200  # Character count threshold for fallback complexity check
+
+
+class ComplexityAnalysisResult(BaseModel):
+    is_complex: bool = Field(description="Whether the task is complex enough to require planning.")
+    needs_team: bool = Field(default=False, description="Whether the task likely needs multi-role collaboration.")
+    reason: str = Field(default="", description="Short explanation for the routing decision.")
 
 
 class OrchestrationMiddleware(AgentMiddleware):
@@ -74,6 +81,58 @@ class OrchestrationMiddleware(AgentMiddleware):
         # Return needs_team flag to state for TeamMiddleware to use
         return {"needs_team": analysis.get("needs_team", False)}
 
+    @staticmethod
+    def _build_complexity_prompt(history_text: str) -> str:
+        return f"""分析以下对话的任务复杂度,判断是否需要使用规划工具或团队协作。
+
+对话历史:
+{history_text}
+
+判断标准:
+- 简单任务: 单一问答、事实查询、简单操作
+- 复杂任务: 多步骤分析、需要规划、需要对比研究
+- 需要团队: 任务需要多个专业角色协作(如研究+审查、前端+后端、分析+验证等)
+
+只返回JSON格式,不要其他内容:
+{{"is_complex": true/false, "needs_team": true/false, "reason": "简短原因"}}"""
+
+    @staticmethod
+    def _coerce_analysis_result(result: Any) -> dict[str, Any]:
+        if isinstance(result, ComplexityAnalysisResult):
+            return result.model_dump()
+        if isinstance(result, BaseModel):
+            payload = result.model_dump()
+        elif isinstance(result, dict):
+            payload = result
+        else:
+            raise TypeError(f"Unexpected complexity analysis result type: {type(result)!r}")
+
+        return ComplexityAnalysisResult.model_validate(payload).model_dump()
+
+    @staticmethod
+    def _extract_last_valid_json_object(response_text: str) -> dict[str, Any]:
+        decoder = json.JSONDecoder()
+        last_valid: dict[str, Any] | None = None
+        for idx, char in enumerate(response_text):
+            if char != "{":
+                continue
+            try:
+                candidate, _ = decoder.raw_decode(response_text[idx:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                last_valid = candidate
+        if last_valid is None:
+            raise ValueError("No valid JSON object found in response")
+        return last_valid
+
+    def _invoke_structured_complexity_analysis(self, llm: Any, prompt: str) -> dict[str, Any] | None:
+        if not hasattr(llm, "with_structured_output"):
+            return None
+        structured_llm = llm.with_structured_output(ComplexityAnalysisResult)
+        result = structured_llm.invoke(prompt)
+        return self._coerce_analysis_result(result)
+
     def _analyze_complexity(self, messages: list[Any], llm: Any, on_event: Any = None) -> dict[str, Any]:
         """Use LLM to analyze task complexity with full context.
 
@@ -99,19 +158,7 @@ class OrchestrationMiddleware(AgentMiddleware):
             history_lines.append(f"{role}: {content}")
 
         history_text = "\n".join(history_lines)
-
-        prompt = f"""分析以下对话的任务复杂度,判断是否需要使用规划工具或团队协作。
-
-对话历史:
-{history_text}
-
-判断标准:
-- 简单任务: 单一问答、事实查询、简单操作
-- 复杂任务: 多步骤分析、需要规划、需要对比研究
-- 需要团队: 任务需要多个专业角色协作(如研究+审查、前端+后端、分析+验证等)
-
-只返回JSON格式,不要其他内容:
-{{"is_complex": true/false, "needs_team": true/false, "reason": "简短原因"}}"""
+        prompt = self._build_complexity_prompt(history_text)
 
         # Emit trace event before analysis
         if callable(on_event):
@@ -125,23 +172,13 @@ class OrchestrationMiddleware(AgentMiddleware):
         max_retries = 2
         for attempt in range(max_retries + 1):
             try:
-                response = llm.invoke(prompt)
-                response_text = response.content if hasattr(response, "content") else str(response)
-
-                # Extract JSON from response (find first { to last })
-                response_text = response_text.strip()
-                start_idx = response_text.find("{")
-                end_idx = response_text.rfind("}")
-                if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
-                    raise ValueError("No valid JSON object found in response")
-                response_text = response_text[start_idx:end_idx + 1]
-
-                result = json.loads(response_text)
-                analysis_result = {
-                    "is_complex": bool(result.get("is_complex", False)),
-                    "needs_team": bool(result.get("needs_team", False)),
-                    "reason": str(result.get("reason", ""))
-                }
+                analysis_result = self._invoke_structured_complexity_analysis(llm, prompt)
+                response_text = ""
+                if analysis_result is None:
+                    response = llm.invoke(prompt)
+                    response_text = response.content if hasattr(response, "content") else str(response)
+                    parsed = self._extract_last_valid_json_object(response_text.strip())
+                    analysis_result = self._coerce_analysis_result(parsed)
 
                 # Emit trace event after analysis
                 if callable(on_event):
@@ -163,6 +200,7 @@ class OrchestrationMiddleware(AgentMiddleware):
         last_content = str(getattr(messages[-1], "content", ""))
         fallback_result = {
             "is_complex": len(last_content) > COMPLEXITY_FALLBACK_LENGTH_THRESHOLD or any(kw in last_content for kw in ["步骤", "规划", "对比", "分析"]),
+            "needs_team": False,
             "reason": "fallback heuristic"
         }
 

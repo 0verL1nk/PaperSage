@@ -29,6 +29,92 @@ def normalize_evidence_items(raw_payload: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _message_content(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("content") or "")
+    return str(getattr(message, "content", "") or "")
+
+
+def _message_name(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("name") or "").strip()
+    return str(getattr(message, "name", "") or "").strip()
+
+
+def _message_role(message: Any) -> str:
+    if isinstance(message, dict):
+        return str(message.get("role") or message.get("type") or "").strip().lower()
+    return str(getattr(message, "type", getattr(message, "role", "")) or "").strip().lower()
+
+
+def _message_tool_calls(message: Any) -> list[dict[str, Any]]:
+    if isinstance(message, dict):
+        tool_calls = message.get("tool_calls")
+    else:
+        tool_calls = getattr(message, "tool_calls", None)
+    if not isinstance(tool_calls, list):
+        return []
+    return [item for item in tool_calls if isinstance(item, dict)]
+
+
+def _parse_tool_json_payload(content: str) -> dict[str, Any] | None:
+    text = str(content or "").strip()
+    if not text:
+        return None
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _extract_search_document_evidence_items(
+    messages: list[Any],
+    *,
+    referenced_chunk_ids: list[str],
+    referenced_doc_uids: list[str],
+) -> list[dict[str, Any]]:
+    referenced_chunks = {item.strip() for item in referenced_chunk_ids if item.strip()}
+    referenced_docs = {item.strip() for item in referenced_doc_uids if item.strip()}
+    if not referenced_chunks and not referenced_docs:
+        return []
+
+    def _matches_reference(item: dict[str, Any]) -> bool:
+        chunk_id = str(item.get("chunk_id", "")).strip()
+        if chunk_id and chunk_id in referenced_chunks:
+            return True
+        doc_uid = str(item.get("doc_uid", "")).strip()
+        if doc_uid and doc_uid in referenced_docs:
+            return True
+        if chunk_id and ":chunk_" in chunk_id:
+            chunk_doc_uid = chunk_id.split(":chunk_", 1)[0].strip()
+            if chunk_doc_uid and chunk_doc_uid in referenced_docs:
+                return True
+        return False
+
+    collected: list[dict[str, Any]] = []
+    for message in messages:
+        if _message_role(message) != "tool" or _message_name(message) != "search_document":
+            continue
+        payload = _parse_tool_json_payload(_message_content(message))
+        if payload is None:
+            continue
+        collected.extend(normalize_evidence_items(payload))
+
+    matched: list[dict[str, Any]] = []
+    seen_chunk_ids: set[str] = set()
+    for item in collected:
+        if not _matches_reference(item):
+            continue
+        chunk_id = str(item.get("chunk_id", "")).strip()
+        if chunk_id and chunk_id in seen_chunk_ids:
+            continue
+        if chunk_id:
+            seen_chunk_ids.add(chunk_id)
+        matched.append(item)
+    return matched
+
+
 def build_search_document_fn(
     search_document_evidence_fn: EvidenceRetriever | None,
 ) -> SearchDocumentFn:
@@ -83,6 +169,8 @@ def try_parse_mindmap(answer: str) -> dict[str, Any] | None:
 def _maybe_to_dict(payload: Any) -> dict[str, Any] | None:
     if payload is None:
         return None
+    if isinstance(payload, dict):
+        return dict(payload)
     to_dict = getattr(payload, "to_dict", None)
     if not callable(to_dict):
         return None
@@ -90,6 +178,15 @@ def _maybe_to_dict(payload: Any) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
     return result
+
+
+def _stable_phase_path(*, phase_labels: list[str], answer: str, messages: list[Any]) -> str:
+    normalized_labels = list(phase_labels)
+    if (answer.strip() or messages) and (
+        not normalized_labels or normalized_labels[-1] != "输出最终答案"
+    ):
+        normalized_labels.append("输出最终答案")
+    return phase_summary(normalized_labels)
 
 
 def extract_evidence_chunk_ids(answer: str) -> list[str]:
@@ -107,6 +204,34 @@ def extract_evidence_chunk_ids(answer: str) -> list[str]:
     )
     matches = pattern.findall(answer)
     return [chunk_id.strip() for chunk_id in matches if chunk_id.strip()]
+
+
+
+def extract_evidence_doc_uids(answer: str) -> list[str]:
+    """从 answer 中提取文档级引用，如 arxiv:2310.11511|p1|o0-10。"""
+    if not isinstance(answer, str):
+        return []
+    import re
+
+    references: set[str] = set()
+    inline_pattern = re.compile(
+        r"(?<![\w/])([A-Za-z0-9_.-]+:[^|\s<>\]]+)(?=\|p\d+)",
+        flags=re.IGNORECASE,
+    )
+    for raw_ref in inline_pattern.findall(answer):
+        ref = raw_ref.strip()
+        if not ref:
+            continue
+        if ":chunk_" in ref:
+            ref = ref.split(":chunk_", 1)[0].strip()
+        if ref:
+            references.add(ref)
+
+    for chunk_id in extract_evidence_chunk_ids(answer):
+        ref = chunk_id.split(":chunk_", 1)[0].strip() if ":chunk_" in chunk_id else chunk_id.strip()
+        if ref:
+            references.add(ref)
+    return sorted(references)
 
 
 def execute_turn_core(
@@ -176,8 +301,10 @@ def execute_turn_core(
 
     # 提取 answer
     answer = ""
+    messages: list[Any] = []
     if isinstance(result, dict):
-        messages = result.get("messages", [])
+        raw_messages = result.get("messages", [])
+        messages = raw_messages if isinstance(raw_messages, list) else []
         if messages:
             last_msg = messages[-1]
             if hasattr(last_msg, "content"):
@@ -196,36 +323,53 @@ def execute_turn_core(
 
     # 检测是否使用了document RAG
     used_document_rag = False
-    if isinstance(result, dict):
-        messages = result.get("messages", [])
-        for msg in messages:
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                for call in msg.tool_calls:
-                    if isinstance(call, dict) and call.get("name") == "search_document":
-                        used_document_rag = True
-                        break
+    for msg in messages:
+        for call in _message_tool_calls(msg):
+            if call.get("name") == "search_document":
+                used_document_rag = True
+                break
+        if used_document_rag:
+            break
 
     # 从 answer 中提取 agent 引用的 chunk_id
     referenced_chunk_ids = extract_evidence_chunk_ids(answer)
+    referenced_doc_uids = extract_evidence_doc_uids(answer)
 
-    evidence_items: list[dict[str, Any]] = []
-    if referenced_chunk_ids and used_document_rag and callable(search_document_evidence_fn):
+    evidence_items = _extract_search_document_evidence_items(
+        messages,
+        referenced_chunk_ids=referenced_chunk_ids,
+        referenced_doc_uids=referenced_doc_uids,
+    )
+    if (
+        not evidence_items
+        and (referenced_chunk_ids or referenced_doc_uids)
+        and used_document_rag
+        and callable(search_document_evidence_fn)
+    ):
         try:
             # 获取所有相关证据
             evidence_payload = search_document_evidence_fn(prompt)
             all_evidence = normalize_evidence_items(evidence_payload)
 
             # 筛选出 agent 实际引用的证据
+            referenced_chunk_set = {item.strip() for item in referenced_chunk_ids if item.strip()}
+            referenced_doc_set = {item.strip() for item in referenced_doc_uids if item.strip()}
             for item in all_evidence:
                 chunk_id = str(item.get("chunk_id", "")).strip()
-                if chunk_id in referenced_chunk_ids:
+                doc_uid = str(item.get("doc_uid", "")).strip()
+                chunk_doc_uid = chunk_id.split(":chunk_", 1)[0].strip() if ":chunk_" in chunk_id else ""
+                if (
+                    chunk_id in referenced_chunk_set
+                    or (doc_uid and doc_uid in referenced_doc_set)
+                    or (chunk_doc_uid and chunk_doc_uid in referenced_doc_set)
+                ):
                     evidence_items.append(item)
         except Exception:
             evidence_items = []
     method_compare_data = parse_method_compare_payload(answer)
     mindmap_data = try_parse_mindmap(answer)
     run_latency_ms = (time.perf_counter() - run_started) * 1000.0
-    phase_path = phase_summary(phase_labels)
+    phase_path = _stable_phase_path(phase_labels=phase_labels, answer=answer, messages=messages)
 
     # 从 result 中提取 middleware 添加的 state
     todos = result.get("todos", []) if isinstance(result, dict) else []
@@ -249,4 +393,5 @@ def execute_turn_core(
         "todos": todos,
         "agent_plan": agent_plan,
         "leader_tool_names": registered_tool_names,
+        "output_messages": messages if isinstance(messages, list) else [],
     }

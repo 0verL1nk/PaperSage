@@ -23,6 +23,7 @@ class TurnCoreResult(TypedDict):
     used_document_rag: bool
     ask_human_requests: list[dict[str, str]]
     leader_tool_names: list[str]
+    output_messages: NotRequired[list[Any]]
     plan: NotRequired[dict[str, Any] | None]
     runtime_state: NotRequired[dict[str, Any] | None]
     todos: NotRequired[list[dict[str, Any]]]

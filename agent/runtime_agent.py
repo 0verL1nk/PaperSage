@@ -8,7 +8,7 @@ from .tools.builder import build_agent_tools
 
 
 def build_runtime_tools(
-    search_document_fn: Callable[[str], str],
+    search_document_fn: Callable[[str], str] | None = None,
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
     read_document_fn: Callable[[int, int], tuple[str, int]] | None = None,
     list_documents_fn: Callable[[], list[dict[str, Any]]] | None = None,
@@ -30,14 +30,12 @@ def create_runtime_agent(
     enable_auto_summarization: bool = True,
     enable_tool_selector: bool = True,
 ) -> Any:
-    # Build middleware list
     middleware_list = build_middleware_list(
         model=model,
         enable_auto_summarization=enable_auto_summarization,
         enable_tool_selector=enable_tool_selector,
     )
 
-    # Collect tools from all middleware
     all_tools = list(tools)
     for middleware in middleware_list:
         if hasattr(middleware, "tools"):
