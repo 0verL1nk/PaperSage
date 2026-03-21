@@ -1668,10 +1668,42 @@ def extract_json_string(text: str) -> str:
     Returns:
         str: 提取出的JSON字符串
     """
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1:
-        return text[start : end + 1]
+    if not isinstance(text, str):
+        return str(text)
+
+    decoder = json.JSONDecoder()
+    lowered = text.lower()
+    for tag_name in ("mindmap", "json"):
+        open_tag = f"<{tag_name}>"
+        close_tag = f"</{tag_name}>"
+        start_idx = 0
+        while True:
+            tag_start = lowered.find(open_tag, start_idx)
+            if tag_start < 0:
+                break
+            content_start = tag_start + len(open_tag)
+            tag_end = lowered.find(close_tag, content_start)
+            if tag_end < 0:
+                break
+            candidate = text[content_start:tag_end].strip()
+            for idx, char in enumerate(candidate):
+                if char != "{":
+                    continue
+                try:
+                    _payload, end = decoder.raw_decode(candidate[idx:])
+                except json.JSONDecodeError:
+                    continue
+                return candidate[idx : idx + end]
+            start_idx = tag_end + len(close_tag)
+
+    for idx, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            _payload, end = decoder.raw_decode(text[idx:])
+        except json.JSONDecodeError:
+            continue
+        return text[idx : idx + end]
     return text
 
 

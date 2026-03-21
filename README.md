@@ -158,9 +158,11 @@ flowchart TB
     I --> L[词项匹配 + 时效分数]
     J --> L
     K --> L
-    F --> M[build_hinted_prompt]
+    G --> M[build_turn_context]
     L --> M
-    M --> N[注入 execute_turn_core]
+    M --> N[configurable.turn_context]
+    N --> O[TurnContextMiddleware]
+    O --> P[动态 system message 注入]
 ```
 
 ---
@@ -392,6 +394,7 @@ make eval-live-smoke EVAL_CASE_ID=hybrid_research_001 EVAL_LIMIT=1
 - process 层仍只检查稳定 contract，例如证据覆盖、计划完成率、显式要求的工具使用。
 - baseline 与 live smoke 默认读取 `EVAL_ENV_FILE=/home/ling/LLM_App_Final/.env`。
 - `build_trajectory_llm_as_judge` 现在会把每个 case 的 `prompt` 与 `success_rubric` 传给 judge，避免只看轨迹不看任务目标。
+- 复杂度路由不再使用关键词启发式兜底；若模型不支持 structured output，会退回文本 JSON 解析，若 LLM 判断不可用则返回 neutral result，不强行注入规划提示。
 - 现有 `tests/evals/run_phase0_router_baseline.py` 仍保留，它只衡量路由行为，不代表任务是否完成。
 - 详细 fixture schema、反馈闭环和报告说明见 [docs/agent-evals.md](docs/agent-evals.md)。
 ---

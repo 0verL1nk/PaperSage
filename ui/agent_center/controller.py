@@ -3,6 +3,28 @@ from logging import Logger
 from typing import Any
 
 
+def resolve_session_selector_uid(
+    *,
+    session_state: MutableMapping[str, Any],
+    selector_key: str,
+    fallback_uid: str,
+    by_uid: dict[str, dict[str, Any]],
+) -> str:
+    value = str(session_state.get(selector_key) or "")
+    if value in by_uid:
+        return value
+    return fallback_uid
+
+
+def override_session_selector_uid(
+    *,
+    session_state: MutableMapping[str, Any],
+    selector_key: str,
+    selected_uid: str,
+) -> None:
+    session_state[selector_key] = str(selected_uid or "")
+
+
 def load_files_from_db(
     *,
     session_state: MutableMapping[str, Any],
@@ -159,6 +181,12 @@ def render_project_session_sidebar(
     )
 
     selector_key = f"agent_project_session_selector_{project_uid}"
+    current_uid = resolve_session_selector_uid(
+        session_state=st.session_state,
+        selector_key=selector_key,
+        fallback_uid=current_uid,
+        by_uid=by_uid,
+    )
     if str(st.session_state.get(selector_key) or "") != current_uid:
         st.session_state[selector_key] = current_uid
     selected_uid = st.selectbox(
@@ -183,12 +211,18 @@ def render_project_session_sidebar(
         use_container_width=True,
     ):
         new_name = f"会话 {len(sessions) + 1}"
-        st.session_state.agent_project_selected_sessions = create_and_select_session_fn(
+        selected_map = create_and_select_session_fn(
             create_session_fn=create_session_fn,
             selected_map=st.session_state.get("agent_project_selected_sessions", {}),
             project_uid=project_uid,
             user_uuid=user_uuid,
             session_name=new_name,
+        )
+        st.session_state.agent_project_selected_sessions = selected_map
+        override_session_selector_uid(
+            session_state=st.session_state,
+            selector_key=selector_key,
+            selected_uid=str(selected_map.get(project_uid) or ""),
         )
         st.rerun()
         return {"session_uid": "", "session_name": ""}
@@ -211,6 +245,11 @@ def render_project_session_sidebar(
             selected_uid=selected_uid,
         )
         st.session_state.agent_project_selected_sessions = selected_map
+        override_session_selector_uid(
+            session_state=st.session_state,
+            selector_key=selector_key,
+            selected_uid=str(selected_map.get(project_uid) or ""),
+        )
         st.rerun()
         return {"session_uid": "", "session_name": ""}
 

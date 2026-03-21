@@ -1,6 +1,6 @@
 from agent.application.agent_center.controller import (
-    build_hinted_prompt,
     build_scope_cache_caption,
+    build_turn_context,
     load_scope_docs_with_text,
     resolve_archive_target,
     resolve_runtime_session_id,
@@ -41,53 +41,36 @@ def test_load_scope_docs_with_text_and_cache_caption():
     assert failed_uid == "d2"
 
 
-def test_build_hinted_prompt_and_runtime_helpers():
+def test_build_turn_context_and_runtime_helpers():
     memories = [{"memory_type": "semantic", "content": "m1"}]
-    hinted = build_hinted_prompt(
+    context = build_turn_context(
         prompt="hello",
-        compact_summary="summary",
         user_uuid="u1",
         project_uid="p1",
         detect_language_fn=lambda _text: "en",
-        with_language_hint_fn=lambda text, _detector: f"{text}::lang",
         search_project_memory_items_fn=lambda **_kwargs: memories,
-        inject_long_term_memory_fn=lambda text, mem: f"{text}::{len(mem)}",
         memory_limit=4,
     )
-    assert hinted.startswith("CTXv1\n")
-    assert "\nI:sys=paper_qa,col=a2a,tools=-,skills=-\n" in hinted
-    assert "\nS:summary\n" in hinted
-    assert "\nM:semantic:m1\n" in hinted
-    assert "\nL:lang\n" in hinted
-    assert hinted.endswith("\nQ:hello")
+    assert context == {
+        "response_language": "en",
+        "memory_items": [{"memory_type": "semantic", "content": "m1"}],
+    }
     assert resolve_runtime_session_id({"configurable": {"thread_id": "tid"}}) == "tid"
     assert resolve_runtime_session_id({}) == "-"
     assert resolve_selected_doc_uid_for_logging([{"uid": "d1"}]) == "d1"
     assert resolve_selected_doc_uid_for_logging([]) == ""
 
 
-def test_build_hinted_prompt_includes_compact_tool_metadata():
-    hinted = build_hinted_prompt(
+def test_build_turn_context_omits_other_language_and_empty_memories():
+    context = build_turn_context(
         prompt="hello",
-        compact_summary="summary",
         user_uuid="u1",
         project_uid="p1",
-        detect_language_fn=lambda _text: "en",
-        with_language_hint_fn=lambda text, _detector: text,
+        detect_language_fn=lambda _text: "other",
         search_project_memory_items_fn=lambda **_kwargs: [],
-        inject_long_term_memory_fn=lambda text, mem: f"{text}::{len(mem)}",
-        tool_specs=[
-            {
-                "name": "start_team",
-                "description": "Request sub-agent team runtime",
-                "args_schema": '{"fields":["goal","reason","roles_hint"]}',
-            }
-        ],
         memory_limit=4,
     )
-
-    assert "tools=start_team:Request sub-agent team runtime" in hinted
-    assert '{"fields":["goal","reason"' in hinted
+    assert context == {}
 
 
 def test_archive_target_and_serialization():

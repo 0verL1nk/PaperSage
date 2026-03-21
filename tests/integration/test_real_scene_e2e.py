@@ -141,7 +141,6 @@ def test_real_scene_turn_engine_replaces_evidence_placeholders(project_retriever
 
     result = execute_turn_core(
         prompt="请比较 RAG 与 Self-RAG，并给选型建议",
-        hinted_prompt="请比较 RAG 与 Self-RAG，并给选型建议",
         leader_agent=object(),
         leader_runtime_config={},
         search_document_evidence_fn=project_retriever,

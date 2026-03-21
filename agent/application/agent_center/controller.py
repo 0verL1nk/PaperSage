@@ -1,14 +1,5 @@
 from typing import Any
 
-PROMPT_LAYOUT_VERSION = "CTXv1"
-PROMPT_INVENTORY_TAG = "I"
-PROMPT_SUMMARY_TAG = "S"
-PROMPT_MEMORY_TAG = "M"
-PROMPT_LANGUAGE_TAG = "L"
-PROMPT_QUERY_TAG = "Q"
-DEFAULT_SYSTEM_PROMPT_ID = "paper_qa"
-DEFAULT_COLLAB_PROMPT_ID = "a2a"
-
 
 def validate_runtime_prerequisites(*, api_key: str, model_name: str) -> str | None:
     if not api_key:
@@ -48,31 +39,18 @@ def build_scope_cache_caption(cache_stats: dict[str, int]) -> str:
     return ""
 
 
-def build_hinted_prompt(
+def build_turn_context(
     *,
     prompt: str,
-    compact_summary: str,
     user_uuid: str,
     project_uid: str,
     detect_language_fn,
-    with_language_hint_fn,
     search_project_memory_items_fn,
-    inject_long_term_memory_fn,
-    tool_specs: list[dict[str, Any]] | None = None,
-    skill_names: list[str] | None = None,
-    system_prompt_id: str = DEFAULT_SYSTEM_PROMPT_ID,
-    collaborator_prompt_id: str = DEFAULT_COLLAB_PROMPT_ID,
     memory_limit: int = 4,
-) -> str:
+) -> dict[str, Any]:
     base_prompt = str(prompt or "").strip()
     if not base_prompt:
-        return ""
-
-    prompt_with_language = with_language_hint_fn(base_prompt, detect_language_fn)
-    resolved_prompt, language_note = _split_prompt_and_language_note(
-        base_prompt=base_prompt,
-        prompt_with_language=str(prompt_with_language or base_prompt),
-    )
+        return {}
 
     long_term_memories = search_project_memory_items_fn(
         uuid=user_uuid,
@@ -80,40 +58,16 @@ def build_hinted_prompt(
         query=base_prompt,
         limit=memory_limit,
     )
-    compact_summary_text = _collapse_inline_text(compact_summary, limit=1400)
-    memory_text = _serialize_memory_items(long_term_memories, max_chars=1600)
-    language_text = _normalize_language_note(language_note)
-    inventory_line = _build_inventory_line(
-        system_prompt_id=system_prompt_id,
-        collaborator_prompt_id=collaborator_prompt_id,
-        tool_specs=tool_specs,
-        skill_names=skill_names,
-    )
-    return "\n".join(
-        [
-            PROMPT_LAYOUT_VERSION,
-            inventory_line,
-            f"{PROMPT_SUMMARY_TAG}:{compact_summary_text or '-'}",
-            f"{PROMPT_MEMORY_TAG}:{memory_text or '-'}",
-            f"{PROMPT_LANGUAGE_TAG}:{language_text or '-'}",
-            f"{PROMPT_QUERY_TAG}:{resolved_prompt}",
-        ]
-    )
+    context: dict[str, Any] = {}
 
+    response_language = _normalize_language_code(detect_language_fn(base_prompt))
+    if response_language:
+        context["response_language"] = response_language
 
-def _split_prompt_and_language_note(
-    *,
-    base_prompt: str,
-    prompt_with_language: str,
-) -> tuple[str, str]:
-    normalized_base = str(base_prompt or "")
-    normalized_prompt = str(prompt_with_language or "").strip()
-    if not normalized_prompt:
-        return normalized_base, ""
-    if normalized_prompt.startswith(normalized_base):
-        language_note = normalized_prompt[len(normalized_base) :].strip()
-        return normalized_base, language_note
-    return normalized_prompt, ""
+    memory_items = _normalize_memory_items(long_term_memories, max_chars=1600)
+    if memory_items:
+        context["memory_items"] = memory_items
+    return context
 
 
 def _collapse_inline_text(text: Any, *, limit: int) -> str:
@@ -126,26 +80,23 @@ def _collapse_inline_text(text: Any, *, limit: int) -> str:
     return f"{compact[:clipped]}..."
 
 
-def _normalize_language_note(note: str) -> str:
-    compact = _collapse_inline_text(note, limit=140)
-    while compact.startswith(":"):
-        compact = compact[1:].lstrip()
-    lowered = compact.lower()
-    if "english" in lowered:
+def _normalize_language_code(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized == "en":
         return "en"
-    if "中文" in compact or "chinese" in lowered:
+    if normalized == "zh":
         return "zh"
-    return compact
+    return ""
 
 
-def _serialize_memory_items(
+def _normalize_memory_items(
     memory_items: list[dict[str, Any]],
     *,
     max_chars: int,
-) -> str:
+) -> list[dict[str, str]]:
     if not isinstance(memory_items, list) or not memory_items:
-        return ""
-    lines: list[str] = []
+        return []
+    normalized_items: list[dict[str, str]] = []
     current_len = 0
     for item in memory_items:
         if not isinstance(item, dict):
@@ -155,87 +106,12 @@ def _serialize_memory_items(
         if not content:
             continue
         candidate = f"{memory_type}:{content}"
-        added_len = len(candidate) if not lines else len(candidate) + 3
+        added_len = len(candidate) if not normalized_items else len(candidate) + 1
         if current_len + added_len > max_chars:
             break
-        lines.append(candidate)
+        normalized_items.append({"memory_type": memory_type, "content": content})
         current_len += added_len
-    return " | ".join(lines)
-
-
-def _build_inventory_line(
-    *,
-    system_prompt_id: str,
-    collaborator_prompt_id: str,
-    tool_specs: list[dict[str, Any]] | None,
-    skill_names: list[str] | None,
-) -> str:
-    system_id = _collapse_inline_text(system_prompt_id, limit=32) or DEFAULT_SYSTEM_PROMPT_ID
-    collab_id = _collapse_inline_text(collaborator_prompt_id, limit=32) or DEFAULT_COLLAB_PROMPT_ID
-    tools = _serialize_tool_inventory(tool_specs, max_chars=320) or "-"
-    skills = _serialize_skill_names(skill_names, max_chars=180) or "-"
-    return f"{PROMPT_INVENTORY_TAG}:sys={system_id},col={collab_id},tools={tools},skills={skills}"
-
-
-def _serialize_tool_names(
-    tool_specs: list[dict[str, Any]] | None,
-    *,
-    max_chars: int,
-) -> str:
-    if not isinstance(tool_specs, list):
-        return ""
-    names = sorted(
-        {
-            str(item.get("name") or "").strip()
-            for item in tool_specs
-            if isinstance(item, dict)
-        }
-    )
-    names = [name for name in names if name]
-    if not names:
-        return ""
-    text = "|".join(names)
-    return _collapse_inline_text(text, limit=max_chars)
-
-
-def _serialize_tool_inventory(
-    tool_specs: list[dict[str, Any]] | None,
-    *,
-    max_chars: int,
-) -> str:
-    if not isinstance(tool_specs, list):
-        return ""
-    records: list[str] = []
-    for item in tool_specs:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        if not name:
-            continue
-        description = " ".join(str(item.get("description") or "").split()).strip()
-        fields = " ".join(str(item.get("args_schema") or "").split()).strip()
-        pieces = [name]
-        if description:
-            pieces.append(description)
-        if fields and fields not in {"{}", "[]"}:
-            pieces.append(fields)
-        records.append(":".join(pieces))
-    if not records:
-        return ""
-    return _collapse_inline_text(" | ".join(sorted(records)), limit=max_chars)
-
-
-def _serialize_skill_names(
-    skill_names: list[str] | None,
-    *,
-    max_chars: int,
-) -> str:
-    if not isinstance(skill_names, list):
-        return ""
-    names = sorted({str(item or "").strip() for item in skill_names if str(item or "").strip()})
-    if not names:
-        return ""
-    return _collapse_inline_text("|".join(names), limit=max_chars)
+    return normalized_items
 
 
 def resolve_runtime_session_id(runtime_config: dict[str, Any] | Any) -> str:

@@ -20,10 +20,20 @@ jobs:
       - name: PR Review with Progress Tracking
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_bots: "*"
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_AUTH_TOKEN": "${{ secrets.ANTHROPIC_AUTH_TOKEN }}",
+                "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "${{ secrets.ANTHROPIC_DEFAULT_HAIKU_MODEL }}",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "${{ secrets.ANTHROPIC_DEFAULT_OPUS_MODEL }}",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "${{ secrets.ANTHROPIC_DEFAULT_SONNET_MODEL }}",
+                "ANTHROPIC_MODEL": "${{ secrets.ANTHROPIC_MODEL }}"
+              }
+            }
 
           prompt: "/review-pr REPO: ${{ github.repository }} PR_NUMBER: ${{ github.event.pull_request.number }}"
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment"
-            --model "${{secrets.CLAUDE_MODEL}}"
+            --model "${{ secrets.ANTHROPIC_MODEL }}"

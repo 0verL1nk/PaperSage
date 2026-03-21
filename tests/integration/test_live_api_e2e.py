@@ -182,7 +182,6 @@ def test_live_turn_engine_emits_middleware_events(live_config: dict[str, str]) -
 
     result = execute_turn_core(
         prompt="请比较方法A和方法B的优缺点，并给出 trade-off 建议。",
-        hinted_prompt="请比较方法A和方法B的优缺点，并给出 trade-off 建议。",
         leader_agent=session.agent,
         leader_runtime_config=session.runtime_config,
         leader_llm=llm,

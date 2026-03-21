@@ -19,8 +19,7 @@ class PromptGateResult:
 
 @dataclass(frozen=True)
 class TurnExecutionContext:
-    hinted_prompt: str
-    routing_context: str
+    turn_context: dict[str, Any]
     run_id: str
     session_id: str
     selected_doc_uid_for_logging: str
@@ -192,27 +191,15 @@ def build_turn_execution_context(
     user_uuid: str,
     project_uid: str,
     session_state: dict[str, Any],
-    build_routing_context_fn,
-    build_hinted_prompt_fn,
+    build_turn_context_fn,
     resolve_runtime_session_id_fn,
     resolve_selected_doc_uid_for_logging_fn,
     scope_docs_with_text: list[dict[str, Any]],
 ) -> TurnExecutionContext:
-    routing_context = build_routing_context_fn(
-        session_state.get("agent_messages", []),
-        "",
-    )
-    hinted_prompt = build_hinted_prompt_fn(
+    turn_context = build_turn_context_fn(
         prompt=prompt,
-        compact_summary="",
         user_uuid=user_uuid,
         project_uid=project_uid,
-        tool_specs=(
-            session_state.get("paper_current_tool_specs", [])
-            if isinstance(session_state.get("paper_current_tool_specs", []), list)
-            else []
-        ),
-        skill_names=[],
     )
     runtime_config = session_state.get("paper_agent_runtime_config", {})
     session_id = resolve_runtime_session_id_fn(runtime_config)
@@ -220,8 +207,7 @@ def build_turn_execution_context(
         scope_docs_with_text
     )
     return TurnExecutionContext(
-        hinted_prompt=hinted_prompt,
-        routing_context=routing_context,
+        turn_context=turn_context if isinstance(turn_context, dict) else {},
         run_id=f"run-{uuid4().hex[:12]}",
         session_id=session_id,
         selected_doc_uid_for_logging=selected_doc_uid_for_logging,

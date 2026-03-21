@@ -1,7 +1,7 @@
 from .agent_runtime import ensure_agent_runtime, prepare_agent_session
 from .controller import (
-    build_hinted_prompt,
     build_scope_cache_caption,
+    build_turn_context,
     load_scope_docs_with_text,
     resolve_archive_target,
     resolve_runtime_session_id,
@@ -45,7 +45,7 @@ from .project_sessions import (
     should_allow_delete_session,
     update_selected_session_map,
 )
-from .prompting import build_routing_context, with_language_hint
+from .prompting import with_language_hint
 from .runtime_state import (
     build_runtime_deps_from_session_state,
     clear_project_runtime,
@@ -66,7 +66,7 @@ __all__ = [
     "conversation_key",
     "scope_signature",
     "with_language_hint",
-    "build_routing_context",
+    "build_turn_context",
     "persist_turn_memory",
     "ScopeRuntimeResult",
     "PromptGateResult",
@@ -105,7 +105,6 @@ __all__ = [
     "validate_runtime_prerequisites",
     "load_scope_docs_with_text",
     "build_scope_cache_caption",
-    "build_hinted_prompt",
     "resolve_runtime_session_id",
     "resolve_selected_doc_uid_for_logging",
     "resolve_archive_target",

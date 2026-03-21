@@ -145,17 +145,20 @@ def test_build_turn_execution_context():
         user_uuid="u1",
         project_uid="p1",
         session_state={
-            "agent_messages": [{"role": "user", "content": "q"}],
             "paper_agent_runtime_config": {"configurable": {"thread_id": "tid"}},
         },
-        build_routing_context_fn=lambda messages, summary: f"{len(messages)}:{summary}",
-        build_hinted_prompt_fn=lambda **kwargs: f"{kwargs['prompt']}",
+        build_turn_context_fn=lambda **_kwargs: {
+            "response_language": "en",
+            "memory_items": [{"memory_type": "semantic", "content": "m1"}],
+        },
         resolve_runtime_session_id_fn=lambda cfg: str(cfg["configurable"]["thread_id"]),
         resolve_selected_doc_uid_for_logging_fn=lambda docs: str(docs[0]["uid"]),
         scope_docs_with_text=[{"uid": "d1"}],
     )
-    assert context.hinted_prompt == "q"
-    assert context.routing_context == "1:"
+    assert context.turn_context == {
+        "response_language": "en",
+        "memory_items": [{"memory_type": "semantic", "content": "m1"}],
+    }
     assert context.session_id == "tid"
     assert context.selected_doc_uid_for_logging == "d1"
     assert context.run_id.startswith("run-")
@@ -205,5 +208,4 @@ def test_apply_turn_result():
     assert stored_metrics["conversation_key"] == "p1:s1"
     assert stored_message["answer"] == "ans"
     assert warnings
-
 

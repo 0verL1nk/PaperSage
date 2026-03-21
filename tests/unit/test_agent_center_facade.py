@@ -20,8 +20,7 @@ def test_execute_agent_center_turn_delegates_to_turn_engine(monkeypatch):
     result = execute_agent_center_turn(
         request=AgentCenterTurnRequest(
             prompt="p",
-            hinted_prompt="hp",
-            routing_context="ctx",
+            turn_context={"response_language": "zh"},
         ),
         deps=AgentCenterRuntimeDeps(
             leader_agent="agent",
@@ -34,9 +33,8 @@ def test_execute_agent_center_turn_delegates_to_turn_engine(monkeypatch):
 
     assert result["answer"] == "ok"
     assert captured["prompt"] == "p"
-    assert captured["hinted_prompt"] == "hp"
+    assert captured["turn_context"] == {"response_language": "zh"}
     assert captured["leader_agent"] == "agent"
     assert captured["leader_runtime_config"]["configurable"]["thread_id"] == "t1"
     assert captured["policy_llm"] == "policy-llm"
-    assert captured["routing_context"] == "ctx"
     assert captured["leader_tool_specs"] == [{"name": "search_document"}]

@@ -237,14 +237,13 @@ def extract_evidence_doc_uids(answer: str) -> list[str]:
 def execute_turn_core(
     *,
     prompt: str,
-    hinted_prompt: str,
+    turn_context: dict[str, Any] | None = None,
     leader_agent: AgentInvoker,
     leader_runtime_config: dict[str, Any] | None,
     leader_llm: Any | None = None,
     policy_llm: Any | None = None,
     search_document_evidence_fn: EvidenceRetriever | None = None,
     leader_tool_specs: list[dict[str, Any]] | None = None,
-    routing_context: str = "",
     on_event: EventCallback | None = None,
 ) -> TurnCoreResult:
     if leader_agent is None:
@@ -280,22 +279,24 @@ def execute_turn_core(
     run_started = time.perf_counter()
 
     # 构建 config,传递必要参数给 middleware
-    config = leader_runtime_config if isinstance(leader_runtime_config, dict) else {}
-    if "configurable" not in config:
-        config["configurable"] = {}
+    config = dict(leader_runtime_config) if isinstance(leader_runtime_config, dict) else {}
+    configurable = dict(config.get("configurable", {})) if isinstance(config.get("configurable"), dict) else {}
+    config["configurable"] = configurable
 
     # 传递 on_event 回调给 middleware
-    config["configurable"]["on_event"] = _collect_event
+    configurable["on_event"] = _collect_event
     # 传递 llm 给 OrchestrationMiddleware
     if leader_llm is not None:
-        config["configurable"]["llm"] = leader_llm
+        configurable["llm"] = leader_llm
+    if isinstance(turn_context, dict) and turn_context:
+        configurable["turn_context"] = dict(turn_context)
     # 确保有 thread_id 用于 session 隔离
-    if "thread_id" not in config["configurable"]:
-        config["configurable"]["thread_id"] = "default"
+    if "thread_id" not in configurable:
+        configurable["thread_id"] = "default"
 
     # 直接调用 leader_agent
     result = leader_agent.invoke(
-        {"messages": [{"role": "user", "content": hinted_prompt}]},
+        {"messages": [{"role": "user", "content": prompt}]},
         config=config,
     )
 

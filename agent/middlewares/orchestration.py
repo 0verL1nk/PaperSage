@@ -14,9 +14,6 @@ from .types import AgentState
 
 logger = logging.getLogger(__name__)
 
-# Complexity analysis thresholds
-COMPLEXITY_FALLBACK_LENGTH_THRESHOLD = 200  # Character count threshold for fallback complexity check
-
 
 class ComplexityAnalysisResult(BaseModel):
     is_complex: bool = Field(description="Whether the task is complex enough to require planning.")
@@ -40,6 +37,7 @@ class OrchestrationMiddleware(AgentMiddleware):
         super().__init__()
         self.llm = llm
         self._last_analysis: dict[str, Any] | None = None
+        self._structured_output_support_cache: dict[str, bool] = {}
 
     def before_model(  # type: ignore[override]
         self, state: AgentState, runtime: Runtime, config: RunnableConfig | None = None
@@ -129,9 +127,33 @@ class OrchestrationMiddleware(AgentMiddleware):
     def _invoke_structured_complexity_analysis(self, llm: Any, prompt: str) -> dict[str, Any] | None:
         if not hasattr(llm, "with_structured_output"):
             return None
+        cache_key = self._llm_capability_cache_key(llm)
+        if self._structured_output_support_cache.get(cache_key) is False:
+            return None
         structured_llm = llm.with_structured_output(ComplexityAnalysisResult)
         result = structured_llm.invoke(prompt)
+        self._structured_output_support_cache[cache_key] = True
         return self._coerce_analysis_result(result)
+
+    @staticmethod
+    def _llm_capability_cache_key(llm: Any) -> str:
+        class_name = f"{type(llm).__module__}.{type(llm).__qualname__}"
+        model_name = str(getattr(llm, "model", "") or getattr(llm, "model_name", "") or "").strip()
+        base_url = str(getattr(llm, "base_url", "") or "").strip()
+        return f"{class_name}|{model_name}|{base_url}"
+
+    @staticmethod
+    def _is_json_mode_unsupported_error(exc: Exception) -> bool:
+        message = str(exc or "").lower()
+        return "json mode is not supported" in message
+
+    @staticmethod
+    def _build_neutral_analysis_result() -> dict[str, Any]:
+        return {
+            "is_complex": False,
+            "needs_team": False,
+            "reason": "llm analysis unavailable",
+        }
 
     def _analyze_complexity(self, messages: list[Any], llm: Any, on_event: Any = None) -> dict[str, Any]:
         """Use LLM to analyze task complexity with full context.
@@ -172,8 +194,15 @@ class OrchestrationMiddleware(AgentMiddleware):
         max_retries = 2
         for attempt in range(max_retries + 1):
             try:
-                analysis_result = self._invoke_structured_complexity_analysis(llm, prompt)
+                analysis_result = None
                 response_text = ""
+                try:
+                    analysis_result = self._invoke_structured_complexity_analysis(llm, prompt)
+                except Exception as exc:
+                    if self._is_json_mode_unsupported_error(exc):
+                        self._structured_output_support_cache[self._llm_capability_cache_key(llm)] = False
+                    logger.info("Structured complexity analysis unavailable, falling back to text JSON: %s", exc)
+
                 if analysis_result is None:
                     response = llm.invoke(prompt)
                     response_text = response.content if hasattr(response, "content") else str(response)
@@ -194,22 +223,16 @@ class OrchestrationMiddleware(AgentMiddleware):
                 if attempt < max_retries:
                     logger.warning(f"Complexity analysis attempt {attempt + 1} failed: {e}, response_text={response_text[:500] if 'response_text' in locals() else 'N/A'}, retrying...")
                     continue
-                logger.warning(f"Failed to analyze complexity with LLM after {max_retries + 1} attempts: {e}, using fallback")
+                logger.warning(f"Failed to analyze complexity with LLM after {max_retries + 1} attempts: {e}, returning neutral result")
 
-        # Fallback: simple heuristic on last message
-        last_content = str(getattr(messages[-1], "content", ""))
-        fallback_result = {
-            "is_complex": len(last_content) > COMPLEXITY_FALLBACK_LENGTH_THRESHOLD or any(kw in last_content for kw in ["步骤", "规划", "对比", "分析"]),
-            "needs_team": False,
-            "reason": "fallback heuristic"
-        }
+        fallback_result = self._build_neutral_analysis_result()
 
         if callable(on_event):
             on_event({
                 "sender": "orchestration",
                 "receiver": "orchestration",
-                "performative": "complexity_fallback",
-                "content": f"使用fallback: is_complex={fallback_result['is_complex']}",
+                "performative": "complexity_unavailable",
+                "content": "LLM复杂度分析不可用,返回neutral result",
             })
 
         return fallback_result

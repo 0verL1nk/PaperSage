@@ -18,19 +18,16 @@ class ExecuteTurnEvalRunner:
     policy_llm: Any | None = None
     search_document_evidence_fn: Any | None = None
     leader_tool_specs: list[dict[str, Any]] = field(default_factory=list)
-    routing_context: str = ""
 
     def __call__(self, case: AgentEvalCase) -> TurnCoreResult:
         return execute_turn_core(
             prompt=case.prompt,
-            hinted_prompt=case.prompt,
             leader_agent=self.leader_agent,
             leader_runtime_config=dict(self.leader_runtime_config),
             leader_llm=self.leader_llm,
             policy_llm=self.policy_llm,
             search_document_evidence_fn=self.search_document_evidence_fn,
             leader_tool_specs=list(self.leader_tool_specs),
-            routing_context=self.routing_context,
         )
 
 

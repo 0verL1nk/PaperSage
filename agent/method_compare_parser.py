@@ -3,27 +3,46 @@ import re
 from typing import Any
 
 
+def _extract_first_complete_json_object(text: str) -> str:
+    decoder = json.JSONDecoder()
+    for idx, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            _candidate, end = decoder.raw_decode(text[idx:])
+        except json.JSONDecodeError:
+            continue
+        return text[idx : idx + end]
+    raise ValueError("json block not found")
+
+
+def _extract_json_from_tagged_block(text: str, tag_name: str) -> str | None:
+    pattern = rf"<{tag_name}>\s*(.*?)\s*</{tag_name}>"
+    for match in re.finditer(pattern, text, re.DOTALL | re.IGNORECASE):
+        candidate = str(match.group(1) or "").strip()
+        if not candidate:
+            continue
+        try:
+            return _extract_first_complete_json_object(candidate)
+        except ValueError:
+            continue
+    return None
+
+
 def extract_json_string(text: str) -> str:
     """Extract JSON from text, supporting both <mindmap> tags and raw JSON."""
     if not isinstance(text, str):
         raise ValueError("input must be string")
 
-    # Try <mindmap> tags first (higher priority) - use greedy match for nested JSON
-    mindmap_match = re.search(r"<mindmap>\s*(\{.*\})\s*</mindmap>", text, re.DOTALL)
-    if mindmap_match:
-        return mindmap_match.group(1)
+    mindmap_payload = _extract_json_from_tagged_block(text, "mindmap")
+    if mindmap_payload is not None:
+        return mindmap_payload
 
-    # Try <json> tags - use greedy match for nested JSON
-    json_match = re.search(r"<json>\s*(\{.*\})\s*</json>", text, re.DOTALL)
-    if json_match:
-        return json_match.group(1)
+    json_payload = _extract_json_from_tagged_block(text, "json")
+    if json_payload is not None:
+        return json_payload
 
-    # Fallback: find first { and last }
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end <= start:
-        raise ValueError("json block not found")
-    return text[start : end + 1]
+    return _extract_first_complete_json_object(text)
 
 
 def parse_method_compare_payload(text: str) -> dict[str, Any] | None:

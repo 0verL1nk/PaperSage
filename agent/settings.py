@@ -28,11 +28,6 @@ DEFAULT_AGENT_TEAM_MAX_MEMBERS = 3
 DEFAULT_AGENT_TEAM_MAX_ROUNDS = 2
 DEFAULT_AGENT_TEAM_MEMBERS_HARD_CAP = 6
 DEFAULT_AGENT_TEAM_ROUNDS_HARD_CAP = 4
-DEFAULT_AGENT_ROUTING_CONTEXT_RECENT_LIMIT = 6
-DEFAULT_AGENT_ROUTING_CONTEXT_MAX_CHARS = 2200
-DEFAULT_AGENT_ROUTING_CONTEXT_ITEM_MAX_CHARS = 180
-DEFAULT_AGENT_ROUTING_CONTEXT_REASON_MAX_CHARS = 120
-DEFAULT_AGENT_ROUTING_CONTEXT_ROLES_PREVIEW_COUNT = 3
 DEFAULT_AGENT_POLICY_TEXT_LEN_MEDIUM = 140
 DEFAULT_AGENT_POLICY_TEXT_LEN_HIGH = 240
 DEFAULT_AGENT_POLICY_SENTENCE_THRESHOLD = 3
@@ -88,11 +83,6 @@ class AgentSettings:
     agent_team_max_rounds: int
     agent_team_members_hard_cap: int
     agent_team_rounds_hard_cap: int
-    agent_routing_context_recent_limit: int
-    agent_routing_context_max_chars: int
-    agent_routing_context_item_max_chars: int
-    agent_routing_context_reason_max_chars: int
-    agent_routing_context_roles_preview_count: int
     agent_policy_text_len_medium: int
     agent_policy_text_len_high: int
     agent_policy_sentence_threshold: int
@@ -187,26 +177,6 @@ def load_agent_settings() -> AgentSettings:
         agent_team_rounds_hard_cap=_env_int(
             "AGENT_TEAM_ROUNDS_HARD_CAP",
             DEFAULT_AGENT_TEAM_ROUNDS_HARD_CAP,
-        ),
-        agent_routing_context_recent_limit=_env_int(
-            "AGENT_ROUTING_CONTEXT_RECENT_LIMIT",
-            DEFAULT_AGENT_ROUTING_CONTEXT_RECENT_LIMIT,
-        ),
-        agent_routing_context_max_chars=_env_int(
-            "AGENT_ROUTING_CONTEXT_MAX_CHARS",
-            DEFAULT_AGENT_ROUTING_CONTEXT_MAX_CHARS,
-        ),
-        agent_routing_context_item_max_chars=_env_int(
-            "AGENT_ROUTING_CONTEXT_ITEM_MAX_CHARS",
-            DEFAULT_AGENT_ROUTING_CONTEXT_ITEM_MAX_CHARS,
-        ),
-        agent_routing_context_reason_max_chars=_env_int(
-            "AGENT_ROUTING_CONTEXT_REASON_MAX_CHARS",
-            DEFAULT_AGENT_ROUTING_CONTEXT_REASON_MAX_CHARS,
-        ),
-        agent_routing_context_roles_preview_count=_env_int(
-            "AGENT_ROUTING_CONTEXT_ROLES_PREVIEW_COUNT",
-            DEFAULT_AGENT_ROUTING_CONTEXT_ROLES_PREVIEW_COUNT,
         ),
         agent_policy_text_len_medium=_env_int(
             "AGENT_POLICY_TEXT_LEN_MEDIUM",

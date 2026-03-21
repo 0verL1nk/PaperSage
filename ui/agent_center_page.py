@@ -42,12 +42,11 @@ def run_agent_center_page() -> None:
         append_assistant_turn_message,
         append_skill_context_texts,
         apply_turn_result,
-        build_hinted_prompt,
-        build_routing_context,
         build_runtime_deps_from_session_state,
         build_scope_cache_caption,
         build_session_maps,
         build_session_preview,
+        build_turn_context,
         build_turn_execution_context,
         clear_turn_lock,
         create_and_select_session,
@@ -70,7 +69,6 @@ def run_agent_center_page() -> None:
         store_turn_metrics,
         update_selected_session_map,
         validate_runtime_prerequisites,
-        with_language_hint,
     )
     from agent.application.agent_center import (
         clear_project_runtime as clear_project_runtime_state,
@@ -127,9 +125,6 @@ def run_agent_center_page() -> None:
         extract_skill_context_texts_from_trace,
     )
     from agent.logging_utils import configure_application_logging, logging_context
-    from agent.memory.policy import (
-        inject_long_term_memory,
-    )
     from agent.memory.store import (
         get_project_session_compact_memory,
         search_project_memory_items,
@@ -571,13 +566,10 @@ def run_agent_center_page() -> None:
             user_uuid=user_uuid,
             project_uid=selected_project_uid,
             session_state=st.session_state,
-            build_routing_context_fn=build_routing_context,
-            build_hinted_prompt_fn=lambda **kwargs: build_hinted_prompt(
+            build_turn_context_fn=lambda **kwargs: build_turn_context(
                 **kwargs,
                 detect_language_fn=detect_language,
-                with_language_hint_fn=with_language_hint,
                 search_project_memory_items_fn=search_project_memory_items,
-                inject_long_term_memory_fn=inject_long_term_memory,
                 memory_limit=4,
             ),
             resolve_runtime_session_id_fn=resolve_runtime_session_id,
@@ -623,8 +615,7 @@ def run_agent_center_page() -> None:
                         turn_result = execute_agent_center_turn(
                             request=AgentCenterTurnRequest(
                                 prompt=prompt,
-                                hinted_prompt=turn_context.hinted_prompt,
-                                routing_context=turn_context.routing_context,
+                                turn_context=turn_context.turn_context,
                             ),
                             deps=runtime_deps,
                             on_event=_on_event,

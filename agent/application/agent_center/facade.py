@@ -9,8 +9,7 @@ from ..turn_engine import execute_turn_core
 @dataclass(frozen=True)
 class AgentCenterTurnRequest:
     prompt: str
-    hinted_prompt: str
-    routing_context: str = ""
+    turn_context: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -31,13 +30,12 @@ def execute_agent_center_turn(
 ) -> TurnCoreResult:
     return execute_turn_core(
         prompt=request.prompt,
-        hinted_prompt=request.hinted_prompt,
+        turn_context=request.turn_context,
         leader_agent=deps.leader_agent,
         leader_runtime_config=deps.leader_runtime_config,
         leader_llm=deps.leader_llm,
         policy_llm=deps.policy_llm,
         search_document_evidence_fn=deps.search_document_evidence_fn,
         leader_tool_specs=deps.leader_tool_specs,
-        routing_context=request.routing_context,
         on_event=on_event,
     )

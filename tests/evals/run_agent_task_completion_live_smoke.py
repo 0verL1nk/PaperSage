@@ -196,7 +196,6 @@ class LivePaperSageEvalRunner:
         )
         return execute_turn_core(
             prompt=case.prompt,
-            hinted_prompt=case.prompt,
             leader_agent=session.agent,
             leader_runtime_config=session.runtime_config,
             leader_llm=self.llm,

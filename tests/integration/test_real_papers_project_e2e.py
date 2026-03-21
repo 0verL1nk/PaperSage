@@ -256,7 +256,6 @@ def test_real_papers_turn_engine_live_end_to_end(
     )
     result = execute_turn_core(
         prompt=prompt,
-        hinted_prompt=prompt,
         leader_agent=leader_session.agent,
         leader_runtime_config=leader_session.runtime_config,
         leader_llm=live_real_scenario.llm,

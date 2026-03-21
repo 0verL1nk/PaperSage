@@ -20,6 +20,7 @@ from .team import TeamMiddleware
 from .todolist import todolist_middleware
 from .tool_selector import build_tool_selector_middleware
 from .trace import TraceMiddleware
+from .turn_context import turn_context_middleware
 
 
 def _build_runtime_subagent_specs(model: Any) -> list[SubAgent | CompiledSubAgent]:
@@ -73,6 +74,9 @@ def build_middleware_list(
             jitter=True,
         )
     )
+
+    # Dynamic per-turn system context injection
+    middleware_list.append(turn_context_middleware)
 
     # Orchestration middleware (for complex task guidance)
     middleware_list.append(OrchestrationMiddleware(llm=model))

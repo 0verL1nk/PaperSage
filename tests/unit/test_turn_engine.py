@@ -2,6 +2,7 @@ from agent.application.turn_engine import (
     _maybe_to_dict,
     build_search_document_fn,
     execute_turn_core,
+    try_parse_mindmap,
 )
 
 
@@ -28,7 +29,6 @@ def test_execute_turn_core_with_injected_executor_replaces_evidence():
 
     result = execute_turn_core(
         prompt="请给结论",
-        hinted_prompt="请给结论",
         leader_agent=mock_agent,
         leader_runtime_config={},
         search_document_evidence_fn=lambda _query: {
@@ -64,7 +64,6 @@ def test_execute_turn_core_without_document_rag_skips_evidence():
 
     result = execute_turn_core(
         prompt="最新进展",
-        hinted_prompt="最新进展",
         leader_agent=mock_agent,
         leader_runtime_config={},
         search_document_evidence_fn=_evidence_fn,
@@ -111,7 +110,6 @@ def test_execute_turn_core_uses_search_document_tool_result_evidence_without_rer
 
     result = execute_turn_core(
         prompt="请概括 RAG 核心结论",
-        hinted_prompt="请概括 RAG 核心结论",
         leader_agent=mock_agent,
         leader_runtime_config={},
         search_document_evidence_fn=_evidence_fn,
@@ -152,7 +150,6 @@ def test_execute_turn_core_matches_plain_doc_uid_citation_to_tool_evidence() -> 
 
     result = execute_turn_core(
         prompt="请概括 RAG 核心结论",
-        hinted_prompt="请概括 RAG 核心结论",
         leader_agent=mock_agent,
         leader_runtime_config={},
     )
@@ -191,7 +188,6 @@ def test_execute_turn_core_does_not_count_tool_result_evidence_without_answer_ci
 
     result = execute_turn_core(
         prompt="请概括 RAG 核心结论",
-        hinted_prompt="请概括 RAG 核心结论",
         leader_agent=mock_agent,
         leader_runtime_config={},
     )
@@ -230,13 +226,111 @@ def test_execute_turn_core_infers_final_phase_from_answer_without_final_event():
 
     result = execute_turn_core(
         prompt="请总结",
-        hinted_prompt="请总结",
         leader_agent=_Agent(),
         leader_runtime_config={},
     )
 
     assert result["answer"] == "最终回答"
     assert result["phase_path"].endswith("输出最终答案")
+
+
+def test_execute_turn_core_sends_raw_user_prompt_and_turn_context() -> None:
+    captured: dict[str, object] = {}
+
+    class _Agent:
+        def invoke(self, payload, config=None):
+            captured["payload"] = payload
+            captured["config"] = config
+            return {"messages": [{"role": "assistant", "content": "ok"}]}
+
+    result = execute_turn_core(
+        prompt="真实用户问题",
+        turn_context={
+            "response_language": "en",
+            "memory_items": [{"memory_type": "semantic", "content": "prefers concise answers"}],
+        },
+        leader_agent=_Agent(),
+        leader_runtime_config={"configurable": {"thread_id": "tid"}},
+    )
+
+    assert result["answer"] == "ok"
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    assert payload["messages"] == [{"role": "user", "content": "真实用户问题"}]
+    config = captured["config"]
+    assert isinstance(config, dict)
+    assert config["configurable"]["thread_id"] == "tid"
+    assert config["configurable"]["turn_context"] == {
+        "response_language": "en",
+        "memory_items": [{"memory_type": "semantic", "content": "prefers concise answers"}],
+    }
+
+
+def test_try_parse_mindmap_accepts_extra_text_after_json_inside_tag() -> None:
+    answer = """<mindmap>
+{
+  "name": "Seed-TTS系统",
+  "children": [{"name": "模型", "children": []}]
+}
+补充说明：这一层表示核心模块。
+</mindmap>"""
+
+    parsed = try_parse_mindmap(answer)
+
+    assert parsed == {
+        "name": "Seed-TTS系统",
+        "children": [{"name": "模型", "children": []}],
+    }
+
+
+def test_try_parse_mindmap_accepts_wrapped_text_around_tag() -> None:
+    answer = """下面是导图结果：
+<mindmap>
+{
+  "name": "主题",
+  "children": []
+}
+</mindmap>
+以上。"""
+
+    parsed = try_parse_mindmap(answer)
+
+    assert parsed == {"name": "主题", "children": []}
+
+
+def test_try_parse_mindmap_ignores_second_json_object_inside_tag() -> None:
+    answer = """<mindmap>
+{"name": "主题", "children": []}
+{"other": 1}
+</mindmap>"""
+
+    parsed = try_parse_mindmap(answer)
+
+    assert parsed == {"name": "主题", "children": []}
+
+
+def test_try_parse_mindmap_ignores_trailing_braces_in_comment_text() -> None:
+    answer = """<mindmap>
+{"name": "主题", "children": []}
+注释里还有 {brace}
+</mindmap>"""
+
+    parsed = try_parse_mindmap(answer)
+
+    assert parsed == {"name": "主题", "children": []}
+
+
+def test_try_parse_mindmap_accepts_repeated_mindmap_blocks() -> None:
+    answer = """<mindmap>
+{"name": "主题A", "children": []}
+</mindmap>
+<mindmap>
+{"name": "主题B", "children": []}
+</mindmap>"""
+
+    parsed = try_parse_mindmap(answer)
+
+    assert parsed == {"name": "主题A", "children": []}
 
 
 def test_maybe_to_dict_handles_none_and_noncallable_values():
