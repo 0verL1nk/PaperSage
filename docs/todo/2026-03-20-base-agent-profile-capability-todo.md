@@ -241,15 +241,15 @@
 
 ### Todo
 
-- [ ] 更新 README 中对 leader / teammate 架构的描述
-- [ ] 更新 README_EN 中对应描述
+- [x] 更新 README 中对 leader / teammate 架构的描述
+- [x] 更新 README_EN 中对应描述
 - [ ] 如实现方案与现有 OpenSpec 有偏差，更新 `openspec/changes/upgrade-leader-teammate-orchestration/` 相关文档
-- [ ] 补充迁移说明：旧入口如何兼容、新入口如何使用
+- [x] 补充迁移说明：旧入口如何兼容、新入口如何使用
 
 ### 验收
 
-- [ ] 文档描述与代码真实能力一致
-- [ ] 不再把 `paper_agent.py` 描述成唯一形态的主 agent
+- [x] 文档描述与代码真实能力一致
+- [x] 不再把 `paper_agent.py` 描述成唯一形态的主 agent
 
 ---
 

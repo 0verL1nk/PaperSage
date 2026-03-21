@@ -130,7 +130,7 @@ flowchart TD
     R --> L
 ```
 
-The canonical path remains `pages -> ui -> agent.application -> runtime_agent + middlewares`. The difference is that team work is no longer just a prompt-level suggestion: middleware emits the signal, and the Leader uses `agent.orchestration` to build the plan, schedule todos, choose the backend, and control review/replan/finalise transitions.
+The canonical runtime path remains `pages -> ui -> agent.application -> runtime_agent + middlewares`, but the session creation entry point is now `agent.profiled_agent.create_profiled_agent_session(profile=...)`. `agent.session_factory` and `agent.runtime_agent` provide the base runtime assembly, while `agent.paper_agent.create_paper_agent_session(...)` remains only as a paper-domain leader compatibility facade. Team work is also no longer just a prompt-level suggestion: middleware emits the signal, and the Leader uses `agent.orchestration` to build the plan, schedule todos, choose the backend, and control review/replan/finalise transitions.
 
 ### Hybrid RAG Pipeline
 

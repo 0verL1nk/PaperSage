@@ -60,7 +60,9 @@ class TeamMiddleware(AgentMiddleware):
                     "2. 如需协作,由你来决定是否分派、分派给谁、是否并行\n"
                     "3. 可使用 spawn_agent / send_message / get_agent_result / list_agents / close_agent 作为协作工具\n"
                     "4. spawn_agent 默认创建 teammate,可通过 role 指定 reviewer 等角色,必要时再补充 system_prompt\n"
-                    "5. teammate 结果只是中间产物,最终答复仍由你输出\n\n"
+                    "5. 若 get_agent_result 返回 busy,说明 teammate 仍在处理上一条任务,不要重复 send_message 或 close_agent\n"
+                    "6. 需要等待时可调用 sleep(seconds, reason) 稍作阻塞,之后再决定是否继续查询结果\n"
+                    "7. teammate 结果只是中间产物,最终答复仍由你输出\n\n"
                     "请由你来决定是否分派任务,不要把当前对话 ownership 交给 teammate。"
                 )
                 result = list(messages)

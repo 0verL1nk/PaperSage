@@ -12,6 +12,11 @@ def test_worker_and_reviewer_profiles_exclude_team_capability():
     assert "team_pack" in paper_leader_profile.capability_ids
 
 
+def test_all_profiles_include_runtime_pack_for_waiting():
+    assert "runtime_pack" in paper_leader_profile.capability_ids
+    assert "runtime_pack" in paper_worker_profile.capability_ids
+    assert "runtime_pack" in paper_reviewer_profile.capability_ids
+
 
 def test_resolve_agent_profile_supports_leader_teammate_aliases():
     assert resolve_agent_profile("leader") is paper_leader_profile

@@ -4,15 +4,8 @@ from typing import Any, Literal
 from langchain_core.prompts import ChatPromptTemplate
 
 from .paper_prompt import PAPER_QA_SYSTEM_PROMPT, build_paper_system_prompt
-from .profiles import paper_leader_profile
-from .session_factory import (
-    AgentDependencies,
-    AgentRuntimeOptions,
-    create_agent_session,
-)
-from .session_factory import (
-    AgentSession as PaperAgentSession,
-)
+from .profiled_agent import AgentSession as PaperAgentSession
+from .profiled_agent import create_profiled_agent_session
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +97,7 @@ def create_paper_agent_session(
     session_uid: str | None = None,
     user_uuid: str | None = None,
 ) -> PaperAgentSession:
+    """Compatibility facade for the paper-domain leader session."""
     access_mode = _normalize_document_access(document_access)
     logger.info(
         "Creating paper agent session: project_name=%s document_name=%s document_access=%s",
@@ -121,30 +115,18 @@ def create_paper_agent_session(
             document_access=access_mode,
         )
     )
-    runtime_options = AgentRuntimeOptions(
+    return create_profiled_agent_session(
+        profile="leader",
         llm=llm,
-        document_name=document_name,
-        project_name=project_name,
-        scope_summary=scope_summary,
-        system_prompt=final_system_prompt,
-    )
-    dependencies = AgentDependencies(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
         read_document_fn=read_document_fn,
         list_documents_fn=list_documents_fn,
+        system_prompt=final_system_prompt,
+        document_name=document_name,
+        project_name=project_name,
+        scope_summary=scope_summary,
         project_uid=project_uid,
         session_uid=session_uid,
         user_uuid=user_uuid,
-    )
-    session = create_agent_session(
-        profile=paper_leader_profile,
-        deps=dependencies,
-        options=runtime_options,
-    )
-    return PaperAgentSession(
-        agent=session.agent,
-        thread_id=session.thread_id,
-        tool_specs=session.tool_specs,
-        profile_name=session.profile_name,
     )

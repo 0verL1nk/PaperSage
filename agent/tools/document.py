@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from .utils import (
     _is_dangerous_query,
+    _is_low_information_query,
     _normalize_query_cache_key,
     _preview,
     _query_overlap_score,
@@ -69,8 +70,8 @@ def build_search_document_tool(
         base_message = "Identical query reused cached result; refine query instead of repeating it."
         if reason == "same_query_family":
             base_message = (
-                "A closely related query already returned evidence; synthesize from the existing "
-                "results instead of reformulating the same search."
+                "A closely related query already returned evidence. Do not call search_document again "
+                "for this query family; synthesize from the existing results or move to the final answer."
             )
         meta_payload["dedupe"] = {
             "reused_cached_result": True,
@@ -78,9 +79,24 @@ def build_search_document_tool(
             "reason": reason,
             "matched_query": matched_query or query,
             "message": base_message,
+            "should_stop": True,
         }
         dedupe_payload["meta"] = meta_payload
         return json.dumps(dedupe_payload, ensure_ascii=False)
+
+    def _build_policy_block_payload(query: str, *, reason: str, message: str) -> str:
+        payload = {
+            "evidences": [],
+            "meta": {
+                "query_policy": {
+                    "blocked": True,
+                    "query": query,
+                    "reason": reason,
+                    "message": message,
+                }
+            },
+        }
+        return json.dumps(payload, ensure_ascii=False)
 
     def _find_similar_cache_key(query: str, *, exact_key: str) -> tuple[str, str] | None:
         best_match: tuple[str, str] | None = None
@@ -134,6 +150,24 @@ Example: Based on the research<evidence>chunk_abc123|p5|o100-200</evidence>, the
         if _is_dangerous_query(safe_query):
             logger.warning("tool.search_document blocked by policy")
             return "Blocked by tool policy: query appears unsafe for document search."
+        if _is_low_information_query(safe_query):
+            logger.warning(
+                "tool.search_document blocked: low_information_query query_preview=%s",
+                _preview(safe_query),
+            )
+            if search_document_evidence_fn is not None:
+                return _build_policy_block_payload(
+                    safe_query,
+                    reason="low_information_query",
+                    message=(
+                        "Query is too generic to produce new evidence. Reuse the existing evidence or ask "
+                        "a more specific document question instead of repeating broad terms like page/table/result."
+                    ),
+                )
+            return (
+                "Blocked by tool policy: query is too generic to produce new evidence. "
+                "Use a more specific document question."
+            )
         if search_document_evidence_fn is not None:
             cached_payload = cached_evidence_payloads.get(cache_key)
             if isinstance(cached_payload, dict):

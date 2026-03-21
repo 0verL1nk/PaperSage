@@ -74,6 +74,30 @@ def _serialize_agent_result_payload(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _build_busy_agent_result_payload(instance: AgentInstance) -> str:
+    busy_message = (
+        f"Agent {instance.agent_id} is still busy. "
+        "Do not send another message or close it yet; call get_agent_result later."
+    )
+    payload = _build_agent_result_payload(
+        instance=instance,
+        status="busy",
+        error=busy_message,
+    )
+    payload["summary"] = busy_message
+    payload["retry_after_ms"] = 5000
+    payload["next_action"] = {
+        "type": "wait_and_retry",
+        "tool": "get_agent_result",
+        "avoid": ["send_message", "close_agent"],
+        "message": (
+            "Agent is still processing the previous message. "
+            "Do not send another message or close it yet; call get_agent_result later."
+        ),
+    }
+    return _serialize_agent_result_payload(payload)
+
+
 def _coerce_stored_agent_result(instance: AgentInstance, raw_content: str) -> str:
     text = str(raw_content or "").strip()
     if not text:
@@ -272,13 +296,7 @@ class TeamRuntime:
         instance = self.agents[agent_id]
 
         if instance.state == AgentState.BUSY:
-            return _serialize_agent_result_payload(
-                _build_agent_result_payload(
-                    instance=instance,
-                    status="busy",
-                    error=f"Agent {agent_id} is still busy",
-                )
-            )
+            return _build_busy_agent_result_payload(instance)
 
         if not instance.result_file.exists():
             return _serialize_agent_result_payload(

@@ -24,6 +24,21 @@ _DANGEROUS_QUERY_PATTERNS = [
     r"\bssh\b",
 ]
 
+_LOW_INFORMATION_QUERY_TOKENS = {
+    "page",
+    "pages",
+    "table",
+    "tables",
+    "result",
+    "results",
+    "score",
+    "scores",
+    "paper",
+    "papers",
+    "document",
+    "documents",
+}
+
 
 def _env_flag(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -114,6 +129,15 @@ def _query_overlap_score(query_a: str, query_b: str) -> float:
     if intersection_size == 0:
         return 0.0
     return intersection_size / min(len(tokens_a), len(tokens_b))
+
+
+def _is_low_information_query(query: str) -> bool:
+    tokens = _query_similarity_tokens(query)
+    if not tokens:
+        return True
+    if len(tokens) > 2:
+        return False
+    return all(token in _LOW_INFORMATION_QUERY_TOKENS for token in tokens)
 
 
 def _preview(text: str, limit: int = 120) -> str:

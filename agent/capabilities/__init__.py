@@ -3,6 +3,7 @@ from typing import Any
 
 from .document import build_document_tools
 from .planning import build_planning_tools
+from .runtime import build_runtime_tools
 from .skill import build_skill_tools
 from .team import build_team_tools
 from .web import build_web_tools
@@ -12,6 +13,7 @@ def build_profile_tools(profile: Any, deps: Any) -> list[Any]:
     builders: dict[str, Callable[[Any], list[Any]]] = {
         "document_pack": build_document_tools,
         "planning_pack": build_planning_tools,
+        "runtime_pack": build_runtime_tools,
         "skill_pack": build_skill_tools,
         "team_pack": build_team_tools,
         "web_pack": build_web_tools,

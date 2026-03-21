@@ -70,6 +70,15 @@ def test_team_runtime_get_agent_result_returns_structured_busy_payload(tmp_path:
 
     assert result["status"] == "busy"
     assert result["output"] == ""
-    assert result["summary"] == "Agent agent-1 is still busy"
+    assert result["summary"] == (
+        "Agent agent-1 is still busy. "
+        "Do not send another message or close it yet; call get_agent_result later."
+    )
+    assert result["error"] == result["summary"]
+    assert result["retry_after_ms"] == 5000
+    assert result["next_action"]["type"] == "wait_and_retry"
+    assert result["next_action"]["tool"] == "get_agent_result"
+    assert "send_message" in result["next_action"]["avoid"]
+    assert "close_agent" in result["next_action"]["avoid"]
 
     runtime.cleanup()

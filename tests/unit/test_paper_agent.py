@@ -12,7 +12,7 @@ def test_build_system_prompt_does_not_raise():
     assert "测试文档" in result
     assert "测试项目" in result
     assert "<mindmap>{" in result
-    assert "严禁输出 Mermaid" in result
+    assert '调用 use_skill("mindmap", task)' in result
 
 
 def test_build_system_prompt_explicitly_blocks_external_search_for_project_only_queries():
@@ -42,18 +42,20 @@ def test_build_system_prompt_for_document_free_session_omits_project_document_in
 def test_create_paper_agent_session_delegates_to_generic_factory(monkeypatch):
     captured = {}
 
-    def fake_create_agent_session(*, profile, deps, options):
-        captured["profile"] = profile
-        captured["deps"] = deps
-        captured["options"] = options
+    def fake_create_profiled_agent_session(**kwargs):
+        captured.update(kwargs)
         return paper_agent_module.PaperAgentSession(
             agent="agent",
             thread_id="thread-1",
             tool_specs=[],
-            profile_name=profile.name,
+            profile_name="paper_leader",
         )
 
-    monkeypatch.setattr(paper_agent_module, "create_agent_session", fake_create_agent_session)
+    monkeypatch.setattr(
+        paper_agent_module,
+        "create_profiled_agent_session",
+        fake_create_profiled_agent_session,
+    )
 
     session = paper_agent_module.create_paper_agent_session(
         llm="fake-llm",
@@ -65,11 +67,11 @@ def test_create_paper_agent_session_delegates_to_generic_factory(monkeypatch):
 
     assert session.thread_id == "thread-1"
     assert session.profile_name == "paper_leader"
-    assert captured["profile"].name == "paper_leader"
-    assert captured["deps"].search_document_fn("q") == "q"
-    assert captured["options"].llm == "fake-llm"
-    assert captured["options"].document_name == "文档A"
-    assert "项目A" in captured["options"].system_prompt
+    assert captured["profile"] == "leader"
+    assert captured["search_document_fn"]("q") == "q"
+    assert captured["llm"] == "fake-llm"
+    assert captured["document_name"] == "文档A"
+    assert "项目A" in captured["system_prompt"]
 
 
 def test_paper_agent_session_runtime_config_contains_thread_id():

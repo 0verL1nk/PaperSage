@@ -1,55 +1,43 @@
-# todolist-middleware Specification
+## ADDED Requirements
 
-## Purpose
-TBD - created by archiving change agent-centric-orchestration. Update Purpose after archive.
-## Requirements
-### Requirement: LangChain TodoListMiddleware Integration
-The system SHALL integrate LangChain's TodoListMiddleware to provide todolist management capabilities.
+### Requirement: Scheduler-facing todo records
+The system SHALL support todo records with scheduler-facing metadata required for team execution.
 
-#### Scenario: Middleware registration
-- **WHEN** agent is initialized
-- **THEN** TodoListMiddleware is registered in the middleware chain
+#### Scenario: Todo stores assignee and backend
+- **WHEN** the Leader creates or updates team todos
+- **THEN** each todo may include assignment metadata such as assignee and execution backend
+- **AND** the middleware persists those fields in state without stripping them
 
-#### Scenario: Todolist tools injection
-- **WHEN** agent processes a request
-- **THEN** TodoListMiddleware automatically injects todolist management tools
+#### Scenario: Todo stores execution output metadata
+- **WHEN** a teammate finishes or fails a todo
+- **THEN** the todo record may store normalized result, artifact reference, retry count, and error details
 
-### Requirement: Remove Custom Todo Tools
-The system SHALL remove existing custom todo tool implementations.
+### Requirement: Dependency-aware ready and blocked semantics
+The system SHALL derive scheduler-ready todo state from dependency completion and failure information.
 
-#### Scenario: Remove write_todo tool
-- **WHEN** refactoring local_ops.py
-- **THEN** write_todo tool definition and related code are removed
+#### Scenario: Todo becomes ready when dependencies are completed
+- **WHEN** all todos listed in `depends_on` are completed
+- **THEN** the scheduler can treat the todo as ready for dispatch even if it was previously pending
 
-#### Scenario: Remove edit_todo tool
-- **WHEN** refactoring local_ops.py
-- **THEN** edit_todo tool definition and related code are removed
+#### Scenario: Todo becomes blocked when a dependency cannot be satisfied
+- **WHEN** any todo listed in `depends_on` fails or is canceled
+- **THEN** the dependent todo is treated as blocked until replanning or manual recovery occurs
 
-#### Scenario: Remove todo helper functions
-- **WHEN** refactoring local_ops.py
-- **THEN** todo-related helper functions are removed (e.g., _normalize_todo_status, _load_todo_store)
+### Requirement: Rich todo state model
+The system SHALL support todo execution states beyond the current pending/in-progress/completed set.
 
-### Requirement: Todolist Storage
-Todolist data SHALL be managed by LangChain middleware in agent state and persisted via checkpointer.
+#### Scenario: Todo enters failed state
+- **WHEN** todo execution ends with an unrecoverable error
+- **THEN** the system records the todo state as failed
 
-#### Scenario: Todolist persistence via checkpointer
-- **WHEN** agent creates todolist items
-- **THEN** they are stored in PlanningState within agent state
-- **AND** SqliteSaver checkpointer automatically persists them to database
+#### Scenario: Todo enters canceled state
+- **WHEN** the Leader or runtime stops a todo without execution success
+- **THEN** the system records the todo state as canceled
 
-#### Scenario: Cross-session access
-- **WHEN** user returns to the same session (thread_id)
-- **THEN** todolist is restored from checkpointer
-- **AND** agent can continue tracking tasks
+### Requirement: Tool results expose scheduler convenience hints
+The system SHALL surface scheduler-facing convenience data in tool results so the Leader can make stepwise dispatch decisions.
 
-### Requirement: Tool Visibility
-Todolist tools SHALL be automatically available without progressive disclosure.
-
-#### Scenario: Tool availability
-- **WHEN** agent starts processing
-- **THEN** todolist tools are immediately available in the tool list
-
-#### Scenario: No search required
-- **WHEN** agent needs todolist functionality
-- **THEN** tools are accessible without calling search_tools
-
+#### Scenario: Tool result lists ready and blocked todos
+- **WHEN** the Leader creates or updates todos through the todo tool path
+- **THEN** the tool result includes structured `ready_todos` and `blocked_todos` hints
+- **AND** the Leader may use those hints without being forced into automatic dispatch

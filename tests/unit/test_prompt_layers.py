@@ -23,6 +23,8 @@ def test_paper_domain_prompt_carries_paper_specific_retrieval_rules():
     assert "search_document" in prompt
     assert "<evidence>" in prompt
     assert "不要再次检索" in prompt
+    assert "should_stop" in prompt
+    assert "sleep" in prompt
     assert "当前对话项目：项目A" in prompt
 
 

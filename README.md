@@ -136,7 +136,7 @@ flowchart TD
     R --> L
 ```
 
-当前 canonical 入口仍是 `pages -> ui -> agent.application -> runtime_agent + middlewares`。不同之处在于，团队任务已经从“仅提示主 Agent 使用 team 工具”升级为“middleware 发信号，Leader 在 `agent.orchestration` 中构建计划、调度 todo、选择 backend，并由状态机控制 review/replan/finalize”。
+当前 canonical 运行链路仍是 `pages -> ui -> agent.application -> runtime_agent + middlewares`，但 session 创建入口已经收敛为 `agent.profiled_agent.create_profiled_agent_session(profile=...)`。其中 `agent.session_factory` / `agent.runtime_agent` 负责 base runtime 装配，`agent.paper_agent.create_paper_agent_session(...)` 仅保留为论文域 leader 的兼容 facade。团队任务也不再只是“提示主 Agent 使用 team 工具”，而是由 middleware 发信号，Leader 在 `agent.orchestration` 中构建计划、调度 todo、选择 backend，并由状态机控制 review/replan/finalize。
 
 ### Hybrid RAG 检索管线
 
@@ -405,7 +405,7 @@ make eval-baseline-judge \
   JUDGE_MODEL="<judge-model-name>" \
   JUDGE_BASE_URL="<optional-openai-compatible-base-url>"
 
-# 少量真实 smoke（真实 create_paper_agent_session + execute_turn_core，默认 1 条 case）
+# 少量真实 smoke（真实 create_profiled_agent_session(profile="leader") / 兼容 create_paper_agent_session + execute_turn_core，默认 1 条 case）
 make eval-live-smoke EVAL_CASE_ID=hybrid_research_001 EVAL_LIMIT=1
 ```
 

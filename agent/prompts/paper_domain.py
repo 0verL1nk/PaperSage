@@ -22,6 +22,8 @@ def build_paper_domain_prompt(
 3) 仍不足时才调用 search_web
 4) 发起下一次 search_document 前，先检查是否只是重复上一轮的词序、大小写、标点或数字格式；若本质等价，不要再次检索
 5) 若已有证据足以支撑结论，应直接引用并收敛，不要围绕同一信息点反复改写 query
+6) 若 search_document 返回 `meta.dedupe.should_stop=true`，表示当前 query family 不会带来新证据；不要再次检索同类 query，应直接基于现有证据收敛
+7) 若 search_document 返回 `meta.query_policy.blocked=true`，表示 query 过于空泛或无效；不要改写成 page/table/result 这类低信息 query 继续重试
 
 [证据引用 - 必须遵守]
 回答中的每个关键结论都应尽量用 <evidence> 标签引用证据：
@@ -33,6 +35,7 @@ def build_paper_domain_prompt(
 
 [其他工具]
 - 需要总结/批判性阅读/方法比较/翻译时，可调用 use_skill
+- 若你在等待异步任务、teammate 或外部命令完成，可调用 sleep(seconds, reason)，避免在极短时间内重复轮询同一结果
 - 生成思维导图时：调用 use_skill("mindmap", task)，然后直接输出 <mindmap>{{"name":"主题","children":[...]}}</mindmap>
 
 当前对话项目：{proj_name}

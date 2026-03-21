@@ -116,6 +116,8 @@ def test_search_document_tool_reuses_cached_evidence_payload_for_same_query_fami
     assert second["evidences"][0]["chunk_id"] == "chunk-1"
     assert second["meta"]["dedupe"]["reused_cached_result"] is True
     assert second["meta"]["dedupe"]["reason"] == "same_query_family"
+    assert second["meta"]["dedupe"]["should_stop"] is True
+    assert "Do not call search_document again" in second["meta"]["dedupe"]["message"]
 
 
 def test_search_document_tool_reuses_cached_text_result_for_same_query_family() -> None:
@@ -133,3 +135,27 @@ def test_search_document_tool_reuses_cached_text_result_for_same_query_family() 
     assert calls["count"] == 1
     assert first == "result:Self-RAG NQ TQA WQ results:1"
     assert second == "result:Self-RAG NQ TQA WQ results:1"
+
+
+def test_search_document_tool_blocks_low_information_query_in_evidence_mode() -> None:
+    calls = {"count": 0}
+
+    def _search_evidence(query: str):
+        calls["count"] += 1
+        return {
+            "evidences": [
+                {"chunk_id": f"chunk-{calls['count']}", "text": f"hit:{query}", "page_no": 1}
+            ]
+        }
+
+    tool = build_search_document_tool(
+        search_document_fn=lambda query: f"fallback:{query}",
+        search_document_evidence_fn=_search_evidence,
+    )
+
+    blocked = json.loads(tool.invoke({"query": "page"}))
+
+    assert calls["count"] == 0
+    assert blocked["evidences"] == []
+    assert blocked["meta"]["query_policy"]["blocked"] is True
+    assert blocked["meta"]["query_policy"]["reason"] == "low_information_query"

@@ -1,6 +1,6 @@
 from typing import Any
 
-from ..paper_agent import create_paper_agent_session
+from ..profiled_agent import create_profiled_agent_session
 
 
 def create_leader_session(
@@ -17,7 +17,8 @@ def create_leader_session(
     session_uid: str | None = None,
     user_uuid: str | None = None,
 ):
-    return create_paper_agent_session(
+    return create_profiled_agent_session(
+        profile="leader",
         llm=llm,
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,

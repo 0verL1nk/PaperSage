@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from ..profiles import resolve_agent_profile
@@ -43,11 +44,21 @@ def set_session_runtime_context(
 
 
 
+def _resolve_session_id(config: RunnableConfig | None = None) -> str:
+    if config is not None:
+        configurable = config.get("configurable", {})
+        thread_id = configurable.get("thread_id")
+        if thread_id:
+            return str(thread_id)
+    session_id = _current_session.get()
+    if session_id:
+        return session_id
+    return "default"
+
+
 def get_team_runtime() -> TeamRuntime:
     """获取或创建当前 session 的 team runtime"""
-    session_id = _current_session.get()
-    if session_id is None:
-        session_id = "default"
+    session_id = _resolve_session_id()
 
     if session_id not in _team_runtimes:
         team_id = f"{session_id}-{uuid.uuid4().hex[:8]}"
@@ -56,16 +67,44 @@ def get_team_runtime() -> TeamRuntime:
     return _team_runtimes[session_id]
 
 
+def _get_runtime_for_tool_call(config: RunnableConfig | None = None) -> TeamRuntime:
+    session_id = _resolve_session_id(config)
+    set_current_session(session_id)
+    return get_team_runtime()
 
-def _get_current_runtime_context() -> TeamRuntimeContext | None:
-    session_id = _current_session.get()
-    if session_id is None:
-        return None
+
+
+def _get_current_runtime_context(
+    config: RunnableConfig | None = None,
+) -> TeamRuntimeContext | None:
+    session_id = _resolve_session_id(config)
     return _session_runtime_contexts.get(session_id)
 
 
+def _format_team_runtime_error(message: str) -> str:
+    normalized = str(message or "").strip()
+    if not normalized:
+        return "Error: Team runtime request failed"
+    if normalized.startswith("Agent ") and normalized.endswith(" is busy"):
+        return (
+            f"Error: {normalized}. Do not send another message yet; "
+            "call get_agent_result later."
+        )
+    if normalized.startswith("Cannot close agent ") and normalized.endswith(": still busy"):
+        return (
+            f"Error: {normalized}. Wait for get_agent_result to return completed "
+            "before closing."
+        )
+    return f"Error: {normalized}"
+
+
 @tool
-def spawn_agent(name: str, role: str = "teammate", system_prompt: str = "") -> str:
+def spawn_agent(
+    name: str,
+    role: str = "teammate",
+    system_prompt: str = "",
+    config: RunnableConfig = None,
+) -> str:
     """创建新的 agent 实例
 
     Args:
@@ -76,8 +115,8 @@ def spawn_agent(name: str, role: str = "teammate", system_prompt: str = "") -> s
     Returns:
         agent_id
     """
-    runtime = get_team_runtime()
-    runtime_context = _get_current_runtime_context()
+    runtime = _get_runtime_for_tool_call(config)
+    runtime_context = _get_current_runtime_context(config)
     if runtime_context is None or runtime_context.dependencies is None:
         return "Error: Team runtime context unavailable"
 
@@ -98,7 +137,11 @@ def spawn_agent(name: str, role: str = "teammate", system_prompt: str = "") -> s
 
 
 @tool
-def send_message(agent_id: str, message: str) -> str:
+def send_message(
+    agent_id: str,
+    message: str,
+    config: RunnableConfig = None,
+) -> str:
     """发送消息给 agent
 
     Args:
@@ -108,22 +151,22 @@ def send_message(agent_id: str, message: str) -> str:
     Returns:
         状态信息
     """
-    runtime = get_team_runtime()
+    runtime = _get_runtime_for_tool_call(config)
     try:
         runtime.send_message(agent_id, message)
         return f"Message sent to agent {agent_id}"
     except ValueError as e:
-        return f"Error: {str(e)}"
+        return _format_team_runtime_error(str(e))
 
 
 @tool
-def list_agents() -> str:
+def list_agents(config: RunnableConfig = None) -> str:
     """列出所有 agent 及其状态
 
     Returns:
         agent 列表（JSON 格式）
     """
-    runtime = get_team_runtime()
+    runtime = _get_runtime_for_tool_call(config)
     agents = runtime.list_agents()
     import json
 
@@ -131,7 +174,10 @@ def list_agents() -> str:
 
 
 @tool
-def get_agent_result(agent_id: str) -> str:
+def get_agent_result(
+    agent_id: str,
+    config: RunnableConfig = None,
+) -> str:
     """获取 agent 的执行结果
 
     Args:
@@ -140,15 +186,18 @@ def get_agent_result(agent_id: str) -> str:
     Returns:
         结构化执行结果（JSON 字符串）
     """
-    runtime = get_team_runtime()
+    runtime = _get_runtime_for_tool_call(config)
     try:
         return runtime.get_agent_result(agent_id)
     except ValueError as e:
-        return f"Error: {str(e)}"
+        return _format_team_runtime_error(str(e))
 
 
 @tool
-def close_agent(agent_id: str) -> str:
+def close_agent(
+    agent_id: str,
+    config: RunnableConfig = None,
+) -> str:
     """关闭 agent 实例
 
     Args:
@@ -157,9 +206,9 @@ def close_agent(agent_id: str) -> str:
     Returns:
         状态信息
     """
-    runtime = get_team_runtime()
+    runtime = _get_runtime_for_tool_call(config)
     try:
         runtime.close_agent(agent_id)
         return f"Agent {agent_id} closed"
     except ValueError as e:
-        return f"Error: {str(e)}"
+        return _format_team_runtime_error(str(e))
