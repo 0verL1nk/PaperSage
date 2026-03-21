@@ -22,7 +22,8 @@ Do not use this skill for:
 ## Workflow
 
 1. Define research objective and output contract
-- Convert user request into explicit deliverables: key question, expected depth, evidence format.
+- Convert user request into explicit deliverables: key question, expected depth, and evidence contract.
+- For project-document evidence, the contract is `<evidence>chunk_id|p页码|o起止偏移</evidence>`.
 
 2. Build query plan
 - Split into sub-queries by intent:
@@ -43,12 +44,14 @@ Do not use this skill for:
 
 5. Synthesize answer with traceability
 - Produce structured findings with explicit evidence anchors.
+- When citing project-document evidence in prose, use `<evidence>chunk_id|p页码|o起止偏移</evidence>` instead of bracket citations or free-form page references.
 - Separate confirmed facts, probable inferences, and unresolved gaps.
 
 ## Runtime Contract
 
 - Return conclusions that are evidence-backed and audit-friendly.
 - For each key conclusion, attach at least one source anchor.
+- For current-project document anchors, use the exact `<evidence>chunk_id|p页码|o起止偏移</evidence>` format.
 - If evidence conflicts, explain conflict instead of forcing one conclusion.
 - If evidence is still insufficient, output explicit follow-up search actions.
 

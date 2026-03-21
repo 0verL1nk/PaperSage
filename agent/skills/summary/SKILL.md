@@ -31,8 +31,10 @@ Use this skill when:
 - Keep each point concise (1-2 sentences)
 
 ### Step 4: Cite evidence
-- Reference specific sections or page numbers when possible
-- Use citations like "[Section 2.1]" or "[Page 3]"
+- For each key conclusion, append at least one canonical evidence tag
+- Use the exact format `<evidence>chunk_id|p页码|o起止偏移</evidence>`
+- Extract `chunk_id`, `page_no`, `offset_start`, and `offset_end` from `search_document` results
+- Do not invent locators or fall back to bracket-style citations
 
 ## Output format
 
@@ -40,12 +42,12 @@ Use this skill when:
 ## Summary
 
 ### Main Points
-- Point 1 [citation]
-- Point 2 [citation]
+- Point 1 <evidence>doc_a:chunk_12|p4|o100-168</evidence>
+- Point 2 <evidence>doc_a:chunk_18|p6|o12-88</evidence>
 - ...
 
 ### Key Findings
-- Finding 1 [citation]
+- Finding 1 <evidence>doc_b:chunk_7|p9|o210-320</evidence>
 - ...
 ```
 
