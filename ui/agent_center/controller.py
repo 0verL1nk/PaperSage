@@ -3,6 +3,10 @@ from logging import Logger
 from typing import Any
 
 
+def session_selector_override_key(selector_key: str) -> str:
+    return f"{selector_key}__override"
+
+
 def resolve_session_selector_uid(
     *,
     session_state: MutableMapping[str, Any],
@@ -16,13 +20,26 @@ def resolve_session_selector_uid(
     return fallback_uid
 
 
+def consume_session_selector_uid_override(
+    *,
+    session_state: MutableMapping[str, Any],
+    selector_key: str,
+    by_uid: dict[str, dict[str, Any]],
+) -> str:
+    override_key = session_selector_override_key(selector_key)
+    value = str(session_state.pop(override_key, "") or "")
+    if value in by_uid:
+        return value
+    return ""
+
+
 def override_session_selector_uid(
     *,
     session_state: MutableMapping[str, Any],
     selector_key: str,
     selected_uid: str,
 ) -> None:
-    session_state[selector_key] = str(selected_uid or "")
+    session_state[session_selector_override_key(selector_key)] = str(selected_uid or "")
 
 
 def load_files_from_db(
@@ -181,6 +198,13 @@ def render_project_session_sidebar(
     )
 
     selector_key = f"agent_project_session_selector_{project_uid}"
+    override_uid = consume_session_selector_uid_override(
+        session_state=st.session_state,
+        selector_key=selector_key,
+        by_uid=by_uid,
+    )
+    if override_uid:
+        current_uid = override_uid
     current_uid = resolve_session_selector_uid(
         session_state=st.session_state,
         selector_key=selector_key,
