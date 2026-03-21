@@ -8,8 +8,10 @@ from .profiles import paper_leader_profile
 from .session_factory import (
     AgentDependencies,
     AgentRuntimeOptions,
-    AgentSession as PaperAgentSession,
     create_agent_session,
+)
+from .session_factory import (
+    AgentSession as PaperAgentSession,
 )
 
 logger = logging.getLogger(__name__)

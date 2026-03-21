@@ -405,7 +405,6 @@ def test_execute_turn_core_exposes_team_handoff_and_scheduler_convenience():
 
     result = execute_turn_core(
         prompt="请协作完成分析",
-        hinted_prompt="请协作完成分析",
         leader_agent=mock_agent,
         leader_runtime_config={},
     )

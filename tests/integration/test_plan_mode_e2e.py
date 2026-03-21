@@ -197,7 +197,7 @@ def test_orchestration_middleware_parses_last_valid_json_from_mixed_text():
         config={"configurable": {"state": {}}},
     )
 
-    assert update == {"needs_team": True}
+    assert update == {"needs_team": True, "team_handoff": {"mode": "leader_teammate", "reason": "需要对比研究"}}
     assert middleware._last_analysis is not None
     assert middleware._last_analysis["is_complex"] is True
     assert middleware._last_analysis["needs_team"] is True
