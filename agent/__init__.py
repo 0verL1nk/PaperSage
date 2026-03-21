@@ -1,4 +1,4 @@
-__version__ = "1.0.5"
+__version__ = "1.1.0"
 
 from .archive import list_agent_outputs, save_agent_output
 from .llm_provider import build_openai_compatible_chat_model
