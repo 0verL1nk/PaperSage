@@ -51,6 +51,10 @@ def normalize_task_execution_result(
             status="failed",
             error="Invalid task execution result payload",
         )
+    raw_metadata = payload.get("metadata")
+    metadata: dict[str, Any] = {}
+    if isinstance(raw_metadata, dict):
+        metadata = {str(key): value for key, value in raw_metadata.items()}
     return TaskExecutionResult(
         todo_id=str(payload.get("todo_id") or todo_id).strip() or todo_id,
         backend=str(payload.get("backend") or backend).strip() or backend,
@@ -58,7 +62,7 @@ def normalize_task_execution_result(
         output=str(payload.get("output") or "").strip(),
         error=str(payload.get("error") or "").strip(),
         artifact_ref=str(payload.get("artifact_ref") or "").strip(),
-        metadata=dict(payload.get("metadata")) if isinstance(payload.get("metadata"), dict) else {},
+        metadata=metadata,
     )
 
 

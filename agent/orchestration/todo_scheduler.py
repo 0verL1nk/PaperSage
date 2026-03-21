@@ -11,6 +11,16 @@ class LeaderTodoScheduler:
     TERMINAL_STATUSES = {"completed", "failed", "canceled"}
     BLOCKING_DEPENDENCY_STATUSES = {"failed", "canceled"}
 
+    @staticmethod
+    def _dependency_statuses(indexed: dict[str, Todo], dependencies: list[str]) -> list[str]:
+        statuses: list[str] = []
+        for dep_id in dependencies:
+            dependency = indexed.get(dep_id)
+            if dependency is None:
+                continue
+            statuses.append(str(dependency.status or "pending").strip().lower())
+        return statuses
+
     def refresh_todo_states(self, todos: Sequence[Todo]) -> list[Todo]:
         indexed = {
             str(todo.id).strip(): todo
@@ -24,18 +34,11 @@ class LeaderTodoScheduler:
                 refreshed.append(todo)
                 continue
             dependencies = [str(item).strip() for item in (todo.depends_on or []) if str(item).strip()]
-            if any(
-                str(indexed.get(dep_id).status).strip().lower() in self.BLOCKING_DEPENDENCY_STATUSES
-                for dep_id in dependencies
-                if dep_id in indexed
-            ):
+            dependency_statuses = self._dependency_statuses(indexed, dependencies)
+            if any(status in self.BLOCKING_DEPENDENCY_STATUSES for status in dependency_statuses):
                 refreshed.append(todo.model_copy(update={"status": "blocked"}))
                 continue
-            if all(
-                str(indexed.get(dep_id).status).strip().lower() == "completed"
-                for dep_id in dependencies
-                if dep_id in indexed
-            ):
+            if all(status == "completed" for status in dependency_statuses):
                 refreshed.append(todo.model_copy(update={"status": "ready"}))
                 continue
             refreshed.append(todo.model_copy(update={"status": "pending"}))
@@ -53,16 +56,9 @@ class LeaderTodoScheduler:
             if status in {"completed", "failed", "canceled", "blocked", "in_progress"}:
                 continue
             dependencies = [str(item).strip() for item in (todo.depends_on or []) if str(item).strip()]
-            if any(
-                str(indexed.get(dep_id).status).strip().lower() in self.BLOCKING_DEPENDENCY_STATUSES
-                for dep_id in dependencies
-                if dep_id in indexed
-            ):
+            dependency_statuses = self._dependency_statuses(indexed, dependencies)
+            if any(status in self.BLOCKING_DEPENDENCY_STATUSES for status in dependency_statuses):
                 continue
-            if all(
-                str(indexed.get(dep_id).status).strip().lower() == "completed"
-                for dep_id in dependencies
-                if dep_id in indexed
-            ):
+            if all(status == "completed" for status in dependency_statuses):
                 ready.append(todo)
         return ready

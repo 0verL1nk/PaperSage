@@ -64,21 +64,21 @@ def _build_system_prompt(
     proj_name = project_name if project_name else "默认项目"
     scope_text = scope_summary if scope_summary else "默认范围"
     if access_mode == "none":
-        prompt = ChatPromptTemplate.from_template(EXTERNAL_ONLY_SYSTEM_PROMPT)
-        return prompt.format(project_name=proj_name, scope_summary=scope_text)
+        external_prompt = ChatPromptTemplate.from_template(EXTERNAL_ONLY_SYSTEM_PROMPT)
+        return external_prompt.format(project_name=proj_name, scope_summary=scope_text)
 
-    prompt = build_paper_system_prompt(
+    prompt_text = build_paper_system_prompt(
         document_name=document_name,
         project_name=project_name,
         scope_summary=scope_summary,
     )
     if scope_summary and any(keyword in scope_summary for keyword in ("项目内", "仅限", "仅基于项目文档", "不要联网")):
-        prompt += (
+        prompt_text += (
             "\n\n[项目范围约束]\n"
             "- 当前项目文档范围内回答\n"
             "- 不要调用 search_papers 或 search_web\n"
         )
-    return prompt
+    return prompt_text
 
 
 def create_paper_agent_session(

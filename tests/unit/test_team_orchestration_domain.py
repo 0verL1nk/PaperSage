@@ -3,6 +3,7 @@ from agent.domain.orchestration import (
     TeamPlan,
     TeamRunState,
     TeamTodoRecord,
+    normalize_team_todo_records,
 )
 
 
@@ -59,3 +60,33 @@ def test_team_run_state_to_dict_contains_plan_and_progress() -> None:
     assert payload["plan"]["goal"] == "完成目标"
     assert payload["completed_todo_ids"] == ["todo-1"]
     assert payload["review_decision"] == "pass"
+
+
+def test_normalize_team_todo_records_falls_back_to_valid_literal_values() -> None:
+    payload = normalize_team_todo_records(
+        [
+            {
+                "id": "todo-1",
+                "content": "执行任务",
+                "status": "unknown",
+                "execution_backend": "remote",
+                "result": {1: "ok"},
+            }
+        ]
+    )
+
+    assert payload == [
+        {
+            "id": "todo-1",
+            "content": "执行任务",
+            "status": "pending",
+            "depends_on": [],
+            "assignee": "",
+            "execution_backend": "local",
+            "done_when": "",
+            "result": {"1": "ok"},
+            "artifact_ref": "",
+            "retry_count": 0,
+            "error": "",
+        }
+    ]

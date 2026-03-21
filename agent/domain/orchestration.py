@@ -180,6 +180,49 @@ TeamRunLifecycleState = Literal[
 ]
 
 
+def normalize_team_todo_status(value: Any) -> TeamTodoStatus:
+    normalized = str(value or "pending").strip().lower()
+    if normalized == "ready":
+        return "ready"
+    if normalized == "in_progress":
+        return "in_progress"
+    if normalized == "completed":
+        return "completed"
+    if normalized == "blocked":
+        return "blocked"
+    if normalized == "failed":
+        return "failed"
+    if normalized == "canceled":
+        return "canceled"
+    return "pending"
+
+
+def normalize_execution_backend(value: Any) -> ExecutionBackend:
+    normalized = str(value or "local").strip().lower()
+    if normalized == "a2a":
+        return "a2a"
+    return "local"
+
+
+def normalize_team_run_lifecycle_state(value: Any) -> TeamRunLifecycleState:
+    normalized = str(value or "draft").strip().lower()
+    if normalized == "scheduled":
+        return "scheduled"
+    if normalized == "running":
+        return "running"
+    if normalized == "reviewing":
+        return "reviewing"
+    if normalized == "replanning":
+        return "replanning"
+    if normalized == "completed":
+        return "completed"
+    if normalized == "failed":
+        return "failed"
+    if normalized == "canceled":
+        return "canceled"
+    return "draft"
+
+
 @dataclass(frozen=True)
 class RoleSpec:
     name: str
@@ -307,22 +350,20 @@ def normalize_team_todo_records(raw_payload: Any) -> list[dict[str, Any]]:
             continue
         if not isinstance(item, dict):
             continue
+        raw_result = item.get("result")
+        result_payload: dict[str, Any] | None = None
+        if isinstance(raw_result, dict):
+            result_payload = {str(key): value for key, value in raw_result.items()}
         normalized.append(
             TeamTodoRecord(
                 id=str(item.get("id") or "").strip(),
                 content=str(item.get("content") or "").strip(),
-                status=str(item.get("status") or "pending").strip() or "pending",
+                status=normalize_team_todo_status(item.get("status")),
                 depends_on=list(item.get("depends_on") or []),
                 assignee=str(item.get("assignee") or "").strip(),
-                execution_backend=(
-                    str(item.get("execution_backend") or "local").strip() or "local"
-                ),
+                execution_backend=normalize_execution_backend(item.get("execution_backend")),
                 done_when=str(item.get("done_when") or "").strip(),
-                result=(
-                    dict(item.get("result"))
-                    if isinstance(item.get("result"), dict)
-                    else None
-                ),
+                result=result_payload,
                 artifact_ref=str(item.get("artifact_ref") or "").strip(),
                 retry_count=int(item.get("retry_count") or 0),
                 error=str(item.get("error") or "").strip(),

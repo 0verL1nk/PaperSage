@@ -3,7 +3,7 @@
 import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -103,7 +103,7 @@ def spawn_agent(
     name: str,
     role: str = "teammate",
     system_prompt: str = "",
-    config: RunnableConfig = None,
+    config: RunnableConfig = cast(RunnableConfig, None),
 ) -> str:
     """创建新的 agent 实例
 
@@ -140,7 +140,7 @@ def spawn_agent(
 def send_message(
     agent_id: str,
     message: str,
-    config: RunnableConfig = None,
+    config: RunnableConfig = cast(RunnableConfig, None),
 ) -> str:
     """发送消息给 agent
 
@@ -160,7 +160,7 @@ def send_message(
 
 
 @tool
-def list_agents(config: RunnableConfig = None) -> str:
+def list_agents(config: RunnableConfig = cast(RunnableConfig, None)) -> str:
     """列出所有 agent 及其状态
 
     Returns:
@@ -176,7 +176,7 @@ def list_agents(config: RunnableConfig = None) -> str:
 @tool
 def get_agent_result(
     agent_id: str,
-    config: RunnableConfig = None,
+    config: RunnableConfig = cast(RunnableConfig, None),
 ) -> str:
     """获取 agent 的执行结果
 
@@ -196,7 +196,7 @@ def get_agent_result(
 @tool
 def close_agent(
     agent_id: str,
-    config: RunnableConfig = None,
+    config: RunnableConfig = cast(RunnableConfig, None),
 ) -> str:
     """关闭 agent 实例
 

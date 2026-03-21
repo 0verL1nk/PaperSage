@@ -1,10 +1,36 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from typing import Any
 
-from agent.domain.orchestration import RoleSpec, TeamPlan, TeamTodoRecord
+from agent.domain.orchestration import (
+    RoleSpec,
+    TeamPlan,
+    TeamTodoRecord,
+    normalize_execution_backend,
+    normalize_team_todo_status,
+)
 from agent.middlewares.todolist import Todo
 from agent.orchestration.todo_scheduler import LeaderTodoScheduler
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _coerce_mapping(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {str(key): item for key, item in value.items()}
 
 
 def _normalize_role_specs(roles: Iterable[RoleSpec | dict[str, object]]) -> list[RoleSpec]:
@@ -22,7 +48,7 @@ def _normalize_role_specs(roles: Iterable[RoleSpec | dict[str, object]]) -> list
                 goal=str(item.get("goal") or "").strip(),
                 system_prompt=str(item.get("system_prompt") or "").strip(),
                 expected_output=str(item.get("expected_output") or "").strip(),
-                allowed_tools=list(item.get("allowed_tools") or []),
+                allowed_tools=_coerce_str_list(item.get("allowed_tools")),
             )
         )
     return normalized
@@ -49,14 +75,12 @@ def _coerce_todo(item: Todo | TeamTodoRecord | dict[str, object]) -> Todo | None
     return Todo(
         id=str(item.get("id") or "").strip(),
         content=str(item.get("content") or "").strip(),
-        status=str(item.get("status") or "pending").strip() or "pending",
-        depends_on=list(item.get("depends_on") or []),
+        status=normalize_team_todo_status(item.get("status")),
+        depends_on=_coerce_str_list(item.get("depends_on")),
         assignee=str(item.get("assignee") or "").strip(),
-        execution_backend=(
-            str(item.get("execution_backend") or "local").strip() or "local"
-        ),
-        retry_count=int(item.get("retry_count") or 0),
-        result=dict(item.get("result")) if isinstance(item.get("result"), dict) else None,
+        execution_backend=normalize_execution_backend(item.get("execution_backend")),
+        retry_count=_coerce_int(item.get("retry_count")),
+        result=_coerce_mapping(item.get("result")),
         artifact_ref=str(item.get("artifact_ref") or "").strip(),
         error=str(item.get("error") or "").strip(),
     )

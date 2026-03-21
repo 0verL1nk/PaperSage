@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from agent.domain.orchestration import TeamRunState, TeamTodoRecord
+from agent.domain.orchestration import (
+    TeamRunState,
+    TeamTodoRecord,
+    normalize_team_run_lifecycle_state,
+    normalize_team_todo_status,
+)
 
 _TODO_TRANSITIONS: dict[str, set[str]] = {
     "pending": {"ready", "blocked", "failed", "canceled"},
@@ -52,7 +57,7 @@ def transition_team_todo_record(
     retry_count: int | None = None,
 ) -> TeamTodoRecord:
     current_status = str(todo.status or "pending").strip()
-    target_status = str(next_status or current_status).strip() or current_status
+    target_status = normalize_team_todo_status(next_status or current_status)
     _ensure_transition(_TODO_TRANSITIONS, current_status, target_status, "todo")
     return replace(
         todo,
@@ -72,7 +77,7 @@ def transition_team_run_state(
     error: str | None = None,
 ) -> TeamRunState:
     current_state = str(run_state.state or "draft").strip()
-    target_state = str(next_state or current_state).strip() or current_state
+    target_state = normalize_team_run_lifecycle_state(next_state or current_state)
     _ensure_transition(_RUN_TRANSITIONS, current_state, target_state, "run")
     errors = list(run_state.errors)
     if error:

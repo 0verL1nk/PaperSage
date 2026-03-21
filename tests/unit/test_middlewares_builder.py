@@ -48,20 +48,6 @@ def test_build_middleware_list_includes_mindmap_format_middleware() -> None:
     assert any(
         middleware.__class__.__name__ == "MindmapFormatMiddleware" for middleware in middlewares
     )
-
-def test_build_middleware_list_includes_mindmap_format_middleware() -> None:
-    from unittest.mock import patch
-
-    with patch("agent.middlewares.builder.load_subagent_configs", return_value=[]):
-        middlewares = build_middleware_list(
-            model="llm",
-            enable_auto_summarization=False,
-            enable_tool_selector=False,
-        )
-
-    assert any(
-        middleware.__class__.__name__ == "MindmapFormatMiddleware" for middleware in middlewares
-    )
 def test_build_middleware_list_filters_team_middlewares_by_profile(monkeypatch):
     monkeypatch.setattr("agent.middlewares.builder.load_subagent_configs", lambda: [])
 
