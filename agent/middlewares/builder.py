@@ -14,6 +14,7 @@ from openai import RateLimitError
 
 from ..subagent.loader import load_subagent_configs
 from .llm_logger import llm_logger_middleware
+from .mindmap_format import mindmap_format_middleware
 from .orchestration import OrchestrationMiddleware
 from .plan import plan_middleware
 from .team import TeamMiddleware
@@ -80,6 +81,9 @@ def build_middleware_list(
 
     # Orchestration middleware (for complex task guidance)
     middleware_list.append(OrchestrationMiddleware(llm=model))
+
+    # Enforce strict tagged JSON contract for mindmap outputs.
+    middleware_list.append(mindmap_format_middleware)
 
     # SubAgent middleware (provides task tool for spawning subagents)
     subagent_specs = _build_runtime_subagent_specs(model)

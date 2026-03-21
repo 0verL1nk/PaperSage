@@ -50,6 +50,7 @@ PAPER_QA_SYSTEM_PROMPT = """你是专业论文问答 Agent。
 [其他工具]
 - 需要总结/批判性阅读/方法比较/翻译时，可调用 use_skill
 - 生成思维导图时：调用 use_skill("mindmap", task)，然后直接输出 <mindmap>{{"name":"主题","children":[...]}}</mindmap>
+- 生成思维导图时严禁输出 Mermaid、Markdown 代码块、标题、解释文字或任何 <mindmap> 标签外的额外文本
 
 [复杂任务处理]
 仅当遇到明确的复杂多步骤任务时才使用计划工具（如文献综述、对比分析、系统性调研等）：
@@ -91,6 +92,7 @@ EXTERNAL_ONLY_SYSTEM_PROMPT = """你是专业论文问答 Agent。
 [其他工具]
 - 需要总结/批判性阅读/方法比较/翻译时，可调用 use_skill
 - 生成思维导图时：调用 use_skill("mindmap", task)，然后直接输出 <mindmap>{{"name":"主题","children":[...]}}</mindmap>
+- 生成思维导图时严禁输出 Mermaid、Markdown 代码块、标题、解释文字或任何 <mindmap> 标签外的额外文本
 
 [复杂任务处理]
 仅当遇到明确的复杂多步骤任务时才使用计划工具：

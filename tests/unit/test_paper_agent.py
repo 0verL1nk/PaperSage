@@ -13,6 +13,7 @@ def test_build_system_prompt_does_not_raise():
     assert "测试文档" in result
     assert "测试项目" in result
     assert "<mindmap>{" in result
+    assert "严禁输出 Mermaid" in result
 
 
 def test_build_system_prompt_explicitly_blocks_external_search_for_project_only_queries():

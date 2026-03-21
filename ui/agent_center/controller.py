@@ -33,6 +33,28 @@ def consume_session_selector_uid_override(
     return ""
 
 
+def resolve_initial_session_selector_uid(
+    *,
+    session_state: MutableMapping[str, Any],
+    selector_key: str,
+    fallback_uid: str,
+    by_uid: dict[str, dict[str, Any]],
+) -> str:
+    override_uid = consume_session_selector_uid_override(
+        session_state=session_state,
+        selector_key=selector_key,
+        by_uid=by_uid,
+    )
+    if override_uid:
+        return override_uid
+    return resolve_session_selector_uid(
+        session_state=session_state,
+        selector_key=selector_key,
+        fallback_uid=fallback_uid,
+        by_uid=by_uid,
+    )
+
+
 def override_session_selector_uid(
     *,
     session_state: MutableMapping[str, Any],
@@ -198,14 +220,7 @@ def render_project_session_sidebar(
     )
 
     selector_key = f"agent_project_session_selector_{project_uid}"
-    override_uid = consume_session_selector_uid_override(
-        session_state=st.session_state,
-        selector_key=selector_key,
-        by_uid=by_uid,
-    )
-    if override_uid:
-        current_uid = override_uid
-    current_uid = resolve_session_selector_uid(
+    current_uid = resolve_initial_session_selector_uid(
         session_state=st.session_state,
         selector_key=selector_key,
         fallback_uid=current_uid,

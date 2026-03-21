@@ -1,6 +1,7 @@
 """Middleware implementations for agent execution."""
 
 from .builder import build_middleware_list
+from .mindmap_format import MindmapFormatMiddleware, mindmap_format_middleware
 from .orchestration import OrchestrationMiddleware
 from .plan import plan_middleware
 from .todolist import todolist_middleware
@@ -11,9 +12,11 @@ from .types import AgentState
 
 __all__ = [
     "AgentState",
+    "MindmapFormatMiddleware",
     "OrchestrationMiddleware",
     "TurnContextMiddleware",
     "TraceMiddleware",
+    "mindmap_format_middleware",
     "todolist_middleware",
     "turn_context_middleware",
     "plan_middleware",

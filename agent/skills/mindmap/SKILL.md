@@ -33,6 +33,7 @@ Use this skill when:
 ### Step 4: Output format
 - Use **<mindmap> JSON </mindmap>** wrapper - NO markdown fences
 - Output pure JSON only, no explanations before or after
+- Never output Mermaid syntax, markdown code fences, headings, or prose
 
 ## Output contract
 
@@ -52,6 +53,11 @@ Wrap JSON with `<mindmap>` tags (no markdown fences):
   ]
 }
 </mindmap>
+
+Invalid examples:
+- `## 标题` followed by JSON
+- ```mermaid ... ```
+- Any explanation before `<mindmap>` or after `</mindmap>`
 
 ## Quality checks
 

@@ -20,7 +20,7 @@ def test_claude_workflows_pass_required_anthropic_env_vars_via_settings() -> Non
         "claude.yml",
     )
     expected_env = {
-        "ANTHROPIC_AUTH_TOKEN": "${{ secrets.ANTHROPIC_AUTH_TOKEN }}",
+        "ANTHROPIC_API_KEY": "${{ secrets.ANTHROPIC_API_KEY }}",
         "ANTHROPIC_BASE_URL": "${{ secrets.ANTHROPIC_BASE_URL }}",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": "${{ secrets.ANTHROPIC_DEFAULT_HAIKU_MODEL }}",
         "ANTHROPIC_DEFAULT_OPUS_MODEL": "${{ secrets.ANTHROPIC_DEFAULT_OPUS_MODEL }}",
