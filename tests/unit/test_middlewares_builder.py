@@ -36,7 +36,6 @@ def test_build_middleware_list_builds_typed_subagents_for_subagent_middleware(mo
         }
     ]
 
-
 def test_build_middleware_list_includes_mindmap_format_middleware() -> None:
     from unittest.mock import patch
 
@@ -50,7 +49,6 @@ def test_build_middleware_list_includes_mindmap_format_middleware() -> None:
     assert any(
         middleware.__class__.__name__ == "MindmapFormatMiddleware" for middleware in middlewares
     )
-
 def test_build_middleware_list_filters_team_middlewares_by_profile(monkeypatch):
     monkeypatch.setattr("agent.middlewares.builder.load_subagent_configs", lambda: [])
 
