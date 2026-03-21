@@ -24,6 +24,21 @@ _DANGEROUS_QUERY_PATTERNS = [
     r"\bssh\b",
 ]
 
+_LOW_INFORMATION_QUERY_TOKENS = {
+    "page",
+    "pages",
+    "table",
+    "tables",
+    "result",
+    "results",
+    "score",
+    "scores",
+    "paper",
+    "papers",
+    "document",
+    "documents",
+}
+
 
 def _env_flag(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -74,6 +89,55 @@ def _sanitize_query(query: str) -> str:
     if len(value) > DEFAULT_MAX_QUERY_CHARS:
         value = value[:DEFAULT_MAX_QUERY_CHARS]
     return value
+
+
+def _normalize_query_cache_key(query: str) -> str:
+    value = _sanitize_query(query).lower()
+    if not value:
+        return ""
+    normalized = value.replace("-", " ").replace("_", " ").replace("/", " ")
+    raw_tokens = re.findall(r"[a-z0-9]+(?:\.[0-9]+)?", normalized)
+    tokens: list[str] = []
+    for token in raw_tokens:
+        if "." in token:
+            try:
+                numeric = float(token)
+            except ValueError:
+                pass
+            else:
+                if numeric.is_integer():
+                    token = str(int(numeric))
+        tokens.append(token)
+    if not tokens:
+        return value
+    return " ".join(sorted(tokens))
+
+
+def _query_similarity_tokens(query: str) -> tuple[str, ...]:
+    key = _normalize_query_cache_key(query)
+    if not key:
+        return ()
+    return tuple(token for token in key.split() if token)
+
+
+def _query_overlap_score(query_a: str, query_b: str) -> float:
+    tokens_a = set(_query_similarity_tokens(query_a))
+    tokens_b = set(_query_similarity_tokens(query_b))
+    if not tokens_a or not tokens_b:
+        return 0.0
+    intersection_size = len(tokens_a & tokens_b)
+    if intersection_size == 0:
+        return 0.0
+    return intersection_size / min(len(tokens_a), len(tokens_b))
+
+
+def _is_low_information_query(query: str) -> bool:
+    tokens = _query_similarity_tokens(query)
+    if not tokens:
+        return True
+    if len(tokens) > 2:
+        return False
+    return all(token in _LOW_INFORMATION_QUERY_TOKENS for token in tokens)
 
 
 def _preview(text: str, limit: int = 120) -> str:

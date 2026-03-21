@@ -110,7 +110,7 @@ def test_extract_document_payload_delegates(monkeypatch):
 def test_create_leader_session_delegates(monkeypatch):
     captured = {}
     monkeypatch.setattr(
-        "agent.adapters.agent_session.create_paper_agent_session",
+        "agent.adapters.agent_session.create_profiled_agent_session",
         lambda **kwargs: captured.update(kwargs) or "session",
     )
     out = create_leader_session(
@@ -123,6 +123,7 @@ def test_create_leader_session_delegates(monkeypatch):
         scope_summary="s",
     )
     assert out == "session"
+    assert captured["profile"] == "leader"
     assert captured["llm"] == "llm"
     assert captured["document_name"] == "d"
 

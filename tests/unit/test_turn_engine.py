@@ -159,6 +159,87 @@ def test_execute_turn_core_matches_plain_doc_uid_citation_to_tool_evidence() -> 
     assert result["evidence_items"][0]["chunk_id"] == "arxiv:2005.11401:chunk_11"
 
 
+def test_execute_turn_core_normalizes_malformed_evidence_tags() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    mock_agent = Mock()
+    mock_agent.invoke.return_value = {
+        "messages": [
+            SimpleNamespace(
+                content="",
+                tool_calls=[{"name": "search_document", "args": {"query": "self-rag"}}],
+            ),
+            {
+                "role": "tool",
+                "name": "search_document",
+                "content": (
+                    '{"evidences": ['
+                    '{"chunk_id": "arxiv:2310.11511:chunk_73", "text": "证据文本", "page_no": 1, "offset_start": 966, "offset_end": 1450}'
+                    "]} "
+                ),
+            },
+            SimpleNamespace(
+                content=(
+                    "结论【evidence】arxiv:2310.11511:chunk_73|p1|o966-1450</evidence>"
+                ),
+                tool_calls=[],
+            ),
+        ]
+    }
+
+    result = execute_turn_core(
+        prompt="请判断是否应暂缓 Self-RAG",
+        leader_agent=mock_agent,
+        leader_runtime_config={},
+    )
+
+    assert result["answer"] == "结论<evidence>arxiv:2310.11511:chunk_73|p1|o966-1450</evidence>"
+    assert result["used_document_rag"] is True
+    assert len(result["evidence_items"]) == 1
+    assert result["evidence_items"][0]["chunk_id"] == "arxiv:2310.11511:chunk_73"
+
+
+def test_execute_turn_core_matches_inline_bracket_chunk_reference_with_pnull() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    mock_agent = Mock()
+    mock_agent.invoke.return_value = {
+        "messages": [
+            SimpleNamespace(
+                content="",
+                tool_calls=[{"name": "search_document", "args": {"query": "self-rag latency"}}],
+            ),
+            {
+                "role": "tool",
+                "name": "search_document",
+                "content": (
+                    '{"evidences": ['
+                    '{"chunk_id": "arxiv:2310.11511:chunk_106", "doc_uid": "arxiv:2310.11511", "text": "证据文本", "page_no": null, "offset_start": 15125, "offset_end": 15578}'
+                    "]} "
+                ),
+            },
+            SimpleNamespace(
+                content=(
+                    "结论【arxiv:2310.11511:chunk_106|pnull|o15125-15578】应暂缓 Self-RAG。"
+                ),
+                tool_calls=[],
+            ),
+        ]
+    }
+
+    result = execute_turn_core(
+        prompt="请判断是否应暂缓 Self-RAG",
+        leader_agent=mock_agent,
+        leader_runtime_config={},
+    )
+
+    assert result["used_document_rag"] is True
+    assert len(result["evidence_items"]) == 1
+    assert result["evidence_items"][0]["chunk_id"] == "arxiv:2310.11511:chunk_106"
+
+
 def test_execute_turn_core_does_not_count_tool_result_evidence_without_answer_citations():
     from types import SimpleNamespace
     from unittest.mock import Mock
@@ -366,3 +447,54 @@ def test_maybe_to_dict_handles_none_and_noncallable_values():
             return {"ok": True}
 
     assert _maybe_to_dict(_Payload()) == {"ok": True}
+
+
+def test_execute_turn_core_exposes_team_handoff_and_scheduler_convenience():
+    from unittest.mock import Mock
+
+    mock_agent = Mock()
+    mock_agent.invoke.return_value = {
+        "messages": [Mock(content="请先执行 todo", tool_calls=[])],
+        "needs_team": True,
+        "team_handoff": {"mode": "leader_teammate", "reason": "multi-role"},
+        "todo_scheduler_hint": {
+            "ready_todo_ids": ["todo-2"],
+            "blocked_todo_ids": [],
+            "completed_todo_ids": ["todo-1"],
+            "in_progress_todo_ids": [],
+        },
+        "todos": [
+            {
+                "id": "todo-1",
+                "content": "检索证据",
+                "status": "completed",
+                "depends_on": [],
+                "assignee": "researcher",
+                "execution_backend": "local",
+                "result": {"output": "done"},
+            },
+            {
+                "id": "todo-2",
+                "content": "整理结论",
+                "status": "ready",
+                "depends_on": ["todo-1"],
+                "assignee": "writer",
+                "execution_backend": "a2a",
+            },
+        ],
+    }
+
+    result = execute_turn_core(
+        prompt="请协作完成分析",
+        leader_agent=mock_agent,
+        leader_runtime_config={},
+    )
+
+    assert result["policy_decision"]["team_enabled"] is True
+    assert result["team_handoff"]["mode"] == "leader_teammate"
+    assert result["todo_scheduler_hint"]["ready_todo_ids"] == ["todo-2"]
+    assert result["team_execution"]["enabled"] is True
+    assert result["team_execution"]["todo_stats"]["done"] == 1
+    assert result["team_execution"]["todo_stats"]["todo"] == 1
+    assert result["team_execution"]["todo_records"][0]["assignee"] == "researcher"
+    assert result["team_execution"]["todo_records"][1]["dependencies"] == ["todo-1"]

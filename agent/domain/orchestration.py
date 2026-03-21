@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from a2a.types import Message, Part, Role, TextPart
@@ -156,6 +156,220 @@ class PolicyDecision:
 class TeamRole:
     name: str
     goal: str
+
+
+TeamTodoStatus = Literal[
+    "pending",
+    "ready",
+    "in_progress",
+    "completed",
+    "blocked",
+    "failed",
+    "canceled",
+]
+ExecutionBackend = Literal["local", "a2a"]
+TeamRunLifecycleState = Literal[
+    "draft",
+    "scheduled",
+    "running",
+    "reviewing",
+    "replanning",
+    "completed",
+    "failed",
+    "canceled",
+]
+
+
+def normalize_team_todo_status(value: Any) -> TeamTodoStatus:
+    normalized = str(value or "pending").strip().lower()
+    if normalized == "ready":
+        return "ready"
+    if normalized == "in_progress":
+        return "in_progress"
+    if normalized == "completed":
+        return "completed"
+    if normalized == "blocked":
+        return "blocked"
+    if normalized == "failed":
+        return "failed"
+    if normalized == "canceled":
+        return "canceled"
+    return "pending"
+
+
+def normalize_execution_backend(value: Any) -> ExecutionBackend:
+    normalized = str(value or "local").strip().lower()
+    if normalized == "a2a":
+        return "a2a"
+    return "local"
+
+
+def normalize_team_run_lifecycle_state(value: Any) -> TeamRunLifecycleState:
+    normalized = str(value or "draft").strip().lower()
+    if normalized == "scheduled":
+        return "scheduled"
+    if normalized == "running":
+        return "running"
+    if normalized == "reviewing":
+        return "reviewing"
+    if normalized == "replanning":
+        return "replanning"
+    if normalized == "completed":
+        return "completed"
+    if normalized == "failed":
+        return "failed"
+    if normalized == "canceled":
+        return "canceled"
+    return "draft"
+
+
+@dataclass(frozen=True)
+class RoleSpec:
+    name: str
+    description: str = ""
+    goal: str = ""
+    system_prompt: str = ""
+    expected_output: str = ""
+    allowed_tools: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": str(self.name or "").strip(),
+            "description": str(self.description or "").strip(),
+            "goal": str(self.goal or "").strip(),
+            "system_prompt": str(self.system_prompt or "").strip(),
+            "expected_output": str(self.expected_output or "").strip(),
+            "allowed_tools": [
+                str(item).strip() for item in self.allowed_tools if str(item).strip()
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class TeamTodoRecord:
+    id: str
+    content: str
+    status: TeamTodoStatus = "pending"
+    depends_on: list[str] = field(default_factory=list)
+    assignee: str = ""
+    execution_backend: ExecutionBackend = "local"
+    done_when: str = ""
+    result: dict[str, Any] | None = None
+    artifact_ref: str = ""
+    retry_count: int = 0
+    error: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": str(self.id or "").strip(),
+            "content": str(self.content or "").strip(),
+            "status": str(self.status or "pending").strip() or "pending",
+            "depends_on": [str(item).strip() for item in self.depends_on if str(item).strip()],
+            "assignee": str(self.assignee or "").strip(),
+            "execution_backend": str(self.execution_backend or "local").strip() or "local",
+            "done_when": str(self.done_when or "").strip(),
+            "result": dict(self.result) if isinstance(self.result, dict) else None,
+            "artifact_ref": str(self.artifact_ref or "").strip(),
+            "retry_count": max(0, int(self.retry_count or 0)),
+            "error": str(self.error or "").strip(),
+        }
+
+
+@dataclass(frozen=True)
+class TeamPlan:
+    goal: str
+    roles: list[RoleSpec] = field(default_factory=list)
+    todos: list[TeamTodoRecord] = field(default_factory=list)
+    constraints: list[str] = field(default_factory=list)
+    done_when: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "goal": str(self.goal or "").strip(),
+            "roles": [item.to_dict() for item in self.roles],
+            "todos": [item.to_dict() for item in self.todos],
+            "constraints": [
+                str(item).strip() for item in self.constraints if str(item).strip()
+            ],
+            "done_when": str(self.done_when or "").strip(),
+        }
+
+
+@dataclass(frozen=True)
+class TeamRunState:
+    run_id: str
+    state: TeamRunLifecycleState = "draft"
+    plan: TeamPlan | None = None
+    completed_todo_ids: list[str] = field(default_factory=list)
+    review_decision: str = ""
+    errors: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "run_id": str(self.run_id or "").strip(),
+            "state": str(self.state or "draft").strip() or "draft",
+            "plan": self.plan.to_dict() if self.plan is not None else None,
+            "completed_todo_ids": [
+                str(item).strip() for item in self.completed_todo_ids if str(item).strip()
+            ],
+            "review_decision": str(self.review_decision or "").strip(),
+            "errors": [str(item).strip() for item in self.errors if str(item).strip()],
+        }
+
+
+def normalize_role_specs(raw_payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_payload, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for item in raw_payload:
+        if isinstance(item, RoleSpec):
+            normalized.append(item.to_dict())
+            continue
+        if not isinstance(item, dict):
+            continue
+        normalized.append(
+            RoleSpec(
+                name=str(item.get("name") or "").strip(),
+                description=str(item.get("description") or "").strip(),
+                goal=str(item.get("goal") or "").strip(),
+                system_prompt=str(item.get("system_prompt") or "").strip(),
+                expected_output=str(item.get("expected_output") or "").strip(),
+                allowed_tools=list(item.get("allowed_tools") or []),
+            ).to_dict()
+        )
+    return normalized
+
+
+def normalize_team_todo_records(raw_payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_payload, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for item in raw_payload:
+        if isinstance(item, TeamTodoRecord):
+            normalized.append(item.to_dict())
+            continue
+        if not isinstance(item, dict):
+            continue
+        raw_result = item.get("result")
+        result_payload: dict[str, Any] | None = None
+        if isinstance(raw_result, dict):
+            result_payload = {str(key): value for key, value in raw_result.items()}
+        normalized.append(
+            TeamTodoRecord(
+                id=str(item.get("id") or "").strip(),
+                content=str(item.get("content") or "").strip(),
+                status=normalize_team_todo_status(item.get("status")),
+                depends_on=list(item.get("depends_on") or []),
+                assignee=str(item.get("assignee") or "").strip(),
+                execution_backend=normalize_execution_backend(item.get("execution_backend")),
+                done_when=str(item.get("done_when") or "").strip(),
+                result=result_payload,
+                artifact_ref=str(item.get("artifact_ref") or "").strip(),
+                retry_count=int(item.get("retry_count") or 0),
+                error=str(item.get("error") or "").strip(),
+            ).to_dict()
+        )
+    return normalized
 
 
 @dataclass(frozen=True)

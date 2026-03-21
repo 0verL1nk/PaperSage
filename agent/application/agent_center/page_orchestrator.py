@@ -240,6 +240,8 @@ def apply_turn_result(
     answer = turn_result["answer"]
     policy_decision = turn_result["policy_decision"]
     team_execution = turn_result["team_execution"]
+    team_handoff = turn_result.get("team_handoff")
+    todo_scheduler_hint = turn_result.get("todo_scheduler_hint")
     trace_payload = turn_result["trace_payload"]
     evidence_items = turn_result["evidence_items"]
     mindmap_data = turn_result["mindmap_data"]
@@ -284,6 +286,10 @@ def apply_turn_result(
         evidence_items=evidence_items,
         policy_decision=policy_decision,
         team_execution=team_execution,
+        team_handoff=team_handoff if isinstance(team_handoff, dict) else None,
+        todo_scheduler_hint=(
+            todo_scheduler_hint if isinstance(todo_scheduler_hint, dict) else None
+        ),
         latency_ms=run_latency_ms,
         team_rounds=team_rounds,
         phase_path=phase_path,

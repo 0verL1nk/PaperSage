@@ -105,6 +105,8 @@ def append_assistant_turn_message(
     evidence_items: list[dict[str, Any]],
     policy_decision: dict[str, Any],
     team_execution: dict[str, Any],
+    team_handoff: dict[str, Any] | None = None,
+    todo_scheduler_hint: dict[str, Any] | None = None,
     latency_ms: float,
     team_rounds: int,
     phase_path: str,
@@ -125,6 +127,10 @@ def append_assistant_turn_message(
             "evidence_items": evidence_items,
             "policy_decision": policy_decision,
             "team_execution": team_execution,
+            "team_handoff": team_handoff if isinstance(team_handoff, dict) else None,
+            "todo_scheduler_hint": (
+                todo_scheduler_hint if isinstance(todo_scheduler_hint, dict) else None
+            ),
             "latency_ms": latency_ms,
             "team_rounds": team_rounds,
             "phase_path": phase_path,

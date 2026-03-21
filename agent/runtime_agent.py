@@ -29,9 +29,13 @@ def create_runtime_agent(
     checkpointer: Any | None = None,
     enable_auto_summarization: bool = True,
     enable_tool_selector: bool = True,
+    profile: Any | None = None,
+    deps: Any | None = None,
 ) -> Any:
     middleware_list = build_middleware_list(
         model=model,
+        profile=profile,
+        deps=deps,
         enable_auto_summarization=enable_auto_summarization,
         enable_tool_selector=enable_tool_selector,
     )

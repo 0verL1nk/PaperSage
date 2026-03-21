@@ -35,12 +35,12 @@
 
 | 能力 | 说明 |
 |------|------|
-| 🔀 **中间件驱动编排** | `OrchestrationMiddleware` 基于对话复杂度注入计划或 Team 提示，主链路由 `turn_engine + runtime_agent` 驱动 |
-| 🤝 **会话级 Team 运行时** | `TeamMiddleware + TeamRuntime` 提供 `spawn_agent / send_message / get_agent_result / list_agents / close_agent` 协作能力 |
+| 🔀 **中间件驱动编排** | `OrchestrationMiddleware` 基于复杂度分析注入计划提示，并在团队任务下发出结构化 `team_handoff` 信号，主链路仍由 `turn_engine + runtime_agent` 驱动 |
+| 🤝 **Leader-Teammate 协作运行时** | `agent.orchestration` 已提供 `planner / scheduler / coordinator / state_machine / executors`，Leader 通过 profile-aware `TeamRuntime` 生成 teammate/reviewer 独立 session，按 todo 依赖调度，并读取结构化 teammate 结果 |
 | 🔍 **项目级 Hybrid RAG** | 作用域文档切分、Dense + BM25 + RRF、可选 FlashRank Rerank、邻域 Chunk 扩展、结构化证据回传 |
 | 💾 **可持久化向量存储** | `AGENT_VECTORSTORE_BACKEND=auto` 优先使用 Chroma，本地不可用时自动回退 `InMemoryVectorStore` |
 | 🧠 **上下文治理与记忆** | `SqliteSaver` 会话记忆、自动压缩摘要、项目级长期记忆（episodic / semantic / procedural） |
-| 🛠️ **运行时工具集** | 文档检索/阅读、学术搜索、联网搜索、技能调用、计划/Todo、Team 工具按运行时装配 |
+| 🛠️ **运行时工具集** | 文档检索/阅读、学术搜索、联网搜索、技能调用、计划/Todo、Team 工具按 profile + capability 动态装配，`search_document` 对同 query 及词序/格式等价 query 做 session 级去重 |
 | 📝 **可插拔技能体系** | 内置 `summary` / `critical_reading` / `method_compare` / `translation` / `mindmap` / `agentic_search` 六类技能 |
 | 🗂️ **项目化工作区** | 多项目隔离、文档绑定、独立会话、会话消息与线程 ID 持久化 |
 
@@ -52,18 +52,22 @@
 ![alt text](images/agent中心.png)
 
 ### Agent 中心 — Team 运行时协作
-当任务需要拆解为多个子任务时，系统会先由 `OrchestrationMiddleware` 分析复杂度，再向主 Agent 注入规划或 Team 提示。当前 Team 能力不是硬编码的 DAG 编排器，而是由 `TeamMiddleware + TeamRuntime` 暴露一组会话级协作工具。
+当任务需要拆解为多个子任务时，系统会先由 `OrchestrationMiddleware` 分析复杂度，并在需要多角色协作时输出 `team_handoff`。当前 Team 能力采用 **Leader 调度 teammate** 的结构化链路：Leader 生成 `TeamPlan`，todo 依赖作为调度拓扑，`TeamRuntime` 负责本地执行，`A2ATaskExecutor` 负责远端协议执行。
 
-- **复杂度判断与提示注入**：对多步骤分析、调研或写作任务，middleware 会建议主 Agent 使用 `write_plan`、`write_todos` 或 Team 工具，而不是直接切换到固定流程。
-- **会话隔离的子 Agent 生命周期**：通过 `spawn_agent` 创建子 Agent，使用 `send_message` 派发任务，并结合 `get_agent_result` / `list_agents` / `close_agent` 管理执行状态。
-- **与检索链路和技能协同**：主 Agent 仍可组合 `search_document`、`search_papers`、`search_web` 与 `use_skill` 汇总结果并生成最终回答。
+- **复杂度判断与结构化 handoff**：对多步骤分析、调研或写作任务，middleware 会建议主 Agent 使用 `write_plan`、`write_todos` 或 Team 路径；在团队任务下，它只记录 `team_handoff`，不会绕过 Leader 直接 dispatch。
+- **todo 依赖拓扑调度**：Leader 通过 `build_leader_team_plan` 产出 `TeamPlan` 与 `TeamTodoRecord`，`LeaderTodoScheduler` 基于 `depends_on` 计算 `ready / blocked / failed`，而不是额外维护一套平行 DAG。
+- **统一执行后端**：本地 teammate 通过 `TeamRuntime.execute_todo` 执行，远端协议任务通过 `A2ATaskExecutor` 执行，两者都返回统一的 `TaskExecutionResult`。
+- **profile-aware teammate**：`spawn_agent` 现在按 `role/profile` 创建独立 worker / reviewer session。worker 默认不挂载 Team / Plan / Todo middleware，也不会继续递归分派下级 agent。
+- **结构化 teammate 结果**：`get_agent_result` 返回 `agent_result_v1` JSON，包含 `status / summary / output / evidence / risks / artifacts`，Leader 读取的是结构化中间产物而不是整段会话历史。
+- **Leader 闭环收口**：reviewer 检查点、状态迁移与最终输出都由 `LeaderTeammateCoordinator + state_machine` 收口，最终回答仍由 Leader 对用户输出。
 
 **💡 当前代码链路示例：**
 1. 用户提出需要分工处理的多步骤任务。
-2. `OrchestrationMiddleware` 将任务标记为复杂任务，必要时设置 `needs_team`。
-3. 主 Agent 调用 `spawn_agent` 创建研究或写作子 Agent。
-4. 通过 `send_message` 派发子任务，并用 `get_agent_result` 汇总结果。
-5. 最终回答仍由主 Agent 整合输出，并保留 trace、证据和 Todo 状态。
+2. `OrchestrationMiddleware` 对团队任务写入 `needs_team + team_handoff`，但不直接启动子任务。
+3. Leader 调用 `build_leader_team_plan` 生成角色、todo 和完成条件，并将依赖满足的 todo 标记为 `ready`。
+4. `LeaderTeammateCoordinator` 结合 `LeaderTodoScheduler` 选择 ready todo，分别通过 `TeamRuntime` 或 `A2ATaskExecutor` 执行。
+5. reviewer 检查点通过显式状态机推进 `reviewing / replanning / completed`。
+6. 最终回答仍由 Leader 整合输出，并保留 trace、证据和 Todo 状态。
 
 ![team](images/team调度.png)
 
@@ -100,23 +104,39 @@ flowchart TD
     B --> C[ui.agent_center_page]
     C --> D[ui.page_bootstrap]
     C --> E[agent.application.agent_center.facade]
-    E --> F[agent.application.turn_engine]
+    E --> F[agent.session_factory.create_agent_session]
     F --> G[agent.runtime_agent.create_runtime_agent]
     G --> H[LangChain Agent Runtime]
     H --> I[Middleware 链]
     I --> I1[Trace / Retry / Orchestration]
-    I --> I2[SubAgent / Team / Todo / Plan]
+    I --> I2[Team / Todo / Plan 仅 Leader]
     I --> I3[Tool Selector / Summarization]
+    F --> P1[AgentProfile]
+    P1 --> P2[Capability Packs]
+    I1 --> M1[needs_team + team_handoff]
+    M1 --> M2[agent.orchestration.planner]
+    M2 --> M3[TeamPlan + TeamTodoRecord]
+    M3 --> M4[LeaderTodoScheduler]
+    M4 --> M5[LeaderTeammateCoordinator]
+    M5 --> M6[TeamRuntime.execute_todo]
+    M5 --> M7[A2ATaskExecutor]
+    M5 --> M8[state_machine]
     H --> J[运行时工具集]
     J --> J1[search_document / search_papers / search_web]
     J --> J2[use_skill / write_plan / read_plan]
     J --> J3[spawn_agent / send_message / list_agents]
+    J --> J4[write_todos / Team tools]
     J --> K[RAG / Skills / SQLite / Project Store]
-    I --> L[最终回答 + trace_payload + evidence_items + todos]
+    M6 --> L[最终回答 + trace_payload + evidence_items + todos]
+    M7 --> L
+    M8 --> L
+    I --> L
     K --> L
+    M6 --> R[agent_result_v1]
+    R --> L
 ```
 
-当前 canonical 入口是 `pages -> ui -> agent.application -> runtime_agent + middlewares`。规划提示、Team 提示、Todo、trace 与自动摘要都位于 middleware 链中。
+当前 canonical 运行链路仍是 `pages -> ui -> agent.application -> runtime_agent + middlewares`，但 session 创建入口已经收敛为 `agent.profiled_agent.create_profiled_agent_session(profile=...)`。其中 `agent.session_factory` / `agent.runtime_agent` 负责 base runtime 装配，`agent.paper_agent.create_paper_agent_session(...)` 仅保留为论文域 leader 的兼容 facade。团队任务也不再只是“提示主 Agent 使用 team 工具”，而是由 middleware 发信号，Leader 在 `agent.orchestration` 中构建计划、调度 todo、选择 backend，并由状态机控制 review/replan/finalize。
 
 ### Hybrid RAG 检索管线
 
@@ -257,6 +277,7 @@ docker-compose up --build
 │   ├── domain/                 #   领域契约、trace、请求上下文
 │   ├── adapters/               #   SQLite / LLM / 项目 / Session 适配
 │   ├── middlewares/            #   编排、Team、Todo、Plan、Trace、摘要
+│   ├── orchestration/          #   Leader TeamPlan / scheduler / coordinator / executors / state machine
 │   ├── team/                   #   会话级 TeamRuntime
 │   ├── rag/                    #   Hybrid RAG（切分/检索/证据/向量库）
 │   ├── memory/                 #   压缩摘要与长期记忆
@@ -384,7 +405,7 @@ make eval-baseline-judge \
   JUDGE_MODEL="<judge-model-name>" \
   JUDGE_BASE_URL="<optional-openai-compatible-base-url>"
 
-# 少量真实 smoke（真实 create_paper_agent_session + execute_turn_core，默认 1 条 case）
+# 少量真实 smoke（真实 create_profiled_agent_session(profile="leader") / 兼容 create_paper_agent_session + execute_turn_core，默认 1 条 case）
 make eval-live-smoke EVAL_CASE_ID=hybrid_research_001 EVAL_LIMIT=1
 ```
 

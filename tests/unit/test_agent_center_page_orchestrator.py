@@ -180,6 +180,8 @@ def test_apply_turn_result():
             "answer": "ans",
             "policy_decision": {"plan_enabled": False},
             "team_execution": {"rounds": 0},
+            "team_handoff": {"mode": "leader_teammate", "reason": "multi-role"},
+            "todo_scheduler_hint": {"ready_todo_ids": ["t1"]},
             "trace_payload": [{"content": "x"}],
             "evidence_items": [{"text": "e"}],
             "mindmap_data": {"name": "root"},
@@ -207,5 +209,7 @@ def test_apply_turn_result():
     assert payload.doc_name == "docA"
     assert stored_metrics["conversation_key"] == "p1:s1"
     assert stored_message["answer"] == "ans"
+    assert stored_message["team_handoff"]["mode"] == "leader_teammate"
+    assert stored_message["todo_scheduler_hint"]["ready_todo_ids"] == ["t1"]
     assert warnings
 

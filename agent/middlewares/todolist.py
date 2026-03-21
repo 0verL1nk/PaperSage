@@ -31,8 +31,28 @@ class Todo(BaseModel):
 
     id: str = Field(description="Unique identifier for the todo item")
     content: str = Field(description="The content/description of the todo item")
-    status: Literal["pending", "in_progress", "completed"] = Field(description="The current status of the todo item")
+    status: Literal[
+        "pending",
+        "ready",
+        "in_progress",
+        "completed",
+        "blocked",
+        "failed",
+        "canceled",
+    ] = Field(description="The current status of the todo item")
     depends_on: list[str] | None = Field(default=None, description="Optional list of todo IDs that this todo depends on")
+    assignee: str = Field(default="", description="Optional assignee for team execution")
+    execution_backend: Literal["local", "a2a"] = Field(
+        default="local",
+        description="Execution backend for this todo",
+    )
+    retry_count: int = Field(default=0, description="Retry count for this todo")
+    result: dict[str, Any] | None = Field(
+        default=None,
+        description="Normalized execution result for this todo",
+    )
+    artifact_ref: str = Field(default="", description="Optional artifact reference")
+    error: str = Field(default="", description="Last execution error, if any")
 
 
 class PlanningState(AgentState):
@@ -81,6 +101,7 @@ Key features:
 - Specify task dependencies using `depends_on` field
 - System detects circular dependencies automatically
 - View executable tasks (dependencies satisfied)
+- Use returned scheduler hints to decide which todo to execute next
 
 Mark todos as completed immediately after finishing each step."""
 
@@ -109,15 +130,36 @@ def write_todos(
         )
 
     # Get executable todos for user feedback
-    executable = graph.get_executable_todos()
+    executable = graph.get_ready_todos()
     executable_ids = [t["id"] for t in executable]
+    blocked_ids = [t["id"] for t in graph.get_blocked_todos()]
+    completed_ids = [
+        str(todo.get("id") or "").strip()
+        for todo in todos_dict
+        if str(todo.get("status") or "").strip().lower() == "completed"
+    ]
+    in_progress_ids = [
+        str(todo.get("id") or "").strip()
+        for todo in todos_dict
+        if str(todo.get("status") or "").strip().lower() == "in_progress"
+    ]
 
     return Command(
         update={
             "todos": todos,
+            "todo_scheduler_hint": {
+                "ready_todo_ids": executable_ids,
+                "blocked_todo_ids": blocked_ids,
+                "completed_todo_ids": completed_ids,
+                "in_progress_todo_ids": in_progress_ids,
+            },
             "messages": [
                 ToolMessage(
-                    f"Updated todo list. Executable tasks: {executable_ids}",
+                    (
+                        "Updated todo list. "
+                        f"Ready: {executable_ids}; Blocked: {blocked_ids}; "
+                        f"Completed: {completed_ids}."
+                    ),
                     tool_call_id=tool_call_id,
                 )
             ],
