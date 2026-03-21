@@ -175,16 +175,16 @@
 ### Todo
 
 - [ ] 定义统一 worker result schema
-- [ ] 明确 `task_id / status / summary / evidence / risks / artifacts` 等字段
-- [ ] 在 team runtime 中统一整理 worker 返回值
-- [ ] 让 leader 消费结构化结果，而不是自由文本历史
+- [x] 明确 `task_id / status / summary / evidence / risks / artifacts` 等字段
+- [x] 在 team runtime 中统一整理 worker 返回值
+- [x] 让 leader 消费结构化结果，而不是自由文本历史
 - [ ] 为 reviewer 返回结构定义单独约束
 
 ### 验收
 
-- [ ] leader 获取的是结构化中间产物
-- [ ] worker 的内部工具调用历史不会直接灌回 leader 上下文
-- [ ] leader 更容易做 review / replan / final synthesis
+- [x] leader 获取的是结构化中间产物
+- [x] worker 的内部工具调用历史不会直接灌回 leader 上下文
+- [x] leader 更容易做 review / replan / final synthesis
 
 ---
 
@@ -196,15 +196,15 @@
 
 ### Todo
 
-- [ ] 在 `document_pack` 或 `agent/tools/document.py` 中增加相同 query 防重复策略
-- [ ] 对“同 query 连续命中”输出明确短路提示
-- [ ] 记录详细日志，便于判断是否进入重复检索
+- [x] 在 `document_pack` 或 `agent/tools/document.py` 中增加相同 query 防重复策略
+- [x] 对“同 query 连续命中”输出明确短路提示
+- [x] 记录详细日志，便于判断是否进入重复检索
 - [ ] 明确 evidence 不足时的改写 query / 转入计划 / 转入总结规则
 - [ ] 当 `needs_team=True` 时，提升 leader 进入 todo / team 路径的优先级
 
 ### 验收
 
-- [ ] 不会无限重复搜索相同 query
+- [x] 不会无限重复搜索相同 query
 - [ ] leader 在复杂任务下更容易收敛到 todo / dispatch / review 路径
 - [ ] live 日志可明确看出阶段转换
 
@@ -218,14 +218,14 @@
 - [x] leader profile 包含 team pack
 - [x] worker/reviewer profile 不包含 team pack
 - [x] prompt 分层合并结果正确
-- [ ] worker result schema 正常
-- [ ] document 防重复搜索策略有回归测试
+- [x] worker result schema 正常
+- [x] document 防重复搜索策略有回归测试
 
 ### 集成测试
 
 - [x] leader 创建 worker 后使用独立 thread
 - [ ] worker 无法调用 team tools
-- [ ] leader 能读取 worker 结构化结果
+- [x] leader 能读取 worker 结构化结果
 - [ ] 当前 `turn_engine` 不回归
 - [ ] 当前 `agent_center` 主链路不回归
 
@@ -272,11 +272,11 @@
 
 ## Definition of Done
 
-- [ ] `paper_agent.py` 不再承担完整 leader 运行时装配职责
+- [x] `paper_agent.py` 不再承担完整 leader 运行时装配职责
 - [ ] leader 与 worker 的能力边界在创建时完成隔离
-- [ ] team tools 不再暴露给 worker
-- [ ] worker 具备独立 session / thread
-- [ ] 不再需要沿链路传递 tool 套件
-- [ ] 重复相同 query 的搜索被抑制
+- [x] team tools 不再暴露给 worker
+- [x] worker 具备独立 session / thread
+- [x] 不再需要沿链路传递 tool 套件
+- [x] 重复相同 query 的搜索被抑制
 - [ ] 关键单测、集成测试、live 验证通过
 - [ ] 文档与 README 更新完成

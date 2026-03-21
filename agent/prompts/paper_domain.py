@@ -20,6 +20,8 @@ def build_paper_domain_prompt(
 1) 使用 search_document 多轮检索，直到获得充分证据
 2) 若文档证据不足，再调用 search_papers
 3) 仍不足时才调用 search_web
+4) 发起下一次 search_document 前，先检查是否只是重复上一轮的词序、大小写、标点或数字格式；若本质等价，不要再次检索
+5) 若已有证据足以支撑结论，应直接引用并收敛，不要围绕同一信息点反复改写 query
 
 [证据引用 - 必须遵守]
 回答中的每个关键结论都应尽量用 <evidence> 标签引用证据：
@@ -27,6 +29,7 @@ def build_paper_domain_prompt(
 - 从 search_document 返回的 JSON 中提取：chunk_id、page_no、offset_start、offset_end
 - 禁止使用 [文档证据]、[证据] 等占位符
 - 禁止使用空的 <evidence/> 标签
+- 禁止输出【chunk_id|...】、【evidence】... 或任何非 <evidence>...</evidence> 的替代写法；若引用格式不正确，本次回答视为无证据
 
 [其他工具]
 - 需要总结/批判性阅读/方法比较/翻译时，可调用 use_skill

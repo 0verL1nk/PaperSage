@@ -36,11 +36,11 @@
 | 能力 | 说明 |
 |------|------|
 | 🔀 **中间件驱动编排** | `OrchestrationMiddleware` 基于复杂度分析注入计划提示，并在团队任务下发出结构化 `team_handoff` 信号，主链路仍由 `turn_engine + runtime_agent` 驱动 |
-| 🤝 **Leader-Teammate 协作运行时** | `agent.orchestration` 已提供 `planner / scheduler / coordinator / state_machine / executors`，由 Leader 生成 `TeamPlan`、按 todo 依赖调度 teammate，并保留 reviewer 检查点 |
+| 🤝 **Leader-Teammate 协作运行时** | `agent.orchestration` 已提供 `planner / scheduler / coordinator / state_machine / executors`，Leader 通过 profile-aware `TeamRuntime` 生成 teammate/reviewer 独立 session，按 todo 依赖调度，并读取结构化 teammate 结果 |
 | 🔍 **项目级 Hybrid RAG** | 作用域文档切分、Dense + BM25 + RRF、可选 FlashRank Rerank、邻域 Chunk 扩展、结构化证据回传 |
 | 💾 **可持久化向量存储** | `AGENT_VECTORSTORE_BACKEND=auto` 优先使用 Chroma，本地不可用时自动回退 `InMemoryVectorStore` |
 | 🧠 **上下文治理与记忆** | `SqliteSaver` 会话记忆、自动压缩摘要、项目级长期记忆（episodic / semantic / procedural） |
-| 🛠️ **运行时工具集** | 文档检索/阅读、学术搜索、联网搜索、技能调用、计划/Todo、Team 工具按运行时装配 |
+| 🛠️ **运行时工具集** | 文档检索/阅读、学术搜索、联网搜索、技能调用、计划/Todo、Team 工具按 profile + capability 动态装配，`search_document` 对同 query 及词序/格式等价 query 做 session 级去重 |
 | 📝 **可插拔技能体系** | 内置 `summary` / `critical_reading` / `method_compare` / `translation` / `mindmap` / `agentic_search` 六类技能 |
 | 🗂️ **项目化工作区** | 多项目隔离、文档绑定、独立会话、会话消息与线程 ID 持久化 |
 
@@ -57,6 +57,8 @@
 - **复杂度判断与结构化 handoff**：对多步骤分析、调研或写作任务，middleware 会建议主 Agent 使用 `write_plan`、`write_todos` 或 Team 路径；在团队任务下，它只记录 `team_handoff`，不会绕过 Leader 直接 dispatch。
 - **todo 依赖拓扑调度**：Leader 通过 `build_leader_team_plan` 产出 `TeamPlan` 与 `TeamTodoRecord`，`LeaderTodoScheduler` 基于 `depends_on` 计算 `ready / blocked / failed`，而不是额外维护一套平行 DAG。
 - **统一执行后端**：本地 teammate 通过 `TeamRuntime.execute_todo` 执行，远端协议任务通过 `A2ATaskExecutor` 执行，两者都返回统一的 `TaskExecutionResult`。
+- **profile-aware teammate**：`spawn_agent` 现在按 `role/profile` 创建独立 worker / reviewer session。worker 默认不挂载 Team / Plan / Todo middleware，也不会继续递归分派下级 agent。
+- **结构化 teammate 结果**：`get_agent_result` 返回 `agent_result_v1` JSON，包含 `status / summary / output / evidence / risks / artifacts`，Leader 读取的是结构化中间产物而不是整段会话历史。
 - **Leader 闭环收口**：reviewer 检查点、状态迁移与最终输出都由 `LeaderTeammateCoordinator + state_machine` 收口，最终回答仍由 Leader 对用户输出。
 
 **💡 当前代码链路示例：**
@@ -102,13 +104,15 @@ flowchart TD
     B --> C[ui.agent_center_page]
     C --> D[ui.page_bootstrap]
     C --> E[agent.application.agent_center.facade]
-    E --> F[agent.application.turn_engine]
+    E --> F[agent.session_factory.create_agent_session]
     F --> G[agent.runtime_agent.create_runtime_agent]
     G --> H[LangChain Agent Runtime]
     H --> I[Middleware 链]
     I --> I1[Trace / Retry / Orchestration]
-    I --> I2[SubAgent / Team / Todo / Plan]
+    I --> I2[Team / Todo / Plan 仅 Leader]
     I --> I3[Tool Selector / Summarization]
+    F --> P1[AgentProfile]
+    P1 --> P2[Capability Packs]
     I1 --> M1[needs_team + team_handoff]
     M1 --> M2[agent.orchestration.planner]
     M2 --> M3[TeamPlan + TeamTodoRecord]
@@ -128,6 +132,8 @@ flowchart TD
     M8 --> L
     I --> L
     K --> L
+    M6 --> R[agent_result_v1]
+    R --> L
 ```
 
 当前 canonical 入口仍是 `pages -> ui -> agent.application -> runtime_agent + middlewares`。不同之处在于，团队任务已经从“仅提示主 Agent 使用 team 工具”升级为“middleware 发信号，Leader 在 `agent.orchestration` 中构建计划、调度 todo、选择 backend，并由状态机控制 review/replan/finalize”。

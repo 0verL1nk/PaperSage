@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -16,6 +18,87 @@ if TYPE_CHECKING:
     from agent.orchestration.executors import TaskExecutionResult
 
 logger = logging.getLogger(__name__)
+_EVIDENCE_TAG_PATTERN = re.compile(r"<evidence>([^<]+)</evidence>", flags=re.IGNORECASE)
+
+
+def _extract_evidence_references(output: str) -> list[str]:
+    if not isinstance(output, str) or not output.strip():
+        return []
+    references: list[str] = []
+    seen: set[str] = set()
+    for raw_ref in _EVIDENCE_TAG_PATTERN.findall(output):
+        ref = str(raw_ref or "").strip()
+        if not ref or ref in seen:
+            continue
+        seen.add(ref)
+        references.append(ref)
+    return references
+
+
+def _summarize_output(output: str, *, limit: int = 160) -> str:
+    text = " ".join(str(output or "").split())
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3].rstrip()}..."
+
+
+def _build_agent_result_payload(
+    *,
+    instance: AgentInstance,
+    status: str,
+    output: str = "",
+    error: str = "",
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    summary_source = error or output
+    payload: dict[str, Any] = {
+        "kind": "agent_result_v1",
+        "agent_id": instance.agent_id,
+        "task_id": task_id,
+        "name": instance.name,
+        "profile_name": instance.profile_name,
+        "thread_id": instance.thread_id,
+        "status": status,
+        "summary": _summarize_output(summary_source),
+        "output": output,
+        "evidence": _extract_evidence_references(output),
+        "risks": [error] if error else [],
+        "artifacts": [],
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def _serialize_agent_result_payload(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _coerce_stored_agent_result(instance: AgentInstance, raw_content: str) -> str:
+    text = str(raw_content or "").strip()
+    if not text:
+        return _serialize_agent_result_payload(
+            _build_agent_result_payload(instance=instance, status="idle")
+        )
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return _serialize_agent_result_payload(
+            _build_agent_result_payload(
+                instance=instance,
+                status="completed",
+                output=text,
+            )
+        )
+    if isinstance(parsed, dict):
+        return _serialize_agent_result_payload(parsed)
+    return _serialize_agent_result_payload(
+        _build_agent_result_payload(
+            instance=instance,
+            status="completed",
+            output=text,
+        )
+    )
 
 
 class AgentState(Enum):
@@ -155,32 +238,57 @@ class TeamRuntime:
                     elif isinstance(last_msg, dict):
                         answer = str(last_msg.get("content", ""))
 
-            instance.result_file.write_text(answer, encoding="utf-8")
+            payload = _build_agent_result_payload(
+                instance=instance,
+                status="completed",
+                output=answer,
+            )
+            instance.result_file.write_text(
+                _serialize_agent_result_payload(payload), encoding="utf-8"
+            )
             instance.state = AgentState.IDLE
             logger.info(f"Agent {instance.agent_id} completed execution")
-            return answer
+            return _serialize_agent_result_payload(payload)
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
-            instance.result_file.write_text(error_msg, encoding="utf-8")
+            payload = _build_agent_result_payload(
+                instance=instance,
+                status="failed",
+                error=error_msg,
+            )
+            instance.result_file.write_text(
+                _serialize_agent_result_payload(payload), encoding="utf-8"
+            )
             instance.state = AgentState.IDLE
             logger.error(f"Agent {instance.agent_id} execution failed: {e}")
-            return error_msg
+            return _serialize_agent_result_payload(payload)
 
     def get_agent_result(self, agent_id: str) -> str:
-        """获取 agent 的执行结果"""
+        """获取 agent 的结构化执行结果。"""
         if agent_id not in self.agents:
             raise ValueError(f"Agent {agent_id} not found")
 
         instance = self.agents[agent_id]
 
         if instance.state == AgentState.BUSY:
-            return f"Agent {agent_id} is still busy"
+            return _serialize_agent_result_payload(
+                _build_agent_result_payload(
+                    instance=instance,
+                    status="busy",
+                    error=f"Agent {agent_id} is still busy",
+                )
+            )
 
         if not instance.result_file.exists():
-            return ""
+            return _serialize_agent_result_payload(
+                _build_agent_result_payload(instance=instance, status="idle")
+            )
 
-        return instance.result_file.read_text(encoding="utf-8")
+        return _coerce_stored_agent_result(
+            instance,
+            instance.result_file.read_text(encoding="utf-8"),
+        )
 
     def list_agents(self) -> list[dict[str, str]]:
         """列出所有 agent 及其状态"""

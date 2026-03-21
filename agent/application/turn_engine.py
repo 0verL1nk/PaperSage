@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -10,6 +11,23 @@ from .contracts import EventCallback, SearchDocumentFn, TurnCoreResult
 from .ports import AgentInvoker, EvidenceRetriever
 
 logger = logging.getLogger(__name__)
+
+_EVIDENCE_OPEN_TAG_VARIANTS = re.compile(
+    r"(?:<|【|［|＜)\s*evidence\s*(?:>|】|］|＞)",
+    flags=re.IGNORECASE,
+)
+_EVIDENCE_CLOSE_TAG_VARIANTS = re.compile(
+    r"(?:<|【|［|＜)\s*/\s*evidence\s*(?:>|】|］|＞)",
+    flags=re.IGNORECASE,
+)
+_INLINE_EVIDENCE_CHUNK_PATTERN = re.compile(
+    r"(?<![\w/])([A-Za-z0-9_.-]+:[^|\s<>\]]*:chunk_[^|\s<>\]]+)(?=\|p(?:\d+|null)\b)",
+    flags=re.IGNORECASE,
+)
+_INLINE_EVIDENCE_DOC_PATTERN = re.compile(
+    r"(?<![\w/])([A-Za-z0-9_.-]+:[^|\s<>\]]+)(?=\|p(?:\d+|null)\b)",
+    flags=re.IGNORECASE,
+)
 
 
 def _normalize_team_todo_status(raw_status: Any) -> str:
@@ -120,6 +138,15 @@ def _message_tool_calls(message: Any) -> list[dict[str, Any]]:
     if not isinstance(tool_calls, list):
         return []
     return [item for item in tool_calls if isinstance(item, dict)]
+
+
+def normalize_evidence_tag_variants(answer: str) -> str:
+    """Normalize malformed evidence tags into canonical <evidence> tags."""
+    if not isinstance(answer, str) or not answer:
+        return "" if answer is None else str(answer)
+    normalized = _EVIDENCE_OPEN_TAG_VARIANTS.sub("<evidence>", answer)
+    normalized = _EVIDENCE_CLOSE_TAG_VARIANTS.sub("</evidence>", normalized)
+    return normalized
 
 
 def _parse_tool_json_payload(content: str) -> dict[str, Any] | None:
@@ -262,13 +289,25 @@ def extract_evidence_chunk_ids(answer: str) -> list[str]:
     """
     if not isinstance(answer, str):
         return []
-    import re
+    answer = normalize_evidence_tag_variants(answer)
     pattern = re.compile(
         r"<evidence>([^<|]+)(?:\|[^<]*)?</evidence>",
         flags=re.IGNORECASE,
     )
-    matches = pattern.findall(answer)
-    return [chunk_id.strip() for chunk_id in matches if chunk_id.strip()]
+    matches = [chunk_id.strip() for chunk_id in pattern.findall(answer) if chunk_id.strip()]
+    matches.extend(
+        chunk_id.strip()
+        for chunk_id in _INLINE_EVIDENCE_CHUNK_PATTERN.findall(answer)
+        if chunk_id.strip()
+    )
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for chunk_id in matches:
+        if chunk_id in seen:
+            continue
+        seen.add(chunk_id)
+        ordered.append(chunk_id)
+    return ordered
 
 
 
@@ -276,14 +315,10 @@ def extract_evidence_doc_uids(answer: str) -> list[str]:
     """从 answer 中提取文档级引用，如 arxiv:2310.11511|p1|o0-10。"""
     if not isinstance(answer, str):
         return []
-    import re
+    answer = normalize_evidence_tag_variants(answer)
 
     references: set[str] = set()
-    inline_pattern = re.compile(
-        r"(?<![\w/])([A-Za-z0-9_.-]+:[^|\s<>\]]+)(?=\|p\d+)",
-        flags=re.IGNORECASE,
-    )
-    for raw_ref in inline_pattern.findall(answer):
+    for raw_ref in _INLINE_EVIDENCE_DOC_PATTERN.findall(answer):
         ref = raw_ref.strip()
         if not ref:
             continue
@@ -381,6 +416,7 @@ def execute_turn_core(
     if not answer:
         logger.warning("Empty answer from agent execution")
         answer = "抱歉，我暂时没有生成有效回复。"
+    answer = normalize_evidence_tag_variants(answer)
     logger.info("TURN_FINAL_ANSWER: %s", answer)
 
     # 从result中提取信息（如果有的话）

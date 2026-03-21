@@ -7,7 +7,13 @@ from typing import Any
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from .utils import _is_dangerous_query, _preview, _sanitize_query
+from .utils import (
+    _is_dangerous_query,
+    _normalize_query_cache_key,
+    _preview,
+    _query_overlap_score,
+    _sanitize_query,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +51,49 @@ def build_search_document_tool(
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
 ) -> Any:
     """构建文档搜索工具"""
+    cached_text_results: dict[str, str] = {}
+    cached_evidence_payloads: dict[str, dict[str, Any]] = {}
+    cached_queries: dict[str, str] = {}
+    query_family_threshold = 0.75
+
+    def _build_dedupe_payload(
+        payload: dict[str, Any],
+        *,
+        query: str,
+        reason: str,
+        matched_query: str | None = None,
+    ) -> str:
+        dedupe_payload = dict(payload)
+        meta = dedupe_payload.get("meta")
+        meta_payload = dict(meta) if isinstance(meta, dict) else {}
+        base_message = "Identical query reused cached result; refine query instead of repeating it."
+        if reason == "same_query_family":
+            base_message = (
+                "A closely related query already returned evidence; synthesize from the existing "
+                "results instead of reformulating the same search."
+            )
+        meta_payload["dedupe"] = {
+            "reused_cached_result": True,
+            "query": query,
+            "reason": reason,
+            "matched_query": matched_query or query,
+            "message": base_message,
+        }
+        dedupe_payload["meta"] = meta_payload
+        return json.dumps(dedupe_payload, ensure_ascii=False)
+
+    def _find_similar_cache_key(query: str, *, exact_key: str) -> tuple[str, str] | None:
+        best_match: tuple[str, str] | None = None
+        best_score = 0.0
+        for cached_key, cached_query in cached_queries.items():
+            if cached_key == exact_key:
+                continue
+            score = _query_overlap_score(query, cached_query)
+            if score < query_family_threshold or score <= best_score:
+                continue
+            best_score = score
+            best_match = (cached_key, cached_query)
+        return best_match
 
     @tool(
         "search_document",
@@ -73,6 +122,7 @@ Example: Based on the research<evidence>chunk_abc123|p5|o100-200</evidence>, the
     )
     def search_document(query: str) -> str:
         safe_query = _sanitize_query(query)
+        cache_key = _normalize_query_cache_key(safe_query)
         logger.info(
             "tool.search_document called: query_len=%s query_preview=%s",
             len(safe_query),
@@ -85,6 +135,33 @@ Example: Based on the research<evidence>chunk_abc123|p5|o100-200</evidence>, the
             logger.warning("tool.search_document blocked by policy")
             return "Blocked by tool policy: query appears unsafe for document search."
         if search_document_evidence_fn is not None:
+            cached_payload = cached_evidence_payloads.get(cache_key)
+            if isinstance(cached_payload, dict):
+                logger.info(
+                    "tool.search_document dedupe hit: mode=evidence_json query_preview=%s",
+                    _preview(safe_query),
+                )
+                return _build_dedupe_payload(
+                    cached_payload,
+                    query=safe_query,
+                    reason="identical_or_normalized_query",
+                )
+            similar_match = _find_similar_cache_key(safe_query, exact_key=cache_key)
+            if similar_match is not None:
+                matched_key, matched_query = similar_match
+                similar_payload = cached_evidence_payloads.get(matched_key)
+                if isinstance(similar_payload, dict):
+                    logger.info(
+                        "tool.search_document family dedupe hit: mode=evidence_json query_preview=%s matched_query_preview=%s",
+                        _preview(safe_query),
+                        _preview(matched_query),
+                    )
+                    return _build_dedupe_payload(
+                        similar_payload,
+                        query=safe_query,
+                        reason="same_query_family",
+                        matched_query=matched_query,
+                    )
             try:
                 evidence_payload = search_document_evidence_fn(safe_query)
                 evidence_count = (
@@ -92,6 +169,9 @@ Example: Based on the research<evidence>chunk_abc123|p5|o100-200</evidence>, the
                     if isinstance(evidence_payload, dict)
                     else 0
                 )
+                if isinstance(evidence_payload, dict):
+                    cached_evidence_payloads[cache_key] = dict(evidence_payload)
+                    cached_queries.setdefault(cache_key, safe_query)
                 logger.info(
                     "tool.search_document success: mode=evidence_json evidences=%s",
                     evidence_count,
@@ -99,9 +179,49 @@ Example: Based on the research<evidence>chunk_abc123|p5|o100-200</evidence>, the
                 return json.dumps(evidence_payload, ensure_ascii=False)
             except Exception:
                 logger.exception("tool.search_document evidence function failed, fallback=text")
-                return search_document_fn(safe_query)
+                if cache_key in cached_text_results:
+                    logger.info(
+                        "tool.search_document dedupe hit: mode=text query_preview=%s",
+                        _preview(safe_query),
+                    )
+                    return cached_text_results[cache_key]
+                similar_match = _find_similar_cache_key(safe_query, exact_key=cache_key)
+                if similar_match is not None:
+                    matched_key, matched_query = similar_match
+                    cached_result = cached_text_results.get(matched_key)
+                    if isinstance(cached_result, str):
+                        logger.info(
+                            "tool.search_document family dedupe hit: mode=text query_preview=%s matched_query_preview=%s",
+                            _preview(safe_query),
+                            _preview(matched_query),
+                        )
+                        return cached_result
+                result = search_document_fn(safe_query)
+                cached_text_results[cache_key] = result
+                cached_queries.setdefault(cache_key, safe_query)
+                return result
+        if cache_key in cached_text_results:
+            logger.info(
+                "tool.search_document dedupe hit: mode=text query_preview=%s",
+                _preview(safe_query),
+            )
+            return cached_text_results[cache_key]
+        similar_match = _find_similar_cache_key(safe_query, exact_key=cache_key)
+        if similar_match is not None:
+            matched_key, matched_query = similar_match
+            cached_result = cached_text_results.get(matched_key)
+            if isinstance(cached_result, str):
+                logger.info(
+                    "tool.search_document family dedupe hit: mode=text query_preview=%s matched_query_preview=%s",
+                    _preview(safe_query),
+                    _preview(matched_query),
+                )
+                return cached_result
         logger.info("tool.search_document success: mode=text")
-        return search_document_fn(safe_query)
+        result = search_document_fn(safe_query)
+        cached_text_results[cache_key] = result
+        cached_queries.setdefault(cache_key, safe_query)
+        return result
 
     return search_document
 

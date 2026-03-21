@@ -138,7 +138,7 @@ def get_agent_result(agent_id: str) -> str:
         agent_id: agent ID
 
     Returns:
-        执行结果
+        结构化执行结果（JSON 字符串）
     """
     runtime = get_team_runtime()
     try:
