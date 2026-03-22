@@ -12,12 +12,16 @@ def build_runtime_tools(
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
     read_document_fn: Callable[[int, int], tuple[str, int]] | None = None,
     list_documents_fn: Callable[[], list[dict[str, Any]]] | None = None,
+    doc_id_to_text: dict[str, str] | None = None,
+    doc_id_default: str = "",
 ) -> list[Any]:
     return build_agent_tools(
         search_document_fn=search_document_fn,
         search_document_evidence_fn=search_document_evidence_fn,
         read_document_fn=read_document_fn,
         list_documents_fn=list_documents_fn,
+        doc_id_to_text=doc_id_to_text,
+        doc_id_default=doc_id_default,
     )
 
 

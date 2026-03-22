@@ -79,6 +79,7 @@ config
 .agent
 .cache
 .mypy_cache
+.ty_cache
 
 # Git worktrees
 .worktrees/

@@ -1,4 +1,5 @@
 """文档工具模块"""
+
 import json
 import logging
 from collections.abc import Callable
@@ -33,6 +34,10 @@ class ListDocumentInput(BaseModel):
 
 
 class ReadDocumentInput(BaseModel):
+    doc_id: str = Field(
+        default="",
+        description="Document identifier to read. Use doc_id from list_document output. If empty, reads the only available document.",
+    )
     offset: int = Field(
         default=0,
         description="Character offset to start reading from (0 means start from beginning).",
@@ -299,40 +304,82 @@ def build_list_document_tool(
 
 
 def build_read_document_tool(
-    read_document_fn: Callable[[int, int], tuple[str, int]],
+    read_document_fn: Callable[[int, int], tuple[str, int]] | None,
     search_document_fn: Callable[[str], str],
+    doc_id_to_text: dict[str, str] | None = None,
+    default_doc_id: str = "",
 ) -> Any:
-    """构建文档阅读工具"""
+    """构建文档阅读工具
+
+    Args:
+        read_document_fn: 单文档读取函数，接收 (offset, limit)，返回 (content, total_len)
+        search_document_fn: RAG 检索函数
+        doc_id_to_text: 多文档映射表 {doc_id: document_text}，非空时启用多文档模式
+        default_doc_id: 默认文档 ID（多文档模式下且 doc_id 为空时使用）
+    """
 
     @tool(
         "read_document",
-        description="Read a specific portion of the uploaded paper with pagination. "
+        description="Read a specific portion of a document by character offset and limit. "
+        "Use doc_id to select which document (from list_document output). "
         "Use offset to skip to a position, limit to control chunk size. "
-        "Set include_rag=True to get relevant context around the position.",
+        "Set include_rag=True to get relevant context around the reading position.",
         args_schema=ReadDocumentInput,
     )
-    def read_document(offset: int = 0, limit: int = 2000, include_rag: bool = False) -> str:
+    def read_document(
+        doc_id: str = "", offset: int = 0, limit: int = 2000, include_rag: bool = False
+    ) -> str:
         logger.info(
-            "tool.read_document called: offset=%s limit=%s include_rag=%s",
+            "tool.read_document called: doc_id=%s offset=%s limit=%s include_rag=%s",
+            doc_id,
             offset,
             limit,
             include_rag,
         )
-        content, total = read_document_fn(offset, limit)
+
+        # 多文档模式
+        if doc_id_to_text is not None:
+            target_doc_id = doc_id.strip() or default_doc_id
+            if not target_doc_id:
+                available = list(doc_id_to_text.keys())
+                if len(available) == 1:
+                    target_doc_id = available[0]
+                else:
+                    return (
+                        "read_document requires doc_id when multiple documents are in scope. "
+                        "Use list_document(verbose=True) to see available doc_ids. "
+                        f"Available: {available}"
+                    )
+            if target_doc_id not in doc_id_to_text:
+                return f"Document '{target_doc_id}' not found. Use list_document(verbose=True) to see available doc_ids."
+            text = doc_id_to_text[target_doc_id]
+            total = len(text)
+            content = text[offset : offset + limit]
+            doc_label = target_doc_id
+        else:
+            # 单文档模式（向后兼容）
+            if callable(read_document_fn):
+                content, total = read_document_fn(offset, limit)
+            else:
+                content, total = "", 0
+            doc_label = "文档"
 
         rag_context = ""
         if include_rag:
             query = f"position_{offset}"
             rag_context = search_document_fn(query)
 
-        result = f"=== 文档阅读 (字符位置 {offset} - {offset + limit}) ===\n"
+        result = f"=== {doc_label} (字符位置 {offset} - {offset + limit}) ===\n"
         result += f"总长度: {total} 字符\n"
         result += f"当前 chunk: {len(content)} 字符\n\n"
         if rag_context:
             result += f"=== 相关上下文 (RAG) ===\n{rag_context}\n\n"
         result += f"=== 内容 ===\n{content}"
         logger.info(
-            "tool.read_document success: chunk_len=%s total_len=%s", len(content), total
+            "tool.read_document success: doc_id=%s chunk_len=%s total_len=%s",
+            doc_id or "default",
+            len(content),
+            total,
         )
         return result
 

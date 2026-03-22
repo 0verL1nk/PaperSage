@@ -22,6 +22,8 @@ class AgentDependencies:
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None
     read_document_fn: Callable[[int, int], tuple[str, int]] | None = None
     list_documents_fn: Callable[[], list[dict[str, Any]]] | None = None
+    doc_id_to_text: dict[str, str] | None = None
+    doc_id_default: str = ""
     project_uid: str | None = None
     session_uid: str | None = None
     user_uuid: str | None = None

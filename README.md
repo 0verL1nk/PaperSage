@@ -54,6 +54,8 @@
 ### Agent 中心 — Team 运行时协作
 当任务需要拆解为多个子任务时，系统会先由 `OrchestrationMiddleware` 分析复杂度，并在需要多角色协作时输出 `team_handoff`。当前 Team 能力采用 **Leader 调度 teammate** 的结构化链路：Leader 生成 `TeamPlan`，todo 依赖作为调度拓扑，`TeamRuntime` 负责本地执行，`A2ATaskExecutor` 负责远端协议执行。
 
+现状说明（2026-03-22）：仓库已经具备 `TeamPlan / scheduler / coordinator / TeamRuntime / A2ATaskExecutor / state_machine` 等关键模块，但默认主链路仍以 `middleware 发 handoff + Leader 自主调用工具推进` 为主，`execute_turn_core` 尚未自动串起完整的 team run 闭环。差异与对齐方案见 `docs/plan/2026-03-22-Team模式现状差异与对齐计划.md`。
+
 - **复杂度判断与结构化 handoff**：对多步骤分析、调研或写作任务，middleware 会建议主 Agent 使用 `write_plan`、`write_todos` 或 Team 路径；在团队任务下，它只记录 `team_handoff`，不会绕过 Leader 直接 dispatch。
 - **todo 依赖拓扑调度**：Leader 通过 `build_leader_team_plan` 产出 `TeamPlan` 与 `TeamTodoRecord`，`LeaderTodoScheduler` 基于 `depends_on` 计算 `ready / blocked / failed`，而不是额外维护一套平行 DAG。
 - **统一执行后端**：本地 teammate 通过 `TeamRuntime.execute_todo` 执行，远端协议任务通过 `A2ATaskExecutor` 执行，两者都返回统一的 `TaskExecutionResult`。

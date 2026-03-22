@@ -55,13 +55,15 @@ def ensure_agent_runtime(
         session_state["paper_project_tool_specs"] = tool_specs_map
 
     if current_leader_session and current_evidence_retriever:
-        logger.debug("Reusing existing leader session and evidence retriever: session=%s", session_uid)
+        logger.debug(
+            "Reusing existing leader session and evidence retriever: session=%s", session_uid
+        )
         session_state["paper_agent"] = current_leader_session["agent"]
         session_state["paper_agent_runtime_config"] = current_leader_session["runtime_config"]
         session_state["paper_evidence_retriever"] = current_evidence_retriever
         session_state["paper_leader_llm"] = llm_map.get(project_uid)
-        session_state["paper_policy_router_llm"] = (
-            policy_llm_map.get(project_uid) or llm_map.get(project_uid)
+        session_state["paper_policy_router_llm"] = policy_llm_map.get(project_uid) or llm_map.get(
+            project_uid
         )
         session_state["paper_search_document_fn"] = search_fn_map.get(project_uid)
         session_state["agent_current_project"] = project_name
@@ -158,19 +160,20 @@ def ensure_agent_runtime(
     session_state["paper_project_search_document_fns"] = search_fn_map
     session_state["paper_search_document_fn"] = search_document_fn
 
-    read_document_fn = None
-    if len(scope_docs) == 1:
-        only_doc = scope_docs[0]
-        only_text = str(only_doc.get("text") or "")
-
-        def _read_document_fn(offset: int = 0, limit: int = 2000) -> tuple[str, int]:
-            total_len = len(only_text)
-            content = only_text[offset : offset + limit]
-            return content, total_len
-
-        read_document_fn = _read_document_fn
-
     _captured_scope_docs = list(scope_docs)
+
+    def _build_read_document_fn() -> Callable[[int, int], tuple[str, int]]:
+        if len(scope_docs) == 1:
+            only_text = str(scope_docs[0].get("text") or "")
+
+            def _read_document_fn(offset: int = 0, limit: int = 2000) -> tuple[str, int]:
+                total_len = len(only_text)
+                return only_text[offset : offset + limit], total_len
+
+            return _read_document_fn
+        return lambda offset=0, limit=2000: ("", 0)
+
+    read_document_fn = _build_read_document_fn()
 
     def list_documents_fn() -> list[dict]:
         return [
@@ -182,6 +185,20 @@ def ensure_agent_runtime(
             for item in _captured_scope_docs
             if isinstance(item, dict)
         ]
+
+    doc_id_to_text: dict[str, str] = {
+        str(item.get("uid") or item.get("doc_uid") or ""): str(item.get("text") or "")
+        for item in _captured_scope_docs
+        if isinstance(item, dict) and (item.get("uid") or item.get("doc_uid"))
+    }
+    doc_id_default = next(
+        (
+            str(item.get("uid") or item.get("doc_uid") or "")
+            for item in _captured_scope_docs
+            if isinstance(item, dict) and (item.get("uid") or item.get("doc_uid"))
+        ),
+        "",
+    )
 
     scope_names = [str(item.get("file_name") or "") for item in scope_docs]
     scope_preview = ", ".join(scope_names[:5])
@@ -196,6 +213,8 @@ def ensure_agent_runtime(
             search_document_evidence_fn=search_document_evidence_fn,
             read_document_fn=read_document_fn,
             list_documents_fn=list_documents_fn,
+            doc_id_to_text=doc_id_to_text,
+            doc_id_default=doc_id_default,
             document_name=scope_preview or "项目范围",
             project_name=project_name,
             scope_summary=scope_preview or "空范围",
@@ -216,7 +235,9 @@ def ensure_agent_runtime(
 
     signatures[project_uid] = scope_signature
     session_state["paper_project_scope_signatures"] = signatures
-    session_state["paper_agent"] = session_state["paper_agent_sessions"][leader_session_key]["agent"]
+    session_state["paper_agent"] = session_state["paper_agent_sessions"][leader_session_key][
+        "agent"
+    ]
     session_state["paper_agent_runtime_config"] = session_state["paper_agent_sessions"][
         leader_session_key
     ]["runtime_config"]
@@ -242,7 +263,9 @@ def prepare_agent_session(
     has_cached_session = has_cached_session_fn(project_uid, session_uid, scope_signature)
     logger.debug("Agent session cache status: has_cached=%s", has_cached_session)
     if has_cached_session:
-        ensure_agent_runtime_fn(project_uid, session_uid, project_name, scope_docs, scope_signature, user_uuid=user_uuid)
+        ensure_agent_runtime_fn(
+            project_uid, session_uid, project_name, scope_docs, scope_signature, user_uuid=user_uuid
+        )
         cached_caption_fn()
         return
 

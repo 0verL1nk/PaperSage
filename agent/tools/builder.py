@@ -1,4 +1,5 @@
 """工具构建器模块"""
+
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -25,12 +26,27 @@ def discover_available_tools(
         ToolMetadata(name=use_skill.name, description=use_skill.description.split("\n")[0]),
     ]
 
-    tools.append(ToolMetadata(name="search_document", description="Search uploaded paper content for relevant evidence snippets using RAG."))
+    tools.append(
+        ToolMetadata(
+            name="search_document",
+            description="Search uploaded paper content for relevant evidence snippets using RAG.",
+        )
+    )
 
     if list_document_enabled:
-        tools.append(ToolMetadata(name="list_document", description="List all documents loaded in the current project scope."))
+        tools.append(
+            ToolMetadata(
+                name="list_document",
+                description="List all documents loaded in the current project scope.",
+            )
+        )
     if read_document_enabled:
-        tools.append(ToolMetadata(name="read_document", description="Read a specific portion of the uploaded paper with pagination."))
+        tools.append(
+            ToolMetadata(
+                name="read_document",
+                description="Read a specific portion of the uploaded paper with pagination.",
+            )
+        )
 
     return tools
 
@@ -40,16 +56,27 @@ def build_agent_tools(
     search_document_evidence_fn: Callable[[str], dict[str, Any]] | None = None,
     read_document_fn: Callable[[int, int], tuple[str, int]] | None = None,
     list_documents_fn: Callable[[], list[dict[str, Any]]] | None = None,
+    doc_id_to_text: dict[str, str] | None = None,
+    doc_id_default: str = "",
 ):
     """构建 Agent 工具集"""
     runtime_tools: list[Any] = []
 
     if callable(search_document_fn):
-        runtime_tools.append(build_search_document_tool(search_document_fn, search_document_evidence_fn))
+        runtime_tools.append(
+            build_search_document_tool(search_document_fn, search_document_evidence_fn)
+        )
         if list_documents_fn:
             runtime_tools.append(build_list_document_tool(list_documents_fn))
-        if read_document_fn:
-            runtime_tools.append(build_read_document_tool(read_document_fn, search_document_fn))
+        if read_document_fn or doc_id_to_text:
+            runtime_tools.append(
+                build_read_document_tool(
+                    read_document_fn if callable(read_document_fn) else None,
+                    search_document_fn,
+                    doc_id_to_text,
+                    doc_id_default,
+                )
+            )
 
     runtime_tools.extend([search_web, search_papers, use_skill, write_plan, read_plan])
 
