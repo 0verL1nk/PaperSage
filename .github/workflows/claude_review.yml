@@ -29,7 +29,9 @@ jobs:
         with:
           allowed_bots: "*"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Use the workflow token for GitHub API calls so comment updates remain valid
+          # throughout the full job, even when Claude runs long enough for app tokens to age out.
+          github_token: ${{ github.token }}
           settings: |
             {
               "env": {

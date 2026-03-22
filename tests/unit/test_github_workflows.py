@@ -41,6 +41,7 @@ def test_claude_workflows_pass_required_anthropic_env_vars_via_settings() -> Non
 
         settings = json.loads(step["with"]["settings"])
         assert settings["env"] == expected_env
-        assert step["with"]["claude_code_oauth_token"] == "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}"
+        assert step["with"]["github_token"] == "${{ github.token }}"
+        assert "claude_code_oauth_token" not in step["with"]
         assert '--model "${{ secrets.ANTHROPIC_MODEL }}"' in step["with"]["claude_args"]
         assert step["env"] == expected_env
