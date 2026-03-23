@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 class ComplexityAnalysisResult(BaseModel):
     is_complex: bool = Field(description="Whether the task is complex enough to require planning.")
-    needs_team: bool = Field(default=False, description="Whether the task likely needs multi-role collaboration.")
+    needs_team: bool = Field(
+        default=False, description="Whether the task likely needs multi-role collaboration."
+    )
     reason: str = Field(default="", description="Short explanation for the routing decision.")
 
 
@@ -65,7 +67,9 @@ class OrchestrationMiddleware(AgentMiddleware):
 
         # Analyze complexity
         analysis = self._analyze_complexity(messages, llm, on_event)
-        logger.info(f"Task complexity: is_complex={analysis['is_complex']}, needs_team={analysis.get('needs_team', False)}, reason={analysis['reason']}")
+        logger.info(
+            f"Task complexity: is_complex={analysis['is_complex']}, needs_team={analysis.get('needs_team', False)}, reason={analysis['reason']}"
+        )
 
         # Check if plan already exists (from configurable state)
         configurable_state = config.get("configurable", {}).get("state", {}) if config else {}
@@ -129,7 +133,9 @@ class OrchestrationMiddleware(AgentMiddleware):
             raise ValueError("No valid JSON object found in response")
         return last_valid
 
-    def _invoke_structured_complexity_analysis(self, llm: Any, prompt: str) -> dict[str, Any] | None:
+    def _invoke_structured_complexity_analysis(
+        self, llm: Any, prompt: str
+    ) -> dict[str, Any] | None:
         if not hasattr(llm, "with_structured_output"):
             return None
         cache_key = self._llm_capability_cache_key(llm)
@@ -160,7 +166,9 @@ class OrchestrationMiddleware(AgentMiddleware):
             "reason": "llm analysis unavailable",
         }
 
-    def _analyze_complexity(self, messages: list[Any], llm: Any, on_event: Any = None) -> dict[str, Any]:
+    def _analyze_complexity(
+        self, messages: list[Any], llm: Any, on_event: Any = None
+    ) -> dict[str, Any]:
         """Use LLM to analyze task complexity with full context.
 
         Args:
@@ -173,8 +181,7 @@ class OrchestrationMiddleware(AgentMiddleware):
         """
         # Filter out system messages, only keep user and assistant messages
         conversation_msgs = [
-            msg for msg in messages
-            if hasattr(msg, "type") and msg.type in ("human", "ai")
+            msg for msg in messages if hasattr(msg, "type") and msg.type in ("human", "ai")
         ]
 
         # Format full conversation history
@@ -189,12 +196,14 @@ class OrchestrationMiddleware(AgentMiddleware):
 
         # Emit trace event before analysis
         if callable(on_event):
-            on_event({
-                "sender": "orchestration",
-                "receiver": "evaluator",
-                "performative": "complexity_analysis",
-                "content": "分析任务复杂度",
-            })
+            on_event(
+                {
+                    "sender": "orchestration",
+                    "receiver": "evaluator",
+                    "performative": "complexity_analysis",
+                    "content": "分析任务复杂度",
+                }
+            )
 
         max_retries = 2
         for attempt in range(max_retries + 1):
@@ -205,40 +214,55 @@ class OrchestrationMiddleware(AgentMiddleware):
                     analysis_result = self._invoke_structured_complexity_analysis(llm, prompt)
                 except Exception as exc:
                     if self._is_json_mode_unsupported_error(exc):
-                        self._structured_output_support_cache[self._llm_capability_cache_key(llm)] = False
-                    logger.info("Structured complexity analysis unavailable, falling back to text JSON: %s", exc)
+                        self._structured_output_support_cache[
+                            self._llm_capability_cache_key(llm)
+                        ] = False
+                    logger.info(
+                        "Structured complexity analysis unavailable, falling back to text JSON: %s",
+                        exc,
+                    )
 
                 if analysis_result is None:
                     response = llm.invoke(prompt)
-                    response_text = response.content if hasattr(response, "content") else str(response)
+                    response_text = (
+                        response.content if hasattr(response, "content") else str(response)
+                    )
                     parsed = self._extract_last_valid_json_object(response_text.strip())
                     analysis_result = self._coerce_analysis_result(parsed)
 
                 # Emit trace event after analysis
                 if callable(on_event):
-                    on_event({
-                        "sender": "evaluator",
-                        "receiver": "orchestration",
-                        "performative": "complexity_result",
-                        "content": f"is_complex={analysis_result['is_complex']}, reason={analysis_result['reason']}",
-                    })
+                    on_event(
+                        {
+                            "sender": "evaluator",
+                            "receiver": "orchestration",
+                            "performative": "complexity_result",
+                            "content": f"is_complex={analysis_result['is_complex']}, reason={analysis_result['reason']}",
+                        }
+                    )
 
                 return analysis_result
             except Exception as e:
                 if attempt < max_retries:
-                    logger.warning(f"Complexity analysis attempt {attempt + 1} failed: {e}, response_text={response_text[:500] if 'response_text' in locals() else 'N/A'}, retrying...")
+                    logger.warning(
+                        f"Complexity analysis attempt {attempt + 1} failed: {e}, response_text={response_text[:500] if 'response_text' in locals() else 'N/A'}, retrying..."
+                    )
                     continue
-                logger.warning(f"Failed to analyze complexity with LLM after {max_retries + 1} attempts: {e}, returning neutral result")
+                logger.warning(
+                    f"Failed to analyze complexity with LLM after {max_retries + 1} attempts: {e}, returning neutral result"
+                )
 
         fallback_result = self._build_neutral_analysis_result()
 
         if callable(on_event):
-            on_event({
-                "sender": "orchestration",
-                "receiver": "orchestration",
-                "performative": "complexity_unavailable",
-                "content": "LLM复杂度分析不可用,返回neutral result",
-            })
+            on_event(
+                {
+                    "sender": "orchestration",
+                    "receiver": "orchestration",
+                    "performative": "complexity_unavailable",
+                    "content": "LLM复杂度分析不可用,返回neutral result",
+                }
+            )
 
         return fallback_result
 
@@ -257,22 +281,20 @@ class OrchestrationMiddleware(AgentMiddleware):
 
         if needs_team:
             guidance = (
-                "【重要提示】这是一个需要你来调度的团队任务。\n\n"
-                "请先形成结构化 TeamPlan,再结合 todo 依赖和 scheduler hints 决定是否分派 teammate 执行。"
-                "系统提供 `team_handoff` 和状态提示,但不会替你自动推进流程。"
-                "请由你决定何时 dispatch、review 或 replan,最终结论也由你输出。"
+                "【重要提示】这是一个需要多角色协作的复杂任务。\n\n"
+                "建议调用 `use_skill('team_mode')` 进入团队协作模式，"
+                "系统会引导你完成团队分工、任务派发和结果整合。"
             )
         elif has_plan:
             guidance = (
-                "【提示】这是一个复杂任务,你已经创建了执行计划。\n\n"
-                "建议使用 write_todos 工具跟踪任务进度,并结合返回的 scheduler hints 判断下一步。"
+                "【提示】这是一个复杂任务，你已经创建了执行计划。\n\n"
+                "继续使用 write_todos 跟踪进度，系统会返回 scheduler hints 指引下一步。"
             )
         else:
             guidance = (
-                "【重要提示】这是一个复杂的多步骤任务,需要使用规划工具:\n\n"
-                "1. 首先使用 write_plan 工具创建执行计划,明确任务步骤和策略\n"
-                "2. 使用 write_todos 工具跟踪任务进度并查看 scheduler hints\n\n"
-                "请先调用相应的工具进行规划,不要直接回答。"
+                "【重要提示】这是一个复杂的多步骤任务。\n\n"
+                "建议调用 `use_skill('plan_mode')` 进入规划模式，"
+                "系统会引导你完成计划制定、任务拆解和逐步执行。"
             )
 
         result = list(messages)

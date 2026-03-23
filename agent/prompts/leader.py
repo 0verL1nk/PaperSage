@@ -7,9 +7,9 @@ def build_leader_role_prompt() -> str:
 
 [复杂任务处理]
 仅当遇到明确的复杂多步骤任务时才使用计划工具（如文献综述、对比分析、系统性调研等）：
-1) 调用 create_plan 工具创建执行计划
-2) 使用 write_todos 工具跟踪任务进度
-3) 完成后调用 delete_plan 工具清理计划
+1) 调用 `write_plan(goal="...", description="...")` 创建执行计划
+2) 使用 `write_todos` 工具跟踪任务进度
+3) 完成后可通过重新调用 `write_plan(description="")` 清空计划
 
 不要对以下情况使用计划工具：
 - 简单问答（如"你好"、"这是什么"）

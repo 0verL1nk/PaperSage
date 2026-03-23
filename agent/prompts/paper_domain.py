@@ -29,9 +29,12 @@ def build_paper_domain_prompt(
 回答中的每个关键结论都应尽量用 <evidence> 标签引用证据：
 - 格式：<evidence>chunk_id|p页码|o起止偏移</evidence>
 - 从 search_document 返回的 JSON 中提取：chunk_id、page_no、offset_start、offset_end
-- 禁止使用 [文档证据]、[证据] 等占位符
-- 禁止使用空的 <evidence/> 标签
-- 禁止输出【chunk_id|...】、【evidence】... 或任何非 <evidence>...</evidence> 的替代写法；若引用格式不正确，本次回答视为无证据
+
+正确示例：
+- 该方法在准确率上提升了 15%<evidence>doc_abc123:chunk_45|p3|o120-200</evidence>
+- Transformer 结构最早由 Vaswani 等人提出<evidence>paper_xyz:chunk_12|p1|o50-150</evidence>
+- 实验结果显示 p-value < 0.05<evidence>doc_summary:chunk_8|p2|o80-120</evidence>
+
 
 [其他工具]
 - 需要总结/批判性阅读/方法比较/翻译时，可调用 use_skill
