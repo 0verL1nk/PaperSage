@@ -9,6 +9,8 @@ on:
     types: [opened, assigned]
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [synchronize, opened, reopened]
 
 jobs:
   claude:
@@ -16,7 +18,8 @@ jobs:
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
+      (github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -36,6 +39,8 @@ jobs:
           
           if [ "${{ github.event_name }}" == "pull_request_review_comment" ] || [ "${{ github.event_name }}" == "pull_request_review" ]; then
             PR_NUMBER="${{ github.event.pull_request.number }}"
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
           elif [ "${{ github.event_name }}" == "issue_comment" ]; then
             # Check if this comment is on a PR
             if [ -n "${{ github.event.issue.pull_request.url }}" ]; then
@@ -50,6 +55,9 @@ jobs:
             if [ "$HEAD_REPO" != "${{ github.repository_owner }}" ] && [ -n "$HEAD_REPO" ]; then
               echo "Cross-repository PR detected, fetching head branch..."
               gh pr checkout $PR_NUMBER --depth 1
+            else
+              # For same-repository PRs, checkout the PR branch
+              gh pr checkout $PR_NUMBER --depth 1 2>/dev/null || echo "Not a PR or checkout failed, using current branch"
             fi
           fi
 
