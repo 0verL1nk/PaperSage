@@ -237,7 +237,7 @@ class OrchestrationMiddleware(AgentMiddleware):
                             "sender": "evaluator",
                             "receiver": "orchestration",
                             "performative": "complexity_result",
-                            "content": f"is_complex={analysis_result['is_complex']}, reason={analysis_result['reason']}",
+                            "content": f"is_complex={analysis_result['is_complex']},team_mode={analysis_result['needs_team']},reason={analysis_result['reason']}",
                         }
                     )
 
