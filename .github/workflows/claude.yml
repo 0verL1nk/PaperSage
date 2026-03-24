@@ -29,6 +29,30 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Fetch PR head branch for cross-repository PRs
+        run: |
+          # Try to get PR number from different event types
+          PR_NUMBER=""
+          
+          if [ "${{ github.event_name }}" == "pull_request_review_comment" ] || [ "${{ github.event_name }}" == "pull_request_review" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          elif [ "${{ github.event_name }}" == "issue_comment" ]; then
+            # Check if this comment is on a PR
+            if [ -n "${{ github.event.issue.pull_request.url }}" ]; then
+              # Extract PR number from the pull_request URL
+              PR_NUMBER=$(echo "${{ github.event.issue.pull_request.url }}" | grep -oP 'pulls/\K[0-9]+')
+            fi
+          fi
+          
+          if [ -n "$PR_NUMBER" ]; then
+            # Check if it's a cross-repository PR
+            HEAD_REPO=$(gh pr view $PR_NUMBER --json headRepositoryOwner -q '.headRepositoryOwner.login' 2>/dev/null || echo "")
+            if [ "$HEAD_REPO" != "${{ github.repository_owner }}" ] && [ -n "$HEAD_REPO" ]; then
+              echo "Cross-repository PR detected, fetching head branch..."
+              gh pr checkout $PR_NUMBER --depth 1
+            fi
+          fi
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1

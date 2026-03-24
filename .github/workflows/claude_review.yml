@@ -17,6 +17,16 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Fetch PR head branch for cross-repository PRs
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          # Check if it's a cross-repository PR
+          HEAD_REPO=$(gh pr view $PR_NUMBER --json headRepositoryOwner -q '.headRepositoryOwner.login' 2>/dev/null || echo "")
+          if [ "$HEAD_REPO" != "${{ github.repository_owner }}" ] && [ -n "$HEAD_REPO" ]; then
+            echo "Cross-repository PR detected, fetching head branch..."
+            gh pr checkout $PR_NUMBER --depth 1
+          fi
+
       - name: PR Review with Progress Tracking
         uses: anthropics/claude-code-action@v1
         env:
