@@ -41,6 +41,39 @@ def _parse_searxng_instances() -> list[str]:
     return [item.rstrip("/") for item in DEFAULT_SEARXNG_INSTANCES]
 
 
+def _build_tavily_web_search_client():
+    api_key = _load_secret("TAVILY_API_KEY")
+    if not api_key:
+        return None
+    try:
+        from tavily import TavilyClient
+    except ImportError:
+        logger.warning("tavily-python not installed; skipping Tavily provider")
+        return None
+    search_depth = _env_value("TAVILY_SEARCH_DEPTH", default="basic")
+
+    class _TavilyWebSearch:
+        def __init__(self, key: str, depth: str):
+            self.client = TavilyClient(api_key=key)
+            self.depth = depth
+
+        def run(self, query: str) -> str:
+            response = self.client.search(
+                query=query,
+                max_results=DEFAULT_WEB_MAX_RESULTS,
+                search_depth=self.depth,
+            )
+            results = response.get("results") if isinstance(response, dict) else None
+            return _format_web_results(
+                results,
+                title_key="title",
+                url_key="url",
+                snippet_key="content",
+            )
+
+    return _TavilyWebSearch(api_key, search_depth)
+
+
 def _build_brave_web_search_client():
     api_key = _load_secret("BRAVE_SEARCH_API_KEY")
     if not api_key:
@@ -212,6 +245,11 @@ def _ensure_web_search_clients() -> list[tuple[str, Any]]:
 
     clients: list[tuple[str, Any]] = []
 
+    tavily_client = _build_tavily_web_search_client()
+    if tavily_client is not None:
+        clients.append(("tavily_search", tavily_client))
+        logger.info("tool.search_web provider initialized: tavily_search")
+
     brave_client = _build_brave_web_search_client()
     if brave_client is not None:
         clients.append(("brave_search_api", brave_client))
@@ -257,7 +295,7 @@ def _run_web_search_internal(query: str) -> tuple[str | None, str | None, str | 
             None,
             (
                 "Web search is unavailable in current environment. "
-                "Set BRAVE_SEARCH_API_KEY in .env, or configure AGENT_SEARXNG_BASE_URLS, "
+                "Set TAVILY_API_KEY or BRAVE_SEARCH_API_KEY in .env, or configure AGENT_SEARXNG_BASE_URLS, "
                 "or enable AGENT_WEB_ENABLE_DDG_FALLBACK=1."
             ),
         )

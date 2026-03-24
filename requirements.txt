@@ -21,3 +21,4 @@ redis>=5.0.0
 rq>=1.15.0
 rank-bm25>=1.0.0
 jieba>=0.42.0
+tavily-python>=0.5.0
