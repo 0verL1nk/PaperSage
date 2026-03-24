@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterator, Tuple
 
 import streamlit as st
+from argon2 import PasswordHasher
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from openai import OpenAI
@@ -41,6 +42,8 @@ from agent.memory.store import (
 from agent.settings import load_agent_settings
 
 from .schemas import FileRecord
+
+password_hasher = PasswordHasher()
 
 
 def get_user_api_key(uuid: str | None = None) -> str:
@@ -686,7 +689,11 @@ def login(
     cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
     user = cursor.fetchone()
     conn.close()
-    if (not user) or hashlib.sha256(password.encode("utf-8")).hexdigest() != user[2]:
+    if not user:
+        return False, "", "账号密码错误"
+    try:
+        password_hasher.verify(user[2], password)
+    except Exception:
         return False, "", "账号密码错误"
     return True, save_token(user[0], db_name), ""
 
@@ -702,12 +709,13 @@ def register(
         conn.close()
         return False, "", "用户名已存在"
     uid = gen_uuid()
+    password_hash = password_hasher.hash(password)
     cursor.execute(
         """
            INSERT INTO users (uuid, username, password)
            VALUES (?, ?, ?)
            """,
-        (uid, username, hashlib.sha256(password.encode("utf-8")).hexdigest()),
+        (uid, username, password_hash),
     )
     conn.commit()
     conn.close()
