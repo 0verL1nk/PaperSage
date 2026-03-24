@@ -1,5 +1,4 @@
 import datetime
-import hashlib
 import json
 import logging
 import os
@@ -12,6 +11,7 @@ from typing import Any, Iterator, Tuple
 
 import streamlit as st
 from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from openai import OpenAI
@@ -693,7 +693,7 @@ def login(
         return False, "", "账号密码错误"
     try:
         password_hasher.verify(user[2], password)
-    except Exception:
+    except VerifyMismatchError:
         return False, "", "账号密码错误"
     return True, save_token(user[0], db_name), ""
 
