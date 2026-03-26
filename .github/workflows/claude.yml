@@ -32,6 +32,19 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install development dependencies
+        run: uv sync --extra dev --no-install-project
+
       - name: Fetch PR head branch for cross-repository PRs
         run: |
           # Try to get PR number from different event types
@@ -85,8 +98,21 @@ jobs:
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "${{ secrets.ANTHROPIC_DEFAULT_OPUS_MODEL }}",
                 "ANTHROPIC_DEFAULT_SONNET_MODEL": "${{ secrets.ANTHROPIC_DEFAULT_SONNET_MODEL }}",
                 "ANTHROPIC_MODEL": "${{ secrets.ANTHROPIC_MODEL }}"
+              },
+              "hooks": {
+                "PreToolUse": [
+                  {
+                    "matcher": "Bash",
+                    "hooks": [
+                      {
+                        "type": "command",
+                        "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/claude_pre_git_commit_hook.py\""
+                      }
+                    ]
+                  }
+                ]
               }
             }
           claude_args: |
-            --allowedTools "Bash(bun install),Bash(bun test:*),Bash(bun run format),Bash(bun typecheck)"
+            --allowedTools "Bash(uv sync --extra dev --no-install-project),Bash(bash scripts/quality_gate.sh core),Bash(bash scripts/quality_gate.sh full),Bash(uv run --extra dev python -m pytest tests/unit -q),Bash(git status),Bash(git diff),Bash(git add),Bash(git commit)"
             --model "${{ secrets.ANTHROPIC_MODEL }}"

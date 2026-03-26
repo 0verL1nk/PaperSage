@@ -437,6 +437,24 @@ bash scripts/quality_gate.sh full
 - `full`：覆盖全仓 `ruff` 与全量 `agent` 的 `mypy`。
 - CI 已配置分层门禁：`core` 阻塞、`full` 当前非阻塞（progressive rollout）。
 
+### Claude Code Action 开发环境
+
+仓库内的 `claude.yml` 与 `claude_review.yml` 已补齐 Python 3.12、`uv` 和开发依赖安装步骤：
+
+```bash
+uv sync --extra dev --no-install-project
+```
+
+同时，这两个 GitHub Actions 内的 Claude Code 会在执行 `git commit` 前先触发项目级 prehook，依次通过以下门禁后才允许提交：
+
+```bash
+bash scripts/quality_gate.sh core
+bash scripts/quality_gate.sh full
+uv run --extra dev python -m pytest tests/unit -q
+```
+
+对应 hook 脚本位于 `scripts/claude_pre_git_commit_hook.py`。
+
 ---
 
 ## 📦 技术栈
