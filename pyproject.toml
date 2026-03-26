@@ -45,6 +45,7 @@ dependencies = [
     "redis>=5.0.0",
     "rq>=1.15.0",
     "a2a-sdk>=0.3.24",
+    "argon2-cffi==25.1.0"
 ]
 
 [project.urls]
