@@ -41,6 +41,38 @@ def _parse_searxng_instances() -> list[str]:
     return [item.rstrip("/") for item in DEFAULT_SEARXNG_INSTANCES]
 
 
+def _build_tavily_web_search_client():
+    api_key = _load_secret("TAVILY_API_KEY")
+    if not api_key:
+        return None
+
+    class _TavilyWebSearch:
+        def __init__(self, key: str):
+            from tavily import TavilyClient
+
+            self._client = TavilyClient(api_key=key)
+
+        def run(self, query: str) -> str:
+            response = self._client.search(
+                query=query,
+                max_results=DEFAULT_WEB_MAX_RESULTS,
+                search_depth="basic",
+            )
+            results = response.get("results") if isinstance(response, dict) else None
+            return _format_web_results(
+                results,
+                title_key="title",
+                url_key="url",
+                snippet_key="content",
+            )
+
+    try:
+        return _TavilyWebSearch(api_key)
+    except Exception as exc:
+        logger.warning("tool.search_web tavily client init failed: %s", exc)
+        return None
+
+
 def _build_brave_web_search_client():
     api_key = _load_secret("BRAVE_SEARCH_API_KEY")
     if not api_key:
@@ -211,6 +243,11 @@ def _ensure_web_search_clients() -> list[tuple[str, Any]]:
         return _web_search_clients
 
     clients: list[tuple[str, Any]] = []
+
+    tavily_client = _build_tavily_web_search_client()
+    if tavily_client is not None:
+        clients.append(("tavily_search_api", tavily_client))
+        logger.info("tool.search_web provider initialized: tavily_search_api")
 
     brave_client = _build_brave_web_search_client()
     if brave_client is not None:
