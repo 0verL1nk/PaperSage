@@ -55,4 +55,11 @@ OpenAI Tax AI（2026-07《building-self-improving-tax-agents-with-codex》）的
 2. **Reducer 家族**：mean / at_least_{n} / pass_at_{k} / pass_k_{k} 显式语义，独立成聚合层。
 3. **错误预算**：fail_on_error 的 bool/比例/数量三级声明 + 重试历史落样本记录；注意其告诫
    "重试引入分布偏移，应对比重试/未重试样本"。
-4. Backlog：人工评分修正留痕（author/reason）、日志 header 索引 + 惰性读取、断点续跑保留已完成样本。
+### 已裁决的 harness A/B（方法论存档）
+
+| 假设 | 判定 | 数据 |
+|---|---|---|
+| 工具结果内渐进提示（nudge） | **否决默认开** | 双臂 pass²：6/19(关) vs 5/19(开)，拖垮回归层 |
+| 证据分层注入（P2） | **否决默认开** | 双臂 pass²：5/19(关) vs 2/19(开)，final 37%→26%；分层救弱指令模型（M2.5 类）、伤强指令模型（M3 类） |
+
+"4. Backlog：人工评分修正留痕（author/reason）、日志 header 索引 + 惰性读取、断点续跑保留已完成样本。
