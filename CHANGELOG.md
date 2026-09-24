@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.15.0](https://github.com/0verL1nk/PaperSage/compare/v1.14.0...v1.15.0) (2026-09-24)
+
+
+### Features
+
+* **agent:** evidence tiering (P2), citation audit (P3-lite), production feedback loop ([#177](https://github.com/0verL1nk/PaperSage/issues/177)) ([f7c6377](https://github.com/0verL1nk/PaperSage/commit/f7c63773778f11d6a969f940bfed29101b8978f5))
+
+
+### Bug Fixes
+
+* **desktop:** blockmaps are optional in the R2 hop ([#174](https://github.com/0verL1nk/PaperSage/issues/174)) ([0486cfe](https://github.com/0verL1nk/PaperSage/commit/0486cfe93b668603a1a32acc52d1894fb1cb8e6e))
+
+
+### Documentation
+
+* **agent:** add machine-readable readiness card ([#149](https://github.com/0verL1nk/PaperSage/issues/149)) ([b1ad685](https://github.com/0verL1nk/PaperSage/commit/b1ad685f9997a1d6ef769c505363e152882f4552))
+* **evals:** P2 tiering A/B verdict - rejected, stays opt-in ([#178](https://github.com/0verL1nk/PaperSage/issues/178)) ([0d31445](https://github.com/0verL1nk/PaperSage/commit/0d314451ecd3f4004522f42c30861075059361e6))
+
 ## [1.14.0](https://github.com/0verL1nk/PaperSage/compare/v1.13.1...v1.14.0) (2026-08-30)
 
 

@@ -1,7 +1,7 @@
 {
   "name": "papersage-web",
   "private": true,
-  "version": "1.14.0",
+  "version": "1.15.0",
   "description": "AI research workspace for scholarly reading and writing.",
   "author": "PaperSage Contributors",
   "homepage": "https://github.com/0verL1nk/PaperSage",

@@ -1,4 +1,4 @@
-__version__ = "1.14.0"  # x-release-please-version
+__version__ = "1.15.0"  # x-release-please-version
 
 from .archive import list_agent_outputs, save_agent_output
 from .llm_provider import build_openai_compatible_chat_model
