@@ -2,7 +2,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncGenerator
 
 import uvicorn
 from fastapi import FastAPI
@@ -24,7 +24,7 @@ from .suggestion_routes import suggestion_router
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     run_migrations()
     yield
     research_workspace_service.close()
