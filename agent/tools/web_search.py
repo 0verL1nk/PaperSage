@@ -1,13 +1,14 @@
 """Web搜索提供者模块"""
+import asyncio
 import logging
 import os
 import re
 import time
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool, tool
 from pydantic import BaseModel, Field
 
 from .utils import (
@@ -368,6 +369,18 @@ def _ensure_web_search_clients() -> list[tuple[str, Any]]:
 
 
 def _run_web_search_internal(query: str) -> tuple[str | None, str | None, str | None]:
+    selection = _env_value("AGENT_WEB_SEARCH_PROVIDER", default="auto").lower()
+    if selection == "off":
+        return None, None, "Web search is disabled."
+    if selection == "parallel":
+        from .parallel_search import run_parallel
+
+        try:
+            return "parallel_mcp", run_parallel(query), None
+        except Exception:
+            return None, None, "Web search failed: Parallel MCP unavailable. Check the parallel extra and retry later."
+    if selection != "auto":
+        return None, None, "Web search failed: unknown AGENT_WEB_SEARCH_PROVIDER. Use auto, parallel or off."
     clients = _ensure_web_search_clients()
     if not clients:
         return (
@@ -447,3 +460,24 @@ def search_web(query: str) -> str:
         len(response_text),
     )
     return response_text
+
+
+async def _asearch_web(query: str) -> str:
+    """Use native async MCP execution so runtime cancellation closes requests."""
+    if _env_value("AGENT_WEB_SEARCH_PROVIDER", default="auto").lower() != "parallel":
+        sync_search = cast(StructuredTool, search_web).func
+        assert sync_search is not None
+        return await asyncio.to_thread(sync_search, query)
+    safe_query = _sanitize_query(query)
+    if not safe_query:
+        return "Web search query is empty after sanitization."
+    if _is_dangerous_query(safe_query):
+        return "Blocked by tool policy: query appears unsafe for web search."
+    if _web_search_override is not None:
+        return str(_web_search_override(safe_query))
+    from .parallel_search import search_parallel_result
+
+    return await search_parallel_result(safe_query)
+
+
+search_web.coroutine = _asearch_web
