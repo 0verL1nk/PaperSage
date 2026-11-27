@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.15.1](https://github.com/0verL1nk/PaperSage/compare/v1.15.0...v1.15.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **ci:** pin Python 3.12 in publish.yml to unblock PyPI release ([#186](https://github.com/0verL1nk/PaperSage/issues/186)) ([dbfa42a](https://github.com/0verL1nk/PaperSage/commit/dbfa42a7e4e0bde777d4e1e617cdb74a1ee59ccf))
+* restore release automation, clear critical CVEs, and green the quality gate ([#183](https://github.com/0verL1nk/PaperSage/issues/183)) ([713d256](https://github.com/0verL1nk/PaperSage/commit/713d256359bf8ddcb348281c98993382cba5a162))
+
 ## [1.15.0](https://github.com/0verL1nk/PaperSage/compare/v1.14.0...v1.15.0) (2026-09-24)
 
 
