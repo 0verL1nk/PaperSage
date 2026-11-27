@@ -16,6 +16,7 @@ from .utils import (
     DEFAULT_SEARXNG_INSTANCES,
     DEFAULT_WEB_MAX_RESULTS,
     DEFAULT_WEB_TIMEOUT_SECONDS,
+    WIKIPEDIA_COMPLIANT_USER_AGENT,
     _env_flag,
     _env_value,
     _format_web_results,
@@ -34,6 +35,7 @@ from .web_search_circuit import (  # noqa: F401
     _CircuitBreakerProvider,
     _ProviderCoolingDownError,
 )
+from .web_search_youcom import _build_youcom_web_search_client
 
 logger = logging.getLogger(__name__)
 
@@ -224,13 +226,6 @@ FIRECRAWL_RETRY_INITIAL_DELAY_SECONDS = 2.0
 FIRECRAWL_RETRY_MAX_DELAY_SECONDS = 10.0
 FIRECRAWL_RETRY_MIN_DELAY_SECONDS = 1.0
 
-# Wikimedia's UA policy rejects generic clients with 403; every outbound
-# search request carries this descriptive product UA instead.
-WIKIPEDIA_COMPLIANT_USER_AGENT = (
-    "PaperSage/1.8 (+search_web; local-first research assistant; "
-    "https://github.com/0verL1nk/PaperSage)"
-)
-
 def _build_firecrawl_web_search_client():
     """Firecrawl /v2/search provider.
 
@@ -338,6 +333,11 @@ def _ensure_web_search_clients() -> list[tuple[str, Any]]:
         clients.append(("firecrawl_search", firecrawl_client))
         logger.info("tool.search_web provider initialized: firecrawl_search")
 
+    youcom_client = _build_youcom_web_search_client()
+    if youcom_client is not None:
+        clients.append(("youcom_search", youcom_client))
+        logger.info("tool.search_web provider initialized: youcom_search")
+
     wikipedia_client = _build_wikipedia_web_search_client()
     if wikipedia_client is not None:
         clients.append(("wikipedia_api", wikipedia_client))
@@ -389,7 +389,8 @@ def _run_web_search_internal(query: str) -> tuple[str | None, str | None, str | 
             (
                 "Web search is unavailable in current environment. "
                 "Set FIRECRAWL_API_KEY or BRAVE_SEARCH_API_KEY in .env, or configure "
-                "AGENT_SEARXNG_BASE_URLS, or enable AGENT_WEB_ENABLE_DDG_FALLBACK=1."
+                "AGENT_SEARXNG_BASE_URLS, or enable AGENT_WEB_YOUCOM_ENABLED=1 or "
+                "AGENT_WEB_ENABLE_DDG_FALLBACK=1."
             ),
         )
     errors: list[str] = []

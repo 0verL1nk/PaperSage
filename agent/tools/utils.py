@@ -14,6 +14,13 @@ DEFAULT_SEARXNG_INSTANCES = (
     "https://opnxng.com",
 )
 
+# Wikimedia's UA policy rejects generic clients with 403; every outbound
+# search request carries this descriptive product UA instead.
+WIKIPEDIA_COMPLIANT_USER_AGENT = (
+    "PaperSage/1.8 (+search_web; local-first research assistant; "
+    "https://github.com/0verL1nk/PaperSage)"
+)
+
 _DANGEROUS_QUERY_PATTERNS = [
     r"ignore\s+previous\s+instructions",
     r"system\s+prompt",
