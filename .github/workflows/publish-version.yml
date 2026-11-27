@@ -1,6 +1,9 @@
 name: Publish Merged Version
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       release_tag:
@@ -22,6 +25,12 @@ permissions:
   issues: write
   pull-requests: write
 
+# A manual merge and the Release Train dispatch can target the same release;
+# serialize them so the tag-existence check makes the second run a no-op.
+concurrency:
+  group: publish-version
+  cancel-in-progress: false
+
 jobs:
   tag-and-publish:
     runs-on: ubuntu-latest
@@ -42,6 +51,7 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.release_tag }}
           REQUESTED_SHA: ${{ inputs.target_sha }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           python_version="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")"
           web_version="$(node -p "require('./web/package.json').version")"
@@ -57,10 +67,35 @@ jobs:
             exit 1
           fi
 
+          skip=false
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            # Fallback for a release PR merged by hand: the Release Train only
+            # publishes what it merges itself, so a manual merge used to leave
+            # the version untagged. Publish only when this push bumps the version.
+            previous_version="$(git show HEAD^:pyproject.toml 2>/dev/null \
+              | python -c "import sys, tomllib; print(tomllib.load(sys.stdin.buffer)['project']['version'])" 2>/dev/null || true)"
+            if [[ "$previous_version" == "$python_version" ]]; then
+              echo "Version unchanged in this push ($python_version); nothing to release."
+              skip=true
+            fi
+          fi
+
+          existing_sha="$(git rev-parse -q --verify "refs/tags/$tag^{}" || true)"
+          if [[ -n "$existing_sha" && "$existing_sha" != "$target_sha" ]]; then
+            echo "Existing tag $tag points to $existing_sha, expected $target_sha." >&2
+            exit 1
+          fi
+          if [[ -n "$existing_sha" && "$EVENT_NAME" != "workflow_dispatch" ]]; then
+            echo "Tag $tag already points at $target_sha; release already published."
+            skip=true
+          fi
+
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
       - name: Create or verify version tag
+        if: steps.release.outputs.skip != 'true'
         shell: bash
         env:
           TAG: ${{ steps.release.outputs.tag }}
@@ -79,6 +114,7 @@ jobs:
           fi
 
       - name: Close the matching Release Please state
+        if: steps.release.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PR: ${{ inputs.release_pr }}
@@ -86,7 +122,13 @@ jobs:
         shell: bash
         run: |
           if [[ -z "$RELEASE_PR" ]]; then
-            echo "No Release Please PR was supplied."
+            RELEASE_PR="$(gh pr list --state merged --label 'autorelease: pending' \
+              --json number,mergeCommit \
+              | jq -r --arg sha "$TARGET_SHA" '.[] | select(.mergeCommit.oid == $sha) | .number' \
+              | head -n 1)"
+          fi
+          if [[ -z "$RELEASE_PR" ]]; then
+            echo "No merged Release Please PR found for $TARGET_SHA."
             exit 0
           fi
 
@@ -99,6 +141,7 @@ jobs:
           gh pr edit "$RELEASE_PR" --remove-label 'autorelease: pending'
 
       - name: Start canonical release workflows
+        if: steps.release.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
