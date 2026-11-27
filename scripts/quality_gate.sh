@@ -4,6 +4,9 @@ set -euo pipefail
 MODE="${1:-core}"
 UV="${UV_BIN:-}"
 UVX="${UVX_BIN:-}"
+# ty is pre-1.0 and ships new diagnostics in patch releases; pinning keeps
+# unrelated PRs from turning red when upstream tightens a rule.
+TY_SPEC="ty@0.0.112"
 
 if [[ -z "${UV}" ]]; then
   UV="$(command -v uv || true)"
@@ -29,13 +32,13 @@ case "${MODE}" in
     echo "[quality][core] ruff check (core scope)"
     "${UV}" run --extra dev ruff check api agent/domain agent/tools agent/application/contracts.py
     echo "[quality][core] ty (core scope)"
-    "${UVX}" ty check api agent/domain agent/tools agent/application/contracts.py
+    "${UVX}" "${TY_SPEC}" check api agent/domain agent/tools agent/application/contracts.py
     ;;
   full)
     echo "[quality][full] ruff check (full repo)"
     "${UV}" run --extra dev ruff check .
     echo "[quality][full] ty (full agent package)"
-    "${UVX}" ty check api agent
+    "${UVX}" "${TY_SPEC}" check api agent
     ;;
   unused)
     echo "[quality][unused] unused imports and variables"
