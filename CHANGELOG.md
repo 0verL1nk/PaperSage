@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.16.0](https://github.com/0verL1nk/PaperSage/compare/v1.15.1...v1.16.0) (2026-11-27)
+
+
+### Features
+
+* **agent:** add optional Parallel Search MCP provider ([#182](https://github.com/0verL1nk/PaperSage/issues/182)) ([1c7ca25](https://github.com/0verL1nk/PaperSage/commit/1c7ca252e70991536286a92b136a9c234a3606f4))
+* **agent:** add optional You.com web search provider ([#181](https://github.com/0verL1nk/PaperSage/issues/181)) ([ec3aca4](https://github.com/0verL1nk/PaperSage/commit/ec3aca4f80fccaf9e0ff4149ec036bbec3072911))
+
 ## [1.15.1](https://github.com/0verL1nk/PaperSage/compare/v1.15.0...v1.15.1) (2026-11-27)
 
 
